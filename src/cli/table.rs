@@ -1,4 +1,5 @@
-use crate::cli::{GlobalFlags, OutputMode, TableListArgs};
+use crate::body::{build_body, BodyInput};
+use crate::cli::{GlobalFlags, OutputMode, TableCreateArgs, TableListArgs};
 use crate::client::{Client, RetryPolicy};
 use crate::config::{
     config_path, credentials_path, load_config_from, load_credentials_from, resolve_profile,
@@ -6,7 +7,7 @@ use crate::config::{
 };
 use crate::error::{Error, Result};
 use crate::output::{emit_value, Format, ResolvedFormat};
-use crate::query::ListQuery;
+use crate::query::{ListQuery, WriteQuery};
 use serde_json::Value;
 use std::io;
 
@@ -95,4 +96,37 @@ pub(crate) fn unwrap_or_raw(v: Value, mode: OutputMode) -> Value {
         OutputMode::Raw => v,
         OutputMode::Default => v.get("result").cloned().unwrap_or(v),
     }
+}
+
+pub fn create(global: &GlobalFlags, args: TableCreateArgs) -> Result<()> {
+    let body_input = match (args.data, args.field.is_empty()) {
+        (Some(d), true) => BodyInput::Data(d),
+        (None, false) => BodyInput::Fields(args.field),
+        (None, true) => return Err(Error::Usage("provide --data or one or more --field".into())),
+        (Some(_), false) => {
+            return Err(Error::Usage(
+                "--data and --field are mutually exclusive".into(),
+            ))
+        }
+    };
+    let body = build_body(body_input)?;
+
+    let profile = build_profile(global)?;
+    let client = Client::builder()
+        .retry(retry_policy(global.no_retry))
+        .build(&profile)?;
+    let q = WriteQuery {
+        fields: args.fields,
+        display_value: args.display_value.map(Into::into),
+        exclude_reference_link: bool_opt(args.exclude_reference_link),
+        input_display_value: bool_opt(args.input_display_value),
+        suppress_auto_sys_field: bool_opt(args.suppress_auto_sys_field),
+        view: args.view,
+        query_no_domain: None,
+    };
+    let path = format!("/api/now/table/{}", args.table);
+    let resp = client.post(&path, &q.to_pairs(), &body)?;
+    let out = unwrap_or_raw(resp, global.output);
+    emit_value(io::stdout().lock(), &out, format_from_flags(global))
+        .map_err(|e| Error::Usage(format!("stdout: {e}")))
 }
