@@ -18,6 +18,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
+        Command::Init(args) => sn::cli::init::run(args),
         Command::Introspect => {
             // Filled in by Task 24.
             println!("{{\"todo\": \"introspect\"}}");

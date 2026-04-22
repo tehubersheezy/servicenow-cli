@@ -1,3 +1,5 @@
+pub mod init;
+
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
