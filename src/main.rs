@@ -23,6 +23,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Auth { sub } => match sub {
             AuthSub::Test => sn::cli::auth::test(&global),
         },
+        Command::Profile { sub } => sn::cli::profile::run(sub),
         Command::Introspect => {
             // Filled in by Task 24.
             println!("{{\"todo\": \"introspect\"}}");
