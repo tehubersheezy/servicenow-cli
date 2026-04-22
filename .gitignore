@@ -3,4 +3,4 @@
 Cargo.lock.old
 /dist/
 .DS_Store
-/.claude/
+/.claude/worktrees/
