@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    sn::observability::set_level(cli.global.verbose);
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
