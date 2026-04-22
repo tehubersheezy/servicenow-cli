@@ -28,8 +28,9 @@ fn run(cli: Cli) -> Result<()> {
         Command::Table { sub } => match sub {
             TableSub::List(args) => sn::cli::table::list(&global, args),
             TableSub::Get(args) => sn::cli::table::get(&global, args),
+            TableSub::Create(args) => sn::cli::table::create(&global, args),
             TableSub::Delete(args) => sn::cli::table::delete(&global, args),
-            TableSub::Create(_) | TableSub::Update(_) | TableSub::Replace(_) => {
+            TableSub::Update(_) | TableSub::Replace(_) => {
                 Err(Error::Usage("table subcommand not yet wired".into()))
             }
         },
