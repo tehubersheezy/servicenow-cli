@@ -204,15 +204,51 @@ pub struct TableGetArgs {
 pub struct TableCreateArgs {
     pub table: String,
 }
-#[derive(clap::Args, Debug, Default)]
+#[derive(clap::Args, Debug)]
 pub struct TableUpdateArgs {
     pub table: String,
     pub sys_id: String,
+    #[arg(long, conflicts_with = "field")]
+    pub data: Option<String>,
+    #[arg(long = "field", conflicts_with = "data")]
+    pub field: Vec<String>,
+    #[arg(long, alias = "sysparm-fields")]
+    pub fields: Option<String>,
+    #[arg(long, alias = "sysparm-display-value", value_enum)]
+    pub display_value: Option<DisplayValueArg>,
+    #[arg(long, alias = "sysparm-exclude-reference-link")]
+    pub exclude_reference_link: bool,
+    #[arg(long, alias = "sysparm-input-display-value")]
+    pub input_display_value: bool,
+    #[arg(long, alias = "sysparm-suppress-auto-sys-field")]
+    pub suppress_auto_sys_field: bool,
+    #[arg(long, alias = "sysparm-view")]
+    pub view: Option<String>,
+    #[arg(long, alias = "sysparm-query-no-domain")]
+    pub query_no_domain: bool,
 }
-#[derive(clap::Args, Debug, Default)]
+#[derive(clap::Args, Debug)]
 pub struct TableReplaceArgs {
     pub table: String,
     pub sys_id: String,
+    #[arg(long, conflicts_with = "field")]
+    pub data: Option<String>,
+    #[arg(long = "field", conflicts_with = "data")]
+    pub field: Vec<String>,
+    #[arg(long, alias = "sysparm-fields")]
+    pub fields: Option<String>,
+    #[arg(long, alias = "sysparm-display-value", value_enum)]
+    pub display_value: Option<DisplayValueArg>,
+    #[arg(long, alias = "sysparm-exclude-reference-link")]
+    pub exclude_reference_link: bool,
+    #[arg(long, alias = "sysparm-input-display-value")]
+    pub input_display_value: bool,
+    #[arg(long, alias = "sysparm-suppress-auto-sys-field")]
+    pub suppress_auto_sys_field: bool,
+    #[arg(long, alias = "sysparm-view")]
+    pub view: Option<String>,
+    #[arg(long, alias = "sysparm-query-no-domain")]
+    pub query_no_domain: bool,
 }
 #[derive(clap::Args, Debug, Default)]
 pub struct TableDeleteArgs {
