@@ -43,7 +43,17 @@ src/
     table.rs        → sn table list/get/create/update/replace/delete + shared helpers
     schema.rs       → sn schema tables/columns/choices (undocumented SN endpoints)
     introspect.rs   → sn introspect (dumps clap command tree as JSON)
+    progress.rs     → sn progress (poll async CICD operations by progress_id)
+    app.rs          → sn app install/publish/rollback (App Repository lifecycle)
+    update_set.rs   → sn updateset create/retrieve/preview/commit/commit-multiple/back-out
+    atf.rs          → sn atf run/results (Automated Test Framework)
+    aggregate.rs    → sn aggregate (server-side stats/counts/averages on table data)
+    scores.rs       → sn scores list/favorite/unfavorite (Performance Analytics scorecards)
 ```
+
+### CICD async pattern
+
+CICD operations (`app`, `updateset`, `atf`) are async — they return a `progress_id` immediately and the operation runs in the background on the ServiceNow instance. Poll for completion with `sn progress <progress_id>`. The progress response includes a `state` field (`running`, `complete`, `failed`) and a `percentComplete` indicator. All three command groups share the same polling mechanism via `cli/progress.rs`.
 
 ### Key data flow
 

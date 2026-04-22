@@ -35,6 +35,16 @@ This is the part you must internalize before issuing any command.
 | `schema columns` | JSON array of column metadata |
 | `schema choices` | JSON array of choice values |
 | `auth test` | `{"ok": true, "user": "...", "instance": "..."}` |
+| `aggregate` | Stats object with count/sum/avg/min/max and optional groupby results |
+| `app install` / `publish` / `rollback` | Progress object with `status_label` and `links.progress.id` |
+| `updateset create` | New Update Set record object |
+| `updateset retrieve` / `preview` / `commit` / `back-out` | Progress object |
+| `updateset commit-multiple` | Array of progress objects |
+| `atf run` | Progress object with `links.progress.id` |
+| `atf results` | Test suite result object |
+| `progress` | Progress status object (`status_label`, `percent_complete`, `status_message`) |
+| `scores list` | JSON array of scorecard objects |
+| `scores favorite` / `unfavorite` | Updated scorecard object |
 
 **Opt-in raw mode.** `--output raw` preserves the full ServiceNow response
 envelope instead of unwrapping:
@@ -619,6 +629,284 @@ sn table list incident --query "state=6^ORstate=7" --all \
   | while read -r sid; do
       sn table update incident "$sid" --field active=false
     done
+```
+
+## Aggregate queries
+
+`sn aggregate` calls `GET /api/now/stats/{table}` — a single round trip that returns counts, sums, averages, mins, and maxes. Use this instead of paginating and counting client-side.
+
+```bash
+# Count all active incidents, grouped by state
+sn aggregate incident --count --group-by state --display-value true
+```
+```json
+{
+  "stats": {
+    "count": "142",
+    "groupby_fields": [
+      {"field": "state", "value": "In Progress", "count": "87"},
+      {"field": "state", "value": "New",          "count": "55"}
+    ]
+  }
+}
+```
+
+```bash
+# Average reassignment count on active incidents
+sn aggregate incident --avg-fields reassignment_count --query "active=true"
+```
+```json
+{
+  "stats": {
+    "avg": {"reassignment_count": "1.83"}
+  }
+}
+```
+
+```bash
+# Multiple aggregations in one call — sum, min, max
+sn aggregate incident \
+  --sum-fields reassignment_count \
+  --min-fields priority \
+  --max-fields priority
+```
+```json
+{
+  "stats": {
+    "sum": {"reassignment_count": "260"},
+    "min": {"priority": "1"},
+    "max": {"priority": "4"}
+  }
+}
+```
+
+Key flags for `aggregate`:
+
+| Flag | Effect |
+|---|---|
+| `--count` | Include a total record count |
+| `--group-by <csv>` | Group results by one or more fields |
+| `--avg-fields <csv>` | Average these numeric fields |
+| `--sum-fields <csv>` | Sum these numeric fields |
+| `--min-fields <csv>` | Minimum value of these fields |
+| `--max-fields <csv>` | Maximum value of these fields |
+| `--query <EQ>` | Encoded query filter (same syntax as `table list`) |
+| `--having <expr>` | Post-aggregation HAVING filter |
+| `--order-by <csv>` | Sort the grouped results |
+| `--display-value true\|false\|all` | Resolve choice/reference display labels |
+
+## CICD operations
+
+### The async pattern
+
+`app`, `updateset`, and `atf run` are asynchronous. Every triggering command returns a progress object immediately:
+
+```json
+{
+  "links": {
+    "progress": {
+      "id": "9e8d7c6b5a4f3e2d1c0b",
+      "href": "https://dev12345.service-now.com/api/now/progress/9e8d7c6b5a4f3e2d1c0b"
+    }
+  },
+  "status": "0",
+  "status_label": "Pending",
+  "status_detail": "Pending",
+  "status_message": ""
+}
+```
+
+Poll `sn progress <progress_id>` until `status_label` is `"Complete"` or `"Failed"`:
+
+```bash
+progress_id="9e8d7c6b5a4f3e2d1c0b"
+while true; do
+  result=$(sn progress "$progress_id")
+  status=$(echo "$result" | jq -r '.status_label')
+  echo "Status: $status"
+  case "$status" in
+    Complete) echo "Done."; break ;;
+    Failed)   echo "Failed: $(echo "$result" | jq -r '.status_message')" >&2; exit 1 ;;
+    *)        sleep 5 ;;
+  esac
+done
+```
+
+The progress response shape:
+
+```json
+{
+  "status": "2",
+  "status_label": "Complete",
+  "status_message": "Application installed successfully",
+  "status_detail": "Install complete",
+  "percent_complete": 100
+}
+```
+
+`status` codes: `0` = Pending, `1` = Running, `2` = Complete, `3` = Failed, `4` = Cancelled.
+
+### App lifecycle
+
+Install, publish, and roll back scoped applications from the ServiceNow App Repository. All three are identified by `--scope` (e.g. `x_acme_myapp`) or `--sys-id`.
+
+```bash
+# Install a specific version
+sn app install --scope x_myapp --version 1.2.0
+```
+```json
+{
+  "links": {"progress": {"id": "abc123def456"}},
+  "status": "0",
+  "status_label": "Pending"
+}
+```
+
+```bash
+# Publish to the app repo with release notes
+sn app publish --scope x_myapp --version 1.3.0 --dev-notes "Fix null pointer in approval flow"
+
+# Roll back to a previous version (--version is required)
+sn app rollback --scope x_myapp --version 1.1.0
+```
+
+### Update Set lifecycle
+
+Update Sets move configuration changes between ServiceNow instances. The typical flow is: create → (make changes on the instance) → retrieve → preview → commit.
+
+```bash
+# Create a new Update Set on this instance
+sn updateset create --name "Sprint 42 changes" --description "ITSM form tweaks"
+```
+```json
+{
+  "sys_id": "a1b2c3d4e5f6",
+  "name": "Sprint 42 changes",
+  "state": "in progress"
+}
+```
+
+```bash
+# Retrieve a remote Update Set (pulls it from another instance)
+sn updateset retrieve --update-set-id <remote_sys_id> --auto-preview
+```
+
+`--auto-preview` kicks off preview automatically after retrieval (saves a round trip). The response includes a `progress_id` — poll it before committing.
+
+```bash
+# Preview a retrieved Update Set (checks for collisions/errors)
+sn updateset preview <remote_update_set_id>
+
+# Commit after a clean preview
+sn updateset commit <remote_update_set_id>
+
+# Commit multiple Update Sets in one call
+sn updateset commit-multiple --ids id1,id2,id3
+
+# Undo an applied Update Set
+sn updateset back-out --update-set-id <sys_id>
+```
+
+`back-out` also accepts `--rollback-installs` to undo any app installs that were part of the Update Set.
+
+### ATF test execution
+
+Run Automated Test Framework suites by name or sys_id:
+
+```bash
+sn atf run --suite-name "Regression Suite"
+```
+```json
+{
+  "links": {"progress": {"id": "f9e8d7c6b5a4"}},
+  "status": "0",
+  "status_label": "Pending"
+}
+```
+
+Poll the `progress_id`, then fetch results once complete:
+
+```bash
+# Retrieve test results by the result sys_id (available after completion)
+sn atf results <result_id>
+```
+```json
+{
+  "sys_id": "result123",
+  "name": "Regression Suite",
+  "status": "success",
+  "test_suite_name": "Regression Suite",
+  "duration": "00:02:14",
+  "tests_total": 38,
+  "tests_passed": 38,
+  "tests_failed": 0
+}
+```
+
+Optional ATF run flags: `--suite-id <sys_id>` (use instead of `--suite-name`), `--browser-name chrome`, `--run-in-cloud`, `--performance-run`.
+
+## Performance Analytics scorecards
+
+`sn scores list` queries `GET /api/now/pa/scorecards`. Results are paginated; use `--per-page` and `--page` to walk through them.
+
+```bash
+# List first 20 scorecards sorted by value descending
+sn scores list --per-page 20 --sort-by VALUE --sort-dir DESC
+```
+```json
+[
+  {
+    "uuid": "indicator-uuid-1",
+    "name": "MTTR - Incidents",
+    "value": 4.2,
+    "target": 6.0,
+    "direction": "minimize",
+    "frequency": "Daily",
+    "date": "2026-04-22"
+  },
+  {
+    "uuid": "indicator-uuid-2",
+    "name": "First Contact Resolution Rate",
+    "value": 78.5,
+    "target": 80.0,
+    "direction": "maximize",
+    "frequency": "Weekly",
+    "date": "2026-04-20"
+  }
+]
+```
+
+```bash
+# Fetch historical scores for a specific indicator
+sn scores list \
+  --uuid <indicator_id> \
+  --include-scores \
+  --from 2026-01-01 \
+  --to 2026-04-01
+```
+
+Useful filters:
+
+| Flag | Effect |
+|---|---|
+| `--uuid <csv>` | Filter to specific indicator UUID(s) |
+| `--favorites` | Return only favorited scorecards |
+| `--key` | Return only key indicators |
+| `--target` | Return only indicators with a target set |
+| `--contains <csv>` | Substring match on indicator name |
+| `--sort-by VALUE\|CHANGE\|CHANGEPERC\|GAP\|NAME\|DATE\|…` | Sort field |
+| `--sort-dir ASC\|DESC` | Sort direction |
+| `--include-scores` | Attach historical score data to each result |
+| `--from` / `--to` | ISO-8601 date range for `--include-scores` |
+| `--include-available-breakdowns` | List breakdowns available for each indicator |
+| `--include-realtime` | Attach real-time score data |
+
+```bash
+# Mark an indicator as a favorite
+sn scores favorite <uuid>
+
+# Remove from favorites
+sn scores unfavorite <uuid>
 ```
 
 ## Error handling

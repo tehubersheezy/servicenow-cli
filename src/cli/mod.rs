@@ -365,7 +365,7 @@ pub struct SchemaChoicesArgs {
 
 #[derive(clap::Args, Debug)]
 pub struct ProgressArgs {
-    /// Progress ID returned by app/update-set operations.
+    /// Progress ID returned by app/updateset/atf operations.
     pub progress_id: String,
 }
 

@@ -6,6 +6,11 @@ use crate::output::emit_value;
 use std::io;
 
 pub fn install(global: &GlobalFlags, args: AppInstallArgs) -> Result<()> {
+    if args.sys_id.is_none() && args.scope.is_none() {
+        return Err(Error::Usage(
+            "either --sys-id or --scope is required".into(),
+        ));
+    }
     let profile = build_profile(global)?;
     let client = Client::builder()
         .retry(retry_policy(global.no_retry))
@@ -37,6 +42,11 @@ pub fn install(global: &GlobalFlags, args: AppInstallArgs) -> Result<()> {
 }
 
 pub fn publish(global: &GlobalFlags, args: AppPublishArgs) -> Result<()> {
+    if args.sys_id.is_none() && args.scope.is_none() {
+        return Err(Error::Usage(
+            "either --sys-id or --scope is required".into(),
+        ));
+    }
     let profile = build_profile(global)?;
     let client = Client::builder()
         .retry(retry_policy(global.no_retry))
@@ -65,6 +75,11 @@ pub fn publish(global: &GlobalFlags, args: AppPublishArgs) -> Result<()> {
 }
 
 pub fn rollback(global: &GlobalFlags, args: AppRollbackArgs) -> Result<()> {
+    if args.sys_id.is_none() && args.scope.is_none() {
+        return Err(Error::Usage(
+            "either --sys-id or --scope is required".into(),
+        ));
+    }
     let profile = build_profile(global)?;
     let client = Client::builder()
         .retry(retry_policy(global.no_retry))

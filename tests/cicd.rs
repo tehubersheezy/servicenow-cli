@@ -1,5 +1,3 @@
-mod common;
-
 use assert_cmd::Command;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};

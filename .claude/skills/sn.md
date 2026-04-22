@@ -1,6 +1,6 @@
 ---
 name: sn
-description: Use when the user asks about ServiceNow data, incidents, change requests, problems, CIs, or any SNOW/SN table operations. Also use when user says "sn", "servicenow", or references a ServiceNow instance.
+description: Use when the user asks about ServiceNow data, incidents, change requests, problems, CIs, or any SNOW/SN table operations. Also use when user says "sn", "servicenow", or references a ServiceNow instance, CICD operations (app install/publish/rollback, update sets, ATF tests), aggregate statistics on SN tables, or Performance Analytics scorecards.
 ---
 
 # sn — ServiceNow CLI
@@ -72,6 +72,53 @@ Every `sysparm_*` has a friendly name and raw alias (e.g. `--query` / `--sysparm
 - Forgetting `--display-value true` — get cryptic numbers instead of labels.
 - Mixing `--data` and `--field` — mutually exclusive, exits 1.
 - Using `--query` on `get` — only works on `list`; use `list --query "..." --page-size 1` instead.
+
+## Aggregate queries
+
+Server-side statistics without fetching individual records:
+
+```bash
+sn aggregate incident --count --group-by state
+sn aggregate incident --avg-fields reassignment_count --query "active=true"
+sn aggregate incident --sum-fields reassignment_count --min-fields priority --max-fields priority
+```
+
+## CICD operations
+
+App, updateset, and atf are async — they return a `progress_id`. Poll with `sn progress <id>`.
+
+```bash
+# App lifecycle
+sn app install --scope x_myapp --version 1.2.0
+sn app publish --scope x_myapp --version 1.3.0 --dev-notes "Bug fixes"
+sn app rollback --scope x_myapp --version 1.1.0
+
+# Update sets
+sn updateset create --name "Changes" --description "Sprint work"
+sn updateset retrieve --update-set-id <id> --auto-preview
+sn updateset preview <remote_update_set_id>
+sn updateset commit <remote_update_set_id>
+sn updateset commit-multiple --ids id1,id2,id3
+sn updateset back-out --update-set-id <id>
+
+# ATF testing
+sn atf run --suite-name "Regression Suite"   # returns progress_id
+sn atf results <result_id>
+
+# Poll any async operation
+sn progress <progress_id>
+```
+
+## Scorecards
+
+Performance Analytics scorecard queries:
+
+```bash
+sn scores list --per-page 20 --sort-by VALUE --sort-dir DESC
+sn scores list --uuid <indicator_id> --include-scores --from 2026-01-01 --to 2026-04-01
+sn scores favorite <uuid>
+sn scores unfavorite <uuid>
+```
 
 ## Introspection
 

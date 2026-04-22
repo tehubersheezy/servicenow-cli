@@ -6,6 +6,11 @@ use crate::output::emit_value;
 use std::io;
 
 pub fn run(global: &GlobalFlags, args: AtfRunArgs) -> Result<()> {
+    if args.suite_id.is_none() && args.suite_name.is_none() {
+        return Err(Error::Usage(
+            "either --suite-id or --suite-name is required".into(),
+        ));
+    }
     let profile = build_profile(global)?;
     let client = Client::builder()
         .retry(retry_policy(global.no_retry))

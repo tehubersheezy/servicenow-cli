@@ -149,6 +149,89 @@ sn schema columns incident --writable
 sn schema choices incident state
 ```
 
+### Aggregate queries
+
+Run server-side statistics against any table without fetching individual records:
+
+```bash
+# Count records grouped by state (with human-readable labels)
+sn aggregate incident --count --group-by state --display-value true
+
+# Average a field, filtered
+sn aggregate incident --avg-fields reassignment_count --query "active=true"
+
+# Multiple aggregations in one call
+sn aggregate incident \
+  --sum-fields reassignment_count \
+  --min-fields priority \
+  --max-fields priority
+```
+
+### CICD operations
+
+#### App lifecycle
+
+Install, publish, and roll back scoped applications from the ServiceNow App Repository:
+
+```bash
+sn app install --scope x_myapp --version 1.2.0
+sn app publish --scope x_myapp --version 1.3.0 --dev-notes "Bug fixes"
+sn app rollback --scope x_myapp --version 1.1.0
+```
+
+These commands return a `progress_id`. Poll it with `sn progress <progress_id>` until the operation completes.
+
+#### Update sets
+
+```bash
+# Create a new Update Set
+sn updateset create --name "My Changes" --description "Sprint 42 work"
+
+# Retrieve a remote Update Set into this instance
+sn updateset retrieve --update-set-id <id> --auto-preview
+
+# Preview and commit
+sn updateset preview <remote_update_set_id>
+sn updateset commit <remote_update_set_id>
+
+# Commit several at once
+sn updateset commit-multiple --ids id1,id2,id3
+
+# Undo an applied Update Set
+sn updateset back-out --update-set-id <id>
+```
+
+#### ATF testing
+
+Run Automated Test Framework suites and retrieve their results:
+
+```bash
+sn atf run --suite-name "Regression Suite"
+sn atf results <result_id>
+```
+
+#### Polling async progress
+
+`app`, `updateset`, and `atf run` are asynchronous — they return a `progress_id` immediately. Poll until the operation finishes:
+
+```bash
+sn progress <progress_id>
+```
+
+### Performance Analytics scorecards
+
+```bash
+# List scorecards (20 per page, sorted by value descending)
+sn scores list --per-page 20 --sort-by VALUE --sort-dir DESC
+
+# Fetch historical scores for a specific indicator
+sn scores list --uuid <indicator_id> --include-scores --from 2026-01-01 --to 2026-04-01
+
+# Favorite / unfavorite
+sn scores favorite <uuid>
+sn scores unfavorite <uuid>
+```
+
 ### Agent integration
 
 `sn introspect` dumps the full command tree as structured JSON, suitable for auto-generating MCP tool definitions or function-call schemas:
@@ -165,6 +248,16 @@ sn introspect | jq '.subcommands[] | {name, about}'
 | `table get` / `create` / `update` / `replace` | Single record object |
 | `table delete` | Nothing (empty) |
 | `schema tables` / `columns` / `choices` | JSON array |
+| `aggregate` | Stats object (counts, sums, averages, grouped results) |
+| `app install` / `publish` / `rollback` | Progress object with `progress_id` |
+| `updateset create` | New Update Set record |
+| `updateset retrieve` / `preview` / `commit` / `back-out` | Progress object with `progress_id` |
+| `updateset commit-multiple` | Array of progress objects |
+| `atf run` | Progress object with `progress_id` |
+| `atf results` | Test suite result object |
+| `progress` | Progress status object |
+| `scores list` | JSON array of scorecard records |
+| `scores favorite` / `unfavorite` | Updated scorecard object |
 
 - `--output raw` preserves ServiceNow's `{"result": ...}` envelope.
 - Pretty-printed when stdout is a TTY; compact when piped. Override with `--pretty` / `--compact`.
