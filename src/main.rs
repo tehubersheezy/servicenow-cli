@@ -24,11 +24,7 @@ fn run(cli: Cli) -> Result<()> {
             AuthSub::Test => sn::cli::auth::test(&global),
         },
         Command::Profile { sub } => sn::cli::profile::run(sub),
-        Command::Introspect => {
-            // Filled in by Task 24.
-            println!("{{\"todo\": \"introspect\"}}");
-            Ok(())
-        }
+        Command::Introspect => sn::cli::introspect::run(),
         _ => Err(Error::Usage("command not implemented yet".into())),
     }
 }
