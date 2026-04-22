@@ -27,11 +27,10 @@ fn run(cli: Cli) -> Result<()> {
         Command::Introspect => sn::cli::introspect::run(),
         Command::Table { sub } => match sub {
             TableSub::List(args) => sn::cli::table::list(&global, args),
-            TableSub::Get(_)
-            | TableSub::Create(_)
-            | TableSub::Update(_)
-            | TableSub::Replace(_)
-            | TableSub::Delete(_) => Err(Error::Usage("table subcommand not yet wired".into())),
+            TableSub::Delete(args) => sn::cli::table::delete(&global, args),
+            TableSub::Get(_) | TableSub::Create(_) | TableSub::Update(_) | TableSub::Replace(_) => {
+                Err(Error::Usage("table subcommand not yet wired".into()))
+            }
         },
         _ => Err(Error::Usage("command not implemented yet".into())),
     }

@@ -1,4 +1,4 @@
-use crate::cli::{GlobalFlags, OutputMode, TableListArgs};
+use crate::cli::{GlobalFlags, OutputMode, TableDeleteArgs, TableListArgs};
 use crate::client::{Client, RetryPolicy};
 use crate::config::{
     config_path, credentials_path, load_config_from, load_credentials_from, resolve_profile,
@@ -6,7 +6,8 @@ use crate::config::{
 };
 use crate::error::{Error, Result};
 use crate::output::{emit_value, Format, ResolvedFormat};
-use crate::query::ListQuery;
+use crate::query::{DeleteQuery, ListQuery};
+use is_terminal::IsTerminal;
 use serde_json::Value;
 use std::io;
 
@@ -95,4 +96,31 @@ pub(crate) fn unwrap_or_raw(v: Value, mode: OutputMode) -> Value {
         OutputMode::Raw => v,
         OutputMode::Default => v.get("result").cloned().unwrap_or(v),
     }
+}
+
+pub fn delete(global: &GlobalFlags, args: TableDeleteArgs) -> Result<()> {
+    if !args.yes {
+        if !std::io::stdin().is_terminal() {
+            return Err(Error::Usage(
+                "delete requires --yes when stdin is not a terminal".into(),
+            ));
+        }
+        eprint!("Delete {}/{}? [y/N]: ", args.table, args.sys_id);
+        let mut s = String::new();
+        std::io::stdin()
+            .read_line(&mut s)
+            .map_err(|e| Error::Usage(format!("read stdin: {e}")))?;
+        if !matches!(s.trim(), "y" | "Y" | "yes" | "YES") {
+            return Err(Error::Usage("aborted".into()));
+        }
+    }
+    let profile = build_profile(global)?;
+    let client = Client::builder()
+        .retry(retry_policy(global.no_retry))
+        .build(&profile)?;
+    let q = DeleteQuery {
+        query_no_domain: bool_opt(args.query_no_domain),
+    };
+    let path = format!("/api/now/table/{}/{}", args.table, args.sys_id);
+    client.delete(&path, &q.to_pairs())
 }

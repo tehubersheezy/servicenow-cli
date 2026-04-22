@@ -214,10 +214,15 @@ pub struct TableReplaceArgs {
     pub table: String,
     pub sys_id: String,
 }
-#[derive(clap::Args, Debug, Default)]
+#[derive(clap::Args, Debug)]
 pub struct TableDeleteArgs {
     pub table: String,
     pub sys_id: String,
+    /// Skip confirmation prompt (required for non-interactive use).
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+    #[arg(long, alias = "sysparm-query-no-domain")]
+    pub query_no_domain: bool,
 }
 
 #[derive(Subcommand, Debug)]
