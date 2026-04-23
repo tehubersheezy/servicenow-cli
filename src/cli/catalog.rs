@@ -190,7 +190,11 @@ pub fn cart_empty(global: &GlobalFlags, args: CatalogCartEmptyArgs) -> Result<()
 pub fn checkout(global: &GlobalFlags) -> Result<()> {
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
-    let resp = client.post(&format!("{BASE}/cart/checkout"), &[], &serde_json::json!({}))?;
+    let resp = client.post(
+        &format!("{BASE}/cart/checkout"),
+        &[],
+        &serde_json::json!({}),
+    )?;
     let out = unwrap_or_raw(resp, global.output);
     emit_value(io::stdout().lock(), &out, format_from_flags(global))
         .map_err(|e| Error::Usage(format!("stdout: {e}")))
@@ -199,7 +203,11 @@ pub fn checkout(global: &GlobalFlags) -> Result<()> {
 pub fn submit_order(global: &GlobalFlags) -> Result<()> {
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
-    let resp = client.post(&format!("{BASE}/cart/submit_order"), &[], &serde_json::json!({}))?;
+    let resp = client.post(
+        &format!("{BASE}/cart/submit_order"),
+        &[],
+        &serde_json::json!({}),
+    )?;
     let out = unwrap_or_raw(resp, global.output);
     emit_value(io::stdout().lock(), &out, format_from_flags(global))
         .map_err(|e| Error::Usage(format!("stdout: {e}")))

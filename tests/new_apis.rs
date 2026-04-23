@@ -275,13 +275,7 @@ async fn import_get_record() {
             .env("SN_INSTANCE", &server_uri)
             .env("SN_USERNAME", "u")
             .env("SN_PASSWORD", "p")
-            .args([
-                "--compact",
-                "import",
-                "get",
-                "u_staging_table",
-                "imp001",
-            ])
+            .args(["--compact", "import", "get", "u_staging_table", "imp001"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();

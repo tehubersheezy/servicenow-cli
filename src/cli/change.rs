@@ -80,9 +80,9 @@ pub fn create(global: &GlobalFlags, args: ChangeCreateArgs) -> Result<()> {
     let client = build_client(&profile, global.timeout)?;
     let path = match args.r#type {
         ChangeType::Standard => {
-            let tmpl = args.template.ok_or_else(|| {
-                Error::Usage("--template is required for --type standard".into())
-            })?;
+            let tmpl = args
+                .template
+                .ok_or_else(|| Error::Usage("--template is required for --type standard".into()))?;
             format!("/api/sn_chg_rest/change/standard/{tmpl}")
         }
         _ => base_path(Some(args.r#type)).to_string(),

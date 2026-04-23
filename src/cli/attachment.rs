@@ -39,20 +39,18 @@ pub fn upload(global: &GlobalFlags, args: AttachmentUploadArgs) -> Result<()> {
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let file_path = Path::new(&args.file);
-    let file_name = args
-        .file_name
-        .unwrap_or_else(|| {
-            file_path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("upload")
-                .to_string()
-        });
-    let content_type = args.content_type.unwrap_or_else(|| {
-        mime_from_extension(file_path).to_string()
+    let file_name = args.file_name.unwrap_or_else(|| {
+        file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("upload")
+            .to_string()
     });
-    let body = std::fs::read(file_path)
-        .map_err(|e| Error::Usage(format!("read {}: {e}", args.file)))?;
+    let content_type = args
+        .content_type
+        .unwrap_or_else(|| mime_from_extension(file_path).to_string());
+    let body =
+        std::fs::read(file_path).map_err(|e| Error::Usage(format!("read {}: {e}", args.file)))?;
     let mut query: Vec<(String, String)> = vec![
         ("table_name".into(), args.table),
         ("table_sys_id".into(), args.record),
