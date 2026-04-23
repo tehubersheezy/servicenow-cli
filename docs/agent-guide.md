@@ -99,7 +99,7 @@ Recommended agent pattern:
 out=$(sn table get incident "$sysid" 2>/tmp/sn.err)
 case $? in
   0) jq -r '.short_description' <<<"$out" ;;
-  2) # API error — inspect JSON on stderr, decide whether to retry or surface
+  2) # API error — inspect JSON on stderr, decide whether to surface or handle
      jq -r '.error.message' /tmp/sn.err ;;
   4) echo "auth failed, re-init profile" >&2; exit 1 ;;
   *) echo "transport or config failure" >&2; exit 1 ;;
@@ -157,6 +157,18 @@ SN_PASSWORD='s3cr3t' \
 Precedence for credential fields: env var > profile file.
 If `SN_INSTANCE` is set but username/password are not, the CLI falls back to
 the active profile for the missing pieces.
+
+**Proxy and TLS overrides** (useful when the agent runs behind a corporate proxy):
+
+```bash
+SN_PROXY=http://proxy.corp:8080 sn table list incident
+SN_INSECURE=1 sn table list incident              # skip TLS cert verification
+sn --proxy socks5://proxy:1080 table list incident # SOCKS5
+sn --ca-cert /path/to/ca.pem table list incident   # custom CA
+sn --no-proxy table list incident                  # bypass configured proxy
+```
+
+Settings can also be stored per-profile in `config.toml` (`proxy`, `no_proxy`, `insecure`, `ca_cert`, `proxy_ca_cert`) and `credentials.toml` (`proxy_username`, `proxy_password`). Precedence: CLI flag > env var > profile config.
 
 ## Discovery flow (the agent's superpower)
 
@@ -933,7 +945,7 @@ case $? in
     exit 1
     ;;
   3)
-    echo "network failure — safe to retry the whole command" >&2
+    echo "network failure — check connectivity, then retry manually" >&2
     ;;
   4)
     echo "auth failed — re-run 'sn init' or check SN_PASSWORD" >&2
@@ -973,10 +985,13 @@ sn table get incident bogus_id 2>&1 >/dev/null | jq '.error'
 | Bad credentials | 4 | 401 | Re-init profile |
 | Session expired / MFA | 4 | 401 | Same handling as bad creds |
 | TLS handshake failure | 3 | — | Usually `SN_INSTANCE` typo or proxy issue |
-| DNS / connection refused | 3 | — | Network; safe to retry |
+| DNS / connection refused | 3 | — | Network; check connectivity |
 | Timeout | 3 | — | Network timeout |
-| Rate limited | 2 | 429 | Caller should back off and retry |
+| Rate limited | 2 | 429 | Back off and retry manually |
 | Internal server error | 2 | 5xx | ServiceNow error |
+| Invalid proxy URL | 1 | — | Bad `--proxy` URL format |
+| Proxy connection failed | 3 | — | Proxy unreachable; check `SN_PROXY` |
+| Bad CA certificate | 1 | — | File missing or invalid PEM format |
 
 Distinguishing 403-from-ACL vs 401-from-auth matters: code 4 says "your
 credentials are wrong," code 2 with `status_code: 403` says "the user is
@@ -1130,14 +1145,25 @@ sn table delete TABLE SYS_ID [--yes] [--query-no-domain]
 sn introspect --json
 
 Global flags (any command):
-  --profile NAME   select credential profile
-  -v / -vv / -vvv  verbose logging on stderr
+  --profile NAME          select credential profile
+  --proxy URL             HTTP/HTTPS/SOCKS5 proxy
+  --no-proxy              bypass configured proxy
+  --insecure              disable TLS cert verification
+  --ca-cert PATH          custom CA certificate
+  --proxy-ca-cert PATH    custom proxy CA certificate
+  --timeout SECS          request timeout
+  -v / -vv / -vvv         verbose logging on stderr
 
 Environment variables:
-  SN_PROFILE       profile override
-  SN_INSTANCE      https://<name>.service-now.com
-  SN_USERNAME      basic-auth username
-  SN_PASSWORD      basic-auth password
+  SN_PROFILE         profile override
+  SN_INSTANCE        https://<name>.service-now.com
+  SN_USERNAME        basic-auth username
+  SN_PASSWORD        basic-auth password
+  SN_PROXY           proxy URL
+  SN_NO_PROXY        comma-separated bypass hosts
+  SN_INSECURE        set to 1 to skip TLS verification
+  SN_CA_CERT         path to custom CA cert
+  SN_PROXY_CA_CERT   path to proxy CA cert
 
 Exit codes:
   0 success   1 usage/config   2 api (4xx/5xx)   3 network   4 auth (401/403)
