@@ -34,11 +34,9 @@ cargo install sn
 
 Download from [Releases](https://github.com/tehubersheezy/sn/releases). Binaries are available for:
 
-- `x86_64-unknown-linux-gnu`
-- `aarch64-unknown-linux-gnu`
-- `x86_64-apple-darwin`
-- `aarch64-apple-darwin`
-- `x86_64-pc-windows-msvc`
+- Linux (x86_64, ARM64)
+- macOS (Intel, Apple Silicon)
+- Windows (x86_64)
 
 ## Setup
 
