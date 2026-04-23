@@ -96,22 +96,34 @@ sn table get incident <sys_id> --display-value all
 
 ### Writing records
 
+All three write verbs (`create`, `update`, `replace`) accept either `--data` or `--field` (mutually exclusive):
+
+- `--data '<json>'` — inline JSON object
+- `--data @file.json` — read JSON from file
+- `--data @-` — read JSON from stdin
+- `--field key=value` — repeatable; builds a JSON object from key-value pairs
+- `--field key=@file` — field value read from file
+
 ```bash
 # Create with key-value pairs
 sn table create incident \
   --field short_description="Disk full on prod-db-01" \
   --field urgency=2
 
-# Create with JSON
+# Create with inline JSON
 sn table create incident --data '{"short_description": "Server down", "priority": "1"}'
 
 # Create from file
 sn table create incident --data @body.json
 
-# Update (PATCH) — only changes named fields
-sn table update incident <sys_id> --field state=2
+# Create from stdin (pipe from another tool)
+echo '{"short_description": "from pipe"}' | sn table create incident --data @-
 
-# Replace (PUT) — overwrites the entire record
+# Update (PATCH) — only changes the fields you name
+sn table update incident <sys_id> --field state=2
+sn table update incident <sys_id> --data '{"state": "6", "close_notes": "Resolved"}'
+
+# Replace (PUT) — overwrites the entire record (omitted fields are blanked)
 sn table replace incident <sys_id> --data @full-record.json
 
 # Delete
