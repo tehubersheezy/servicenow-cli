@@ -31,7 +31,7 @@ src/
   error.rs          → Error enum (5 variants), exit_code(), to_stderr_json()
   output.rs         → emit_value (JSON), emit_jsonl (JSONL), emit_error (stderr)
   config.rs         → Config/Credentials TOML types, load/save, resolve_profile()
-  client.rs         → reqwest blocking client, Paginator iterator
+  client.rs         → reqwest blocking client (proxy/TLS), Paginator iterator
   query.rs          → ListQuery/GetQuery/WriteQuery/DeleteQuery → Vec<(String,String)>
   body.rs           → --data / --field parsing into serde_json::Value
   observability.rs  → global AtomicU8 verbosity, log_request/response/headers/body
@@ -111,7 +111,7 @@ These are not in ServiceNow's OpenAPI specs but are used by the platform UI. The
 
 - Every sysparm_* parameter has a friendly flag name (e.g. `--query`) and a raw alias (`--sysparm-query`). Both map to the same field. Defined in `cli/mod.rs` via clap's `alias` attribute.
 - `update` = PATCH (partial), `replace` = PUT (full overwrite). Separate verbs prevent accidental field-wipe.
-- `pub(crate)` helpers in `cli/table.rs` (`build_profile`, `bool_opt`, `format_from_flags`, `unwrap_or_raw`) are shared by `cli/schema.rs` and `cli/auth.rs`.
+- `pub(crate)` helpers in `cli/table.rs` (`build_profile`, `build_client`, `bool_opt`, `format_from_flags`, `unwrap_or_raw`) are shared by all command modules.
 
 ## CI/CD
 
