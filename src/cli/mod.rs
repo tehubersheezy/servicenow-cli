@@ -53,10 +53,6 @@ pub struct GlobalFlags {
     #[arg(long, global = true, value_name = "SECS")]
     pub timeout: Option<u64>,
 
-    /// Disable automatic retry for 429/5xx responses.
-    #[arg(long, global = true)]
-    pub no_retry: bool,
-
     /// Verbosity: -v, -vv, -vvv (see spec §9).
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,

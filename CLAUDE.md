@@ -31,7 +31,7 @@ src/
   error.rs          → Error enum (5 variants), exit_code(), to_stderr_json()
   output.rs         → emit_value (JSON), emit_jsonl (JSONL), emit_error (stderr)
   config.rs         → Config/Credentials TOML types, load/save, resolve_profile()
-  client.rs         → reqwest blocking client, retry/backoff, Paginator iterator
+  client.rs         → reqwest blocking client, Paginator iterator
   query.rs          → ListQuery/GetQuery/WriteQuery/DeleteQuery → Vec<(String,String)>
   body.rs           → --data / --field parsing into serde_json::Value
   observability.rs  → global AtomicU8 verbosity, log_request/response/headers/body
@@ -60,7 +60,7 @@ CICD operations (`app`, `updateset`, `atf`) are async — they return a `progres
 1. `main.rs` parses `Cli` via clap derive, sets observability level, destructures `Cli { global, command }`.
 2. Each command handler receives `&GlobalFlags` and its typed args struct.
 3. `build_profile(&GlobalFlags)` resolves which ServiceNow instance + credentials to use (flag > env > config file precedence).
-4. `build_client(&profile, no_retry, timeout)` creates a reqwest blocking client with basic auth, proxy, and TLS settings.
+4. `build_client(&profile, timeout)` creates a reqwest blocking client with basic auth, proxy, and TLS settings.
 5. Query structs (`ListQuery`, etc.) convert friendly flags to `sysparm_*` query pairs.
 6. Responses are unwrapped from `{"result": ...}` by default; `--output raw` preserves the envelope.
 7. Errors always go to stderr as `{"error": {"message", "detail?", "status_code?", "transaction_id?", "sn_error?"}}`.
@@ -111,8 +111,7 @@ These are not in ServiceNow's OpenAPI specs but are used by the platform UI. The
 
 - Every sysparm_* parameter has a friendly flag name (e.g. `--query`) and a raw alias (`--sysparm-query`). Both map to the same field. Defined in `cli/mod.rs` via clap's `alias` attribute.
 - `update` = PATCH (partial), `replace` = PUT (full overwrite). Separate verbs prevent accidental field-wipe.
-- `pub(crate)` helpers in `cli/table.rs` (`build_profile`, `retry_policy`, `bool_opt`, `format_from_flags`, `unwrap_or_raw`) are shared by `cli/schema.rs` and `cli/auth.rs`.
-- `client.rs` has two retry helpers: `execute_with_retry` (returns `Result<Value>`) for normal methods, `execute_request_with_retry` (returns raw `Response`) for the paginator which needs to inspect headers.
+- `pub(crate)` helpers in `cli/table.rs` (`build_profile`, `bool_opt`, `format_from_flags`, `unwrap_or_raw`) are shared by `cli/schema.rs` and `cli/auth.rs`.
 
 ## CI/CD
 

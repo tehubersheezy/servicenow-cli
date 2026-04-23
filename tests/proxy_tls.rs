@@ -10,9 +10,7 @@ async fn insecure_flag_disables_cert_verification() {
     Mock::given(method("GET"))
         .and(path("/api/now/table/incident"))
         .and(basic_auth("admin", "pw"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({"result": []})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"result": []})))
         .mount(&server)
         .await;
 
@@ -37,8 +35,7 @@ async fn invalid_proxy_url_returns_config_error() {
         sn::client::Client::builder()
             .proxy(Some("://bad-url".into()))
             .build(&profile)
-            .err()
-            .expect("expected an error")
+            .expect_err("expected an error")
     })
     .await
     .unwrap();
@@ -52,14 +49,16 @@ async fn missing_ca_cert_file_returns_config_error() {
         sn::client::Client::builder()
             .ca_cert(Some("/nonexistent/cert.pem".into()))
             .build(&profile)
-            .err()
-            .expect("expected an error")
+            .expect_err("expected an error")
     })
     .await
     .unwrap();
     assert!(matches!(err, sn::error::Error::Config(_)));
     let msg = format!("{err}");
-    assert!(msg.contains("cert.pem"), "error should mention the file path: {msg}");
+    assert!(
+        msg.contains("cert.pem"),
+        "error should mention the file path: {msg}"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -67,9 +66,7 @@ async fn proxy_auth_builder_does_not_error() {
     let server = wiremock::MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/now/table/incident"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({"result": []})),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"result": []})))
         .mount(&server)
         .await;
 

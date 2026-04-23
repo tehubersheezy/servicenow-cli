@@ -6,7 +6,7 @@ use std::io;
 
 pub fn run(global: &GlobalFlags, args: ProgressArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let path = format!("/api/sn_cicd/progress/{}", args.progress_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);

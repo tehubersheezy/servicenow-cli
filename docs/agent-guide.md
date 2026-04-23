@@ -575,7 +575,6 @@ whichever name you remember; both work in this table.
 | `--suppress-auto-sys-field` | `sysparm_suppress_auto_sys_field=true` | create, update, replace | Skip auto-generation of system fields |
 | `--no-count` | `sysparm_no_count=true` | list | Skip the count query (faster for large tables) |
 | `--yes` / `-y` | (CLI only) | delete | Skip confirmation |
-| `--no-retry` | (CLI only) | all | Disable automatic 429/5xx retries |
 | `-v` / `-vv` / `-vvv` | (CLI only) | all | Debug logging to stderr |
 
 ## Pagination patterns
@@ -975,27 +974,13 @@ sn table get incident bogus_id 2>&1 >/dev/null | jq '.error'
 | Session expired / MFA | 4 | 401 | Same handling as bad creds |
 | TLS handshake failure | 3 | — | Usually `SN_INSTANCE` typo or proxy issue |
 | DNS / connection refused | 3 | — | Network; safe to retry |
-| Timeout | 3 | — | See retry behavior below |
-| Rate limited | 2 or 0 after retry | 429 | Auto-retried 3x with backoff |
-| Internal server error | 2 or 0 after retry | 5xx | Auto-retried 3x with backoff |
+| Timeout | 3 | — | Network timeout |
+| Rate limited | 2 | 429 | Caller should back off and retry |
+| Internal server error | 2 | 5xx | ServiceNow error |
 
 Distinguishing 403-from-ACL vs 401-from-auth matters: code 4 says "your
 credentials are wrong," code 2 with `status_code: 403` says "the user is
 authenticated but not allowed to do that."
-
-### Retry behavior
-
-- `429 Too Many Requests` and `5xx` are automatically retried up to 3
-  times with exponential backoff (roughly 0.5s, 1s, 2s plus jitter),
-  honoring `Retry-After` if present.
-- Network errors (exit 3) are **not** retried — the CLI surfaces them so
-  the caller can decide.
-- Pass `--no-retry` to disable automatic retries entirely (useful when
-  your own orchestrator handles backoff).
-
-```bash
-sn --no-retry table list incident --limit 1
-```
 
 ## Verbosity for debugging
 
@@ -1146,7 +1131,6 @@ sn introspect --json
 
 Global flags (any command):
   --profile NAME   select credential profile
-  --no-retry       disable 429/5xx auto-retry
   -v / -vv / -vvv  verbose logging on stderr
 
 Environment variables:

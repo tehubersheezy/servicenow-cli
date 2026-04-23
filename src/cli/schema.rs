@@ -7,7 +7,7 @@ use std::io;
 
 pub fn tables(global: &GlobalFlags, args: SchemaTablesArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let resp = client.get("/api/now/doc/table/schema", &[])?;
     let list = match (global.output, resp.get("result")) {
         (OutputMode::Raw, _) => resp.clone(),
@@ -53,7 +53,7 @@ fn filter_tables(items: Vec<Value>, args: &SchemaTablesArgs) -> Vec<Value> {
 
 pub fn columns(global: &GlobalFlags, args: SchemaColumnsArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let path = format!("/api/now/ui/meta/{}", args.table);
     let resp = client.get(&path, &[])?;
     let list = match global.output {
@@ -125,7 +125,7 @@ fn keep_column(col: &Value, args: &SchemaColumnsArgs) -> bool {
 
 pub fn choices(global: &GlobalFlags, args: SchemaChoicesArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let path = format!("/api/now/ui/meta/{}", args.table);
     let resp = client.get(&path, &[])?;
     let out = match global.output {

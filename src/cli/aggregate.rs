@@ -6,7 +6,7 @@ use super::table::{bool_opt, build_client, build_profile, format_from_flags, unw
 
 pub fn run(global: &GlobalFlags, args: AggregateArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
 
     let mut q: Vec<(String, String)> = Vec::new();
     if let Some(v) = args.query {

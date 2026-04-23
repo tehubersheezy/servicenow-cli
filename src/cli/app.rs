@@ -11,7 +11,7 @@ pub fn install(global: &GlobalFlags, args: AppInstallArgs) -> Result<()> {
         ));
     }
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let mut query: Vec<(String, String)> = Vec::new();
     if let Some(v) = args.sys_id {
         query.push(("sys_id".into(), v));
@@ -45,7 +45,7 @@ pub fn publish(global: &GlobalFlags, args: AppPublishArgs) -> Result<()> {
         ));
     }
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let mut query: Vec<(String, String)> = Vec::new();
     if let Some(v) = args.sys_id {
         query.push(("sys_id".into(), v));
@@ -76,7 +76,7 @@ pub fn rollback(global: &GlobalFlags, args: AppRollbackArgs) -> Result<()> {
         ));
     }
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let mut query: Vec<(String, String)> = Vec::new();
     if let Some(v) = args.sys_id {
         query.push(("sys_id".into(), v));

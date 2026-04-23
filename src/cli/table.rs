@@ -3,7 +3,7 @@ use crate::cli::{
     DisplayValueArg, GlobalFlags, OutputMode, TableCreateArgs, TableDeleteArgs, TableGetArgs,
     TableListArgs, TableReplaceArgs, TableUpdateArgs,
 };
-use crate::client::{Client, RetryPolicy};
+use crate::client::Client;
 use crate::config::{
     config_path, credentials_path, load_config_from, load_credentials_from, resolve_profile,
     ProfileResolverInputs, ResolvedProfile,
@@ -18,7 +18,7 @@ use std::time::Duration;
 
 pub fn list(global: &GlobalFlags, args: TableListArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
 
     if args.all {
         let q = ListQuery {
@@ -122,30 +122,17 @@ pub(crate) fn build_profile(global: &GlobalFlags) -> Result<ResolvedProfile> {
     })
 }
 
-pub(crate) fn retry_policy(no_retry: bool) -> RetryPolicy {
-    if no_retry {
-        RetryPolicy {
-            enabled: false,
-            ..Default::default()
-        }
-    } else {
-        RetryPolicy::default()
-    }
-}
-
-pub(crate) fn build_client(
-    profile: &ResolvedProfile,
-    no_retry: bool,
-    timeout: Option<u64>,
-) -> Result<Client> {
+pub(crate) fn build_client(profile: &ResolvedProfile, timeout: Option<u64>) -> Result<Client> {
     let mut b = Client::builder()
-        .retry(retry_policy(no_retry))
         .proxy(profile.proxy.clone())
         .no_proxy(profile.no_proxy.clone())
         .insecure(profile.insecure)
         .ca_cert(profile.ca_cert.clone())
         .proxy_ca_cert(profile.proxy_ca_cert.clone())
-        .proxy_auth(profile.proxy_username.clone(), profile.proxy_password.clone());
+        .proxy_auth(
+            profile.proxy_username.clone(),
+            profile.proxy_password.clone(),
+        );
     if let Some(secs) = timeout {
         b = b.timeout(Duration::from_secs(secs));
     }
@@ -179,7 +166,7 @@ pub(crate) fn unwrap_or_raw(v: Value, mode: OutputMode) -> Value {
 
 pub fn get(global: &GlobalFlags, args: TableGetArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let q = GetQuery {
         fields: args.fields,
         display_value: args.display_value.map(Into::into),
@@ -208,7 +195,7 @@ pub fn create(global: &GlobalFlags, args: TableCreateArgs) -> Result<()> {
     let body = build_body(body_input)?;
 
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let q = WriteQuery {
         fields: args.fields,
         display_value: args.display_value.map(Into::into),
@@ -294,7 +281,7 @@ fn write_op(
     };
     let body = build_body(body_input)?;
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let q = WriteQuery {
         fields,
         display_value: display_value.map(Into::into),
@@ -331,7 +318,7 @@ pub fn delete(global: &GlobalFlags, args: TableDeleteArgs) -> Result<()> {
         }
     }
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let q = DeleteQuery {
         query_no_domain: bool_opt(args.query_no_domain),
     };

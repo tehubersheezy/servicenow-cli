@@ -6,7 +6,7 @@ use std::io::Write;
 
 pub fn test(global: &GlobalFlags) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
     let v = client.get(
         "/api/now/table/sys_user",
         &[("sysparm_limit".into(), "1".into())],

@@ -1,5 +1,5 @@
 use crate::cli::InitArgs;
-use crate::client::{Client, RetryPolicy};
+use crate::client::Client;
 use crate::config::{
     config_path, credentials_path, load_config_from, load_credentials_from, save_config_to,
     save_credentials_to, ProfileConfig, ProfileCredentials, ResolvedProfile,
@@ -74,9 +74,7 @@ pub fn run(args: InitArgs) -> Result<()> {
         proxy_username: None,
         proxy_password: None,
     };
-    let client = Client::builder()
-        .retry(RetryPolicy::default())
-        .build(&profile)?;
+    let client = Client::builder().build(&profile)?;
     client.get(
         "/api/now/table/sys_user",
         &[("sysparm_limit".into(), "1".into())],

@@ -14,7 +14,7 @@ fn push_flag(q: &mut Vec<(String, String)>, key: &str, val: bool) {
 
 pub fn list(global: &GlobalFlags, args: ScoresListArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
 
     let mut q: Vec<(String, String)> = Vec::new();
     if let Some(v) = args.uuid {
@@ -112,7 +112,7 @@ pub fn list(global: &GlobalFlags, args: ScoresListArgs) -> Result<()> {
 
 pub fn favorite(global: &GlobalFlags, args: ScoresFavoriteArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
 
     let q = vec![("sysparm_uuid".to_string(), args.uuid)];
     let resp = client.post(SCORECARDS_PATH, &q, &serde_json::json!({}))?;
@@ -123,7 +123,7 @@ pub fn favorite(global: &GlobalFlags, args: ScoresFavoriteArgs) -> Result<()> {
 
 pub fn unfavorite(global: &GlobalFlags, args: ScoresFavoriteArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let client = build_client(&profile, global.no_retry, global.timeout)?;
+    let client = build_client(&profile, global.timeout)?;
 
     let q = vec![("sysparm_uuid".to_string(), args.uuid)];
     client.delete(SCORECARDS_PATH, &q)

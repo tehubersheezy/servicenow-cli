@@ -6,35 +6,25 @@ use reqwest::{Method, StatusCode};
 use serde_json::Value;
 use std::time::Duration;
 
-#[derive(Clone, Copy, Debug)]
-pub struct RetryPolicy {
-    pub enabled: bool,
-    pub max_attempts: u32,
-    pub initial_backoff: Duration,
-}
-
-impl Default for RetryPolicy {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            max_attempts: 3,
-            initial_backoff: Duration::from_millis(500),
-        }
-    }
-}
-
 pub struct Client {
     pub(crate) http: ReqwestClient,
     pub(crate) base_url: String,
     pub(crate) username: String,
     pub(crate) password: String,
-    pub(crate) retry: RetryPolicy,
+}
+
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("base_url", &self.base_url)
+            .field("username", &self.username)
+            .finish_non_exhaustive()
+    }
 }
 
 pub struct ClientBuilder {
     timeout: Duration,
     user_agent: String,
-    retry: RetryPolicy,
     proxy: Option<String>,
     no_proxy: Option<String>,
     insecure: bool,
@@ -49,7 +39,6 @@ impl Default for ClientBuilder {
         Self {
             timeout: Duration::from_secs(30),
             user_agent: format!("sn/{}", env!("CARGO_PKG_VERSION")),
-            retry: RetryPolicy::default(),
             proxy: None,
             no_proxy: None,
             insecure: false,
@@ -64,11 +53,6 @@ impl Default for ClientBuilder {
 impl ClientBuilder {
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = d;
-        self
-    }
-
-    pub fn retry(mut self, policy: RetryPolicy) -> Self {
-        self.retry = policy;
         self
     }
 
@@ -113,6 +97,15 @@ impl ClientBuilder {
             .default_headers(headers);
 
         if let Some(ref proxy_url) = self.proxy {
+            let valid_scheme = proxy_url.starts_with("http://")
+                || proxy_url.starts_with("https://")
+                || proxy_url.starts_with("socks5://")
+                || proxy_url.starts_with("socks5h://");
+            if !valid_scheme {
+                return Err(Error::Config(format!(
+                    "invalid proxy URL '{proxy_url}': must start with http://, https://, or socks5://"
+                )));
+            }
             let mut proxy = reqwest::Proxy::all(proxy_url)
                 .map_err(|e| Error::Config(format!("invalid proxy URL '{proxy_url}': {e}")))?;
             if let (Some(ref u), Some(ref p)) = (&self.proxy_username, &self.proxy_password) {
@@ -154,7 +147,6 @@ impl ClientBuilder {
             base_url,
             username: profile.username.clone(),
             password: profile.password.clone(),
-            retry: self.retry,
         })
     }
 }
@@ -167,76 +159,15 @@ fn normalize_base_url(instance: &str) -> String {
     }
 }
 
-fn should_retry(status: StatusCode) -> bool {
-    status.as_u16() == 429 || matches!(status.as_u16(), 502..=504)
-}
-
-fn jittered(d: Duration) -> Duration {
-    use std::time::SystemTime;
-    let nanos = SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|t| t.subsec_nanos())
-        .unwrap_or(0) as u64;
-    let jitter_ms = nanos % 250;
-    d + Duration::from_millis(jitter_ms)
-}
-
-fn execute_with_retry<F>(policy: RetryPolicy, mut send: F) -> Result<Value>
-where
-    F: FnMut() -> std::result::Result<Response, reqwest::Error>,
-{
-    let mut attempt: u32 = 0;
-    let mut backoff = policy.initial_backoff;
-    loop {
-        attempt += 1;
-        match send() {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    return resp
-                        .json::<Value>()
-                        .map_err(|e| Error::Transport(format!("parse response: {e}")));
-                }
-                let retryable =
-                    policy.enabled && should_retry(status) && attempt < policy.max_attempts;
-                if !retryable {
-                    let tx = transaction_id(&resp);
-                    return Err(from_http(status, tx, resp));
-                }
-                std::thread::sleep(jittered(backoff));
-                backoff = backoff.saturating_mul(2);
-            }
-            Err(e) => return Err(Error::Transport(format!("{e}"))),
-        }
+fn parse_response(resp: Response) -> Result<Value> {
+    let status = resp.status();
+    if status.is_success() {
+        return resp
+            .json::<Value>()
+            .map_err(|e| Error::Transport(format!("parse response: {e}")));
     }
-}
-
-fn execute_no_body_with_retry<F>(policy: RetryPolicy, mut send: F) -> Result<()>
-where
-    F: FnMut() -> std::result::Result<Response, reqwest::Error>,
-{
-    let mut attempt: u32 = 0;
-    let mut backoff = policy.initial_backoff;
-    loop {
-        attempt += 1;
-        match send() {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    return Ok(());
-                }
-                let retryable =
-                    policy.enabled && should_retry(status) && attempt < policy.max_attempts;
-                if !retryable {
-                    let tx = transaction_id(&resp);
-                    return Err(from_http(status, tx, resp));
-                }
-                std::thread::sleep(jittered(backoff));
-                backoff = backoff.saturating_mul(2);
-            }
-            Err(e) => return Err(Error::Transport(format!("{e}"))),
-        }
-    }
+    let tx = transaction_id(&resp);
+    Err(from_http(status, tx, resp))
 }
 
 impl Client {
@@ -246,81 +177,73 @@ impl Client {
 
     pub fn get(&self, path: &str, query: &[(String, String)]) -> Result<Value> {
         let url = format!("{}{}", self.base_url, path);
-        let http = self.http.clone();
-        let user = self.username.clone();
-        let pass = self.password.clone();
-        let query = query.to_vec();
-        execute_with_retry(self.retry, move || {
-            http.request(Method::GET, &url)
-                .basic_auth(&user, Some(&pass))
-                .query(&query)
-                .send()
-        })
+        let resp = self
+            .http
+            .request(Method::GET, &url)
+            .basic_auth(&self.username, Some(&self.password))
+            .query(query)
+            .send()
+            .map_err(|e| Error::Transport(format!("{e}")))?;
+        parse_response(resp)
     }
 
     pub fn post(&self, path: &str, query: &[(String, String)], body: &Value) -> Result<Value> {
         let url = format!("{}{}", self.base_url, path);
-        let http = self.http.clone();
-        let user = self.username.clone();
-        let pass = self.password.clone();
-        let query = query.to_vec();
-        let body = body.clone();
-        execute_with_retry(self.retry, move || {
-            http.request(Method::POST, &url)
-                .basic_auth(&user, Some(&pass))
-                .query(&query)
-                .header(CONTENT_TYPE, "application/json")
-                .json(&body)
-                .send()
-        })
+        let resp = self
+            .http
+            .request(Method::POST, &url)
+            .basic_auth(&self.username, Some(&self.password))
+            .query(query)
+            .header(CONTENT_TYPE, "application/json")
+            .json(body)
+            .send()
+            .map_err(|e| Error::Transport(format!("{e}")))?;
+        parse_response(resp)
     }
 
     pub fn put(&self, path: &str, query: &[(String, String)], body: &Value) -> Result<Value> {
         let url = format!("{}{}", self.base_url, path);
-        let http = self.http.clone();
-        let user = self.username.clone();
-        let pass = self.password.clone();
-        let query = query.to_vec();
-        let body = body.clone();
-        execute_with_retry(self.retry, move || {
-            http.request(Method::PUT, &url)
-                .basic_auth(&user, Some(&pass))
-                .query(&query)
-                .header(CONTENT_TYPE, "application/json")
-                .json(&body)
-                .send()
-        })
+        let resp = self
+            .http
+            .request(Method::PUT, &url)
+            .basic_auth(&self.username, Some(&self.password))
+            .query(query)
+            .header(CONTENT_TYPE, "application/json")
+            .json(body)
+            .send()
+            .map_err(|e| Error::Transport(format!("{e}")))?;
+        parse_response(resp)
     }
 
     pub fn patch(&self, path: &str, query: &[(String, String)], body: &Value) -> Result<Value> {
         let url = format!("{}{}", self.base_url, path);
-        let http = self.http.clone();
-        let user = self.username.clone();
-        let pass = self.password.clone();
-        let query = query.to_vec();
-        let body = body.clone();
-        execute_with_retry(self.retry, move || {
-            http.request(Method::PATCH, &url)
-                .basic_auth(&user, Some(&pass))
-                .query(&query)
-                .header(CONTENT_TYPE, "application/json")
-                .json(&body)
-                .send()
-        })
+        let resp = self
+            .http
+            .request(Method::PATCH, &url)
+            .basic_auth(&self.username, Some(&self.password))
+            .query(query)
+            .header(CONTENT_TYPE, "application/json")
+            .json(body)
+            .send()
+            .map_err(|e| Error::Transport(format!("{e}")))?;
+        parse_response(resp)
     }
 
     pub fn delete(&self, path: &str, query: &[(String, String)]) -> Result<()> {
         let url = format!("{}{}", self.base_url, path);
-        let http = self.http.clone();
-        let user = self.username.clone();
-        let pass = self.password.clone();
-        let query = query.to_vec();
-        execute_no_body_with_retry(self.retry, move || {
-            http.request(Method::DELETE, &url)
-                .basic_auth(&user, Some(&pass))
-                .query(&query)
-                .send()
-        })
+        let resp = self
+            .http
+            .request(Method::DELETE, &url)
+            .basic_auth(&self.username, Some(&self.password))
+            .query(query)
+            .send()
+            .map_err(|e| Error::Transport(format!("{e}")))?;
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(());
+        }
+        let tx = transaction_id(&resp);
+        Err(from_http(status, tx, resp))
     }
 }
 
@@ -374,14 +297,14 @@ impl<'a> Paginator<'a> {
             self.finished = true;
             return Ok(());
         };
-        let req = self
+        let resp = self
             .client
             .http
             .request(Method::GET, &url)
             .basic_auth(&self.client.username, Some(&self.client.password))
-            .query(&self.next_query);
-        let resp =
-            execute_request_with_retry(self.client.retry, || req.try_clone().unwrap().send())?;
+            .query(&self.next_query)
+            .send()
+            .map_err(|e| Error::Transport(format!("{e}")))?;
         let status = resp.status();
         let tx = transaction_id(&resp);
         let link = resp
@@ -447,34 +370,6 @@ impl<'a> Iterator for Paginator<'a> {
                 Some(Ok(v))
             }
             None => None,
-        }
-    }
-}
-
-fn execute_request_with_retry<F>(
-    policy: RetryPolicy,
-    mut send: F,
-) -> std::result::Result<Response, Error>
-where
-    F: FnMut() -> std::result::Result<Response, reqwest::Error>,
-{
-    let mut attempt = 0u32;
-    let mut backoff = policy.initial_backoff;
-    loop {
-        attempt += 1;
-        match send() {
-            Ok(resp) => {
-                let status = resp.status();
-                let retryable =
-                    policy.enabled && should_retry(status) && attempt < policy.max_attempts;
-                if !status.is_success() && retryable {
-                    std::thread::sleep(jittered(backoff));
-                    backoff = backoff.saturating_mul(2);
-                    continue;
-                }
-                return Ok(resp);
-            }
-            Err(e) => return Err(Error::Transport(format!("{e}"))),
         }
     }
 }
