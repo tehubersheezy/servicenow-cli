@@ -9,19 +9,19 @@ A fast, single-binary CLI for ServiceNow. Designed for LLM agents and human oper
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install ibrahimsafah/tap/sn
+brew install tehubersheezy/tap/sn
 ```
 
 ### Shell installer (macOS / Linux)
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/ibrahimsafah/sn/releases/latest/download/sn-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/tehubersheezy/sn/releases/latest/download/sn-installer.sh | sh
 ```
 
 ### PowerShell installer (Windows)
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/ibrahimsafah/sn/releases/latest/download/sn-installer.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/tehubersheezy/sn/releases/latest/download/sn-installer.ps1 | iex"
 ```
 
 ### Cargo (from source)
@@ -32,7 +32,7 @@ cargo install sn
 
 ### Pre-built binaries
 
-Download from [Releases](https://github.com/ibrahimsafah/sn/releases). Binaries are available for:
+Download from [Releases](https://github.com/tehubersheezy/sn/releases). Binaries are available for:
 
 - `x86_64-unknown-linux-gnu`
 - `aarch64-unknown-linux-gnu`
