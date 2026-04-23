@@ -455,6 +455,20 @@ sn scores unfavorite <uuid>
 
 ### Agent integration
 
+#### Claude Code plugin
+
+`sn` ships as a Claude Code plugin. Install it so Claude can use `sn` commands automatically:
+
+```bash
+claude plugin install --dir /path/to/sn
+```
+
+Or for projects that clone this repo, the skill at `.claude/skills/sn.md` is picked up automatically — invoke with `/sn`.
+
+The plugin pre-approves `Bash(sn *)` so Claude won't prompt for permission on each command.
+
+#### Introspection
+
 `sn introspect` dumps the full command tree as structured JSON, suitable for auto-generating MCP tool definitions or function-call schemas:
 
 ```bash

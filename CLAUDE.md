@@ -146,6 +146,10 @@ These are not in ServiceNow's OpenAPI specs but are used by the platform UI. The
 - `update` = PATCH (partial), `replace` = PUT (full overwrite). Separate verbs prevent accidental field-wipe.
 - `pub(crate)` helpers in `cli/table.rs` (`build_profile`, `build_client`, `bool_opt`, `format_from_flags`, `unwrap_or_raw`) are shared by all command modules.
 
+## Claude Code plugin
+
+This repo is also a Claude Code plugin (`.claude-plugin/plugin.json` + `skills/sn/SKILL.md`). The plugin skill mirrors `.claude/skills/sn.md` but adds `allowed-tools: Bash(sn *)` for auto-approved CLI access. The local skill at `.claude/skills/sn.md` is for in-repo use (invoked as `/sn`); the plugin skill at `skills/sn/SKILL.md` is for external distribution.
+
 ## CI/CD
 
 - `.github/workflows/ci.yml` — fmt + clippy + test on ubuntu/macos/windows, triggered on PRs and pushes to main.

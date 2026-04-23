@@ -1394,6 +1394,26 @@ Rules of thumb for agents:
 - Turn on `-v` when you get an exit 2 or 3 and need to see the URL that
   was built (common cause of 404s is a sysparm typo producing a weird URL).
 
+## Claude Code plugin
+
+`sn` ships as a Claude Code plugin. When installed, the plugin pre-approves
+`Bash(sn *)` so the agent can run any `sn` command without per-call
+permission prompts.
+
+**For projects that clone the repo:** the local skill at `.claude/skills/sn.md`
+is loaded automatically. Invoke with `/sn`.
+
+**For standalone use:** install the plugin so it's available across all
+projects:
+
+```bash
+claude plugin install --dir /path/to/sn
+```
+
+The plugin provides schema discovery, output contract, and usage examples
+for every command group so the agent can operate ServiceNow without prior
+knowledge of the API.
+
 ## Building tools/MCP servers on top of `sn`
 
 `sn introspect` emits the complete command tree — every subcommand,
