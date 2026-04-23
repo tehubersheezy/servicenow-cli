@@ -636,4 +636,4 @@ sn -vvv table list incident     # add request/response bodies (auth masked)
 
 ## License
 
-MIT OR Apache-2.0
+MIT
