@@ -1,6 +1,7 @@
 [package]
 name = "sn"
-version = "0.3.2"
+version = "0.3.3"
+authors = ["Abey Ahmad <ibrahimsafah@gmail.com>"]
 edition = "2021"
 rust-version = "1.75"
 description = "Agent-forward CLI for ServiceNow — Table, Change, CMDB, Attachment, Catalog, Import, CICD, and more"
@@ -10,6 +11,12 @@ homepage = "https://github.com/tehubersheezy/sn"
 keywords = ["servicenow", "cli", "api", "cmdb", "itsm"]
 categories = ["command-line-utilities", "web-programming::http-client"]
 default-run = "sn"
+
+[package.metadata.wix]
+upgrade-guid = "009F6DF0-FC61-47AF-B5B4-006E347A6138"
+path-guid = "364321C0-786E-4750-B4AF-6A183DB724FF"
+license = false
+eula = false
 
 [lib]
 name = "sn"

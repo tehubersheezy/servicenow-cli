@@ -26,6 +26,19 @@ brew upgrade sn
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/tehubersheezy/sn/releases/latest/download/sn-installer.sh | sh
 ```
 
+### MSI installer (Windows)
+
+Download the appropriate `.msi` from the [latest release](https://github.com/tehubersheezy/sn/releases/latest):
+
+- `sn-x86_64-pc-windows-msvc.msi` — 64-bit Intel/AMD
+- `sn-aarch64-pc-windows-msvc.msi` — ARM64 (Surface Pro X, Copilot+ PCs)
+
+Double-click to install, or for unattended/SCCM/Intune deployment:
+
+```powershell
+msiexec /i sn-x86_64-pc-windows-msvc.msi /qn
+```
+
 ### PowerShell installer (Windows)
 
 ```powershell
