@@ -57,7 +57,7 @@ Download from [Releases](https://github.com/tehubersheezy/sn/releases). Binaries
 
 - Linux (x86_64, ARM64)
 - macOS (Intel, Apple Silicon)
-- Windows (x86_64)
+- Windows (x86_64, ARM64) — both as standalone `.zip` (portable, no install) and `.msi` installer
 
 ## Setup
 
