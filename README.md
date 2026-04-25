@@ -9,7 +9,15 @@ A fast, single-binary CLI for ServiceNow. Designed for LLM agents and human oper
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install tehubersheezy/tap/sn
+brew install tehubersheezy/sn/sn
+```
+
+Or tap once, then install/upgrade by short name:
+
+```bash
+brew tap tehubersheezy/sn
+brew install sn
+brew upgrade sn
 ```
 
 ### Shell installer (macOS / Linux)
