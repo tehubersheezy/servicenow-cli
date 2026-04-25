@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0 (2026-04-25)
+
+### New commands
+
+- **`sn user me`** — returns the currently authenticated user's record. Resolves
+  the identity via `gs.getUserName()`, so it works regardless of auth method
+  (basic auth, OAuth, etc.).
+- **`sn ping`** — one-shot health check. Returns auth status, instance URL,
+  username, end-to-end latency in ms, and the ServiceNow build name/tag if
+  reachable. Useful as the first thing to run when something breaks.
+- **`sn open <table> <sys_id>`** — opens the ServiceNow web UI form for a record
+  in the default browser via `nav_to.do?uri=...`. Pass `--print-url` to print
+  the URL to stdout instead of launching a browser.
+- **`sn raw <method> <path>`** — generic REST passthrough for endpoints that
+  aren't yet modeled as typed commands. Accepts arbitrary methods (case
+  insensitive), `--query key=value` (repeatable), and the same `--data` /
+  `--field` body sources as the typed commands. Response is emitted exactly as
+  ServiceNow returns it (no envelope unwrapping). The escape hatch for the long
+  tail of ServiceNow's API surface.
+- **`sn completion <shell>`** — generate tab-completion scripts for `bash`,
+  `zsh`, `fish`, `powershell`, and `elvish` via `clap_complete`.
+
+### New output mode
+
+- **`--output table`** — render JSON results as a human-readable columnar table
+  using `comfy-table`. Suitable for interactive browsing; for scripts and
+  pipelines, leave the default JSON output. Single objects render as a
+  two-column key/value table; arrays of objects render as a wide table with the
+  union of keys as headers; empty arrays render as `(no records)`.
+
+### Internal
+
+- New shared helper `cli::table::write_response(global, value)` centralizes
+  output dispatch so each command's emit site is a one-liner. All read/write
+  command call sites now route through it instead of constructing
+  `emit_value(...)` chains.
+- Six new modules: `src/cli/{user,ping,open_record,raw,completion}.rs` and
+  `src/output_table.rs`.
+- New deps: `clap_complete = "4"`, `webbrowser = "1"`, `comfy-table = "7"`.
+
 ## 0.3.3 (2026-04-25)
 
 ### Distribution
