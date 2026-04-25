@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.1 (2026-04-24)
+
+### Documentation
+
+- All write subcommands (`table`, `cmdb`, `catalog`, `change`, `import`,
+  `identify`) now show consistent `--data` and `--field` help text covering
+  the `@file` and `@-` (stdin) idioms. The binary always supported these,
+  but only `sn table create` documented them — every other write command
+  was mute, leading users to invent shell-quoting workarounds for
+  multi-line content.
+- `sn --help` now ends with a `BODY INPUT` reference and three concrete
+  examples covering multi-line file bodies, file-backed field values
+  (`--field description=@notes.md`), and stdin-piped input
+  (`jq … | sn … --data @-`).
+
+### Tests
+
+- Added integration tests pinning `sn table update --data @file.json` and
+  `sn table update --field name=@file.txt` so the multi-line write paths
+  stay regression-tested.
+
 ## 0.3.0 (2026-04-23)
 
 ### Breaking
