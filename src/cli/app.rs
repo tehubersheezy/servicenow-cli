@@ -119,8 +119,7 @@ pub fn install(global: &GlobalFlags, args: AppInstallArgs) -> Result<()> {
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn publish(global: &GlobalFlags, args: AppPublishArgs) -> Result<()> {
@@ -167,8 +166,7 @@ pub fn publish(global: &GlobalFlags, args: AppPublishArgs) -> Result<()> {
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn rollback(global: &GlobalFlags, args: AppRollbackArgs) -> Result<()> {
@@ -210,6 +208,5 @@ pub fn rollback(global: &GlobalFlags, args: AppRollbackArgs) -> Result<()> {
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }

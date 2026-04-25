@@ -1,7 +1,6 @@
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::{Error, Result};
-use crate::output::emit_value;
 use clap::Subcommand;
 use std::io::{self, Write};
 use std::path::Path;
@@ -83,8 +82,7 @@ pub fn list(global: &GlobalFlags, args: AttachmentListArgs) -> Result<()> {
     }
     let resp = client.get("/api/now/attachment", &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn get(global: &GlobalFlags, args: AttachmentGetArgs) -> Result<()> {
@@ -93,8 +91,7 @@ pub fn get(global: &GlobalFlags, args: AttachmentGetArgs) -> Result<()> {
     let path = format!("/api/now/attachment/{}", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn upload(global: &GlobalFlags, args: AttachmentUploadArgs) -> Result<()> {
@@ -123,8 +120,7 @@ pub fn upload(global: &GlobalFlags, args: AttachmentUploadArgs) -> Result<()> {
     }
     let resp = client.upload_file("/api/now/attachment/file", &query, body, &content_type)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn download(global: &GlobalFlags, args: AttachmentDownloadArgs) -> Result<()> {
@@ -139,8 +135,7 @@ pub fn download(global: &GlobalFlags, args: AttachmentDownloadArgs) -> Result<()
             "path": out_path,
             "size": bytes.len()
         });
-        emit_value(io::stdout().lock(), &meta, format_from_flags(global))
-            .map_err(crate::output::map_stdout_err)
+        crate::cli::table::write_response(global, &meta)
     } else {
         io::stdout()
             .lock()

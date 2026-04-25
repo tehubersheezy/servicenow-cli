@@ -1,10 +1,8 @@
-use crate::cli::table::{build_client, build_profile, format_from_flags};
+use crate::cli::table::{build_client, build_profile};
 use crate::cli::{GlobalFlags, OutputMode};
 use crate::error::{Error, Result};
-use crate::output::emit_value;
 use clap::Subcommand;
 use serde_json::Value;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum SchemaSub {
@@ -53,8 +51,7 @@ pub fn tables(global: &GlobalFlags, args: SchemaTablesArgs) -> Result<()> {
         (_, Some(Value::Array(a))) => Value::Array(filter_tables(a.clone(), &args)),
         _ => resp.clone(),
     };
-    let fmt = format_from_flags(global);
-    emit_value(io::stdout().lock(), &list, fmt).map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &list)
 }
 
 fn filter_tables(items: Vec<Value>, args: &SchemaTablesArgs) -> Vec<Value> {
@@ -97,7 +94,7 @@ pub fn columns(global: &GlobalFlags, args: SchemaColumnsArgs) -> Result<()> {
     let resp = client.get(&path, &[])?;
     let list = match global.output {
         OutputMode::Raw => resp.clone(),
-        OutputMode::Default => {
+        OutputMode::Default | OutputMode::Table => {
             let cols = resp
                 .get("result")
                 .and_then(|r| r.get("columns"))
@@ -106,8 +103,7 @@ pub fn columns(global: &GlobalFlags, args: SchemaColumnsArgs) -> Result<()> {
             Value::Array(filter_columns(cols, &args))
         }
     };
-    emit_value(io::stdout().lock(), &list, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &list)
 }
 
 fn filter_columns(cols: Value, args: &SchemaColumnsArgs) -> Vec<Value> {
@@ -169,7 +165,7 @@ pub fn choices(global: &GlobalFlags, args: SchemaChoicesArgs) -> Result<()> {
     let resp = client.get(&path, &[])?;
     let out = match global.output {
         OutputMode::Raw => resp.clone(),
-        OutputMode::Default => resp
+        OutputMode::Default | OutputMode::Table => resp
             .get("result")
             .and_then(|r| r.get("columns"))
             .and_then(|c| c.get(&args.field))
@@ -182,6 +178,5 @@ pub fn choices(global: &GlobalFlags, args: SchemaChoicesArgs) -> Result<()> {
                 ))
             })?,
     };
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }

@@ -472,6 +472,82 @@ sn scores favorite <uuid>
 sn scores unfavorite <uuid>
 ```
 
+### Inspect and connect
+
+Quick checks for "is the connection working?" and "who am I authenticated as?":
+
+```bash
+# Latency + auth + ServiceNow build version (one-shot health check)
+sn ping
+# {"ok":true,"profile":"prod","instance":"https://acme.service-now.com","username":"admin","latency_ms":134,"build_name":"Vancouver","build_tag":"glide-vancouver-..."}
+
+# Bare-bones auth check (just verifies the credentials work)
+sn auth test
+
+# The currently authenticated user (resolved via gs.getUserName(), works regardless of auth method)
+sn user me
+```
+
+### Open a record in the web UI
+
+Found something interesting in CLI output and want to look at it in the form? `sn open` launches the ServiceNow UI at that record:
+
+```bash
+sn open incident <sys_id>           # opens in default browser
+sn open change_request <sys_id>     # any table works
+sn open incident <sys_id> --print-url   # prints the URL instead of opening
+```
+
+### Raw REST passthrough
+
+For ServiceNow endpoints that aren't yet modeled as typed commands, `sn raw` is a generic passthrough:
+
+```bash
+# GET any path, with arbitrary query params
+sn raw GET /api/now/v2/table/incident -q sysparm_limit=5 -q sysparm_query=active=true
+
+# POST with a JSON body
+sn raw POST /api/now/table/incident --data '{"short_description":"From sn raw"}'
+
+# Any method works
+sn raw PATCH /api/now/table/incident/abc123 --field state=2
+sn raw DELETE /api/now/table/incident/abc123
+```
+
+The response is emitted exactly as ServiceNow returns it (no envelope unwrapping). Use this as the escape hatch when you need an endpoint we haven't wrapped yet.
+
+### Human-readable table output
+
+Most read commands accept `--output table` for columnar output instead of JSON:
+
+```bash
+sn table list incident --setlimit 5 --output table
+sn change list --type normal --output table --setlimit 10
+sn schema columns incident --writable --output table
+```
+
+Use this for interactive browsing. For scripts and pipelines, leave the default JSON output (`--output table` should not be piped).
+
+### Shell completions
+
+Generate a tab-completion script for your shell:
+
+```bash
+# Bash
+sn completion bash > /usr/local/etc/bash_completion.d/sn
+
+# Zsh (somewhere in your $fpath)
+sn completion zsh > "${fpath[1]}/_sn"
+
+# Fish
+sn completion fish > ~/.config/fish/completions/sn.fish
+
+# PowerShell
+sn completion powershell > $PROFILE.d/sn.ps1
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
+
 ### Agent integration
 
 #### Claude Code plugin
@@ -566,6 +642,7 @@ Every ServiceNow `sysparm_*` parameter has both a friendly name and a raw alias:
 | `--query-no-domain` | `--sysparm-query-no-domain` | Boolean |
 | `--no-count` | `--sysparm-no-count` | Boolean |
 | `--instance-override` | (CLI only) | Override instance URL for this invocation |
+| `--output` | (CLI only) | `default` (unwrapped JSON), `raw` (full envelope), or `table` (columnar — interactive only) |
 
 ## Configuration
 

@@ -5,4 +5,5 @@ pub mod config;
 pub mod error;
 pub mod observability;
 pub mod output;
+pub mod output_table;
 pub mod query;

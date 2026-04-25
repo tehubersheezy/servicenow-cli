@@ -6,16 +6,21 @@ pub mod auth;
 pub mod catalog;
 pub mod change;
 pub mod cmdb;
+pub mod completion;
 pub mod identify;
 pub mod import;
 pub mod init;
 pub mod introspect;
+pub mod open_record;
+pub mod ping;
 pub mod profile;
 pub mod progress;
+pub mod raw;
 pub mod schema;
 pub mod scores;
 pub mod table;
 pub mod update_set;
+pub mod user;
 
 pub use aggregate::AggregateArgs;
 pub use app::{AppInstallArgs, AppPublishArgs, AppRollbackArgs, AppSub};
@@ -41,11 +46,14 @@ pub use cmdb::{
     CmdbCreateArgs, CmdbGetArgs, CmdbListArgs, CmdbMetaArgs, CmdbRelationAddArgs,
     CmdbRelationDeleteArgs, CmdbRelationSub, CmdbReplaceArgs, CmdbSub, CmdbUpdateArgs,
 };
+pub use completion::{CompletionArgs, Shell as CompletionShell};
 pub use identify::{IdentifyArgs, IdentifyEnhancedArgs, IdentifySub};
 pub use import::{ImportBulkArgs, ImportCreateArgs, ImportGetArgs, ImportSub};
 pub use init::InitArgs;
+pub use open_record::OpenArgs;
 pub use profile::ProfileSub;
 pub use progress::ProgressArgs;
+pub use raw::RawArgs;
 pub use schema::{SchemaChoicesArgs, SchemaColumnsArgs, SchemaSub, SchemaTablesArgs};
 pub use scores::{ScoresFavoriteArgs, ScoresListArgs, ScoresSub, SortBy, SortDir};
 pub use table::{
@@ -56,6 +64,7 @@ pub use update_set::{
     UpdateSetBackOutArgs, UpdateSetCommitMultipleArgs, UpdateSetCreateArgs, UpdateSetIdArg,
     UpdateSetRetrieveArgs, UpdateSetSub,
 };
+pub use user::UserSub;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -137,6 +146,8 @@ pub enum OutputMode {
     #[default]
     Default,
     Raw,
+    /// Render JSON results as a human-readable columnar table (suitable for interactive use, not piping).
+    Table,
 }
 
 #[derive(Subcommand, Debug)]
@@ -220,6 +231,19 @@ pub enum Command {
         #[command(subcommand)]
         sub: IdentifySub,
     },
+    /// Show the currently authenticated user.
+    User {
+        #[command(subcommand)]
+        sub: UserSub,
+    },
+    /// Health check the configured instance (auth + latency + build version).
+    Ping,
+    /// Open a record in the ServiceNow web UI (`sn open <table> <sys_id>`).
+    Open(OpenArgs),
+    /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).
+    Raw(RawArgs),
+    /// Generate a shell completion script (`sn completion <SHELL>`).
+    Completion(CompletionArgs),
 }
 
 #[cfg(test)]

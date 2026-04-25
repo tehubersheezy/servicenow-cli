@@ -1,10 +1,8 @@
 use crate::body::{build_body, BodyInput};
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::Result;
-use crate::output::emit_value;
 use clap::Subcommand;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum CatalogSub {
@@ -141,8 +139,7 @@ pub fn list(global: &GlobalFlags, args: CatalogListArgs) -> Result<()> {
     }
     let resp = client.get(&format!("{BASE}/catalogs"), &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn get(global: &GlobalFlags, args: CatalogGetArgs) -> Result<()> {
@@ -151,8 +148,7 @@ pub fn get(global: &GlobalFlags, args: CatalogGetArgs) -> Result<()> {
     let path = format!("{BASE}/catalogs/{}", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn categories(global: &GlobalFlags, args: CatalogCategoriesArgs) -> Result<()> {
@@ -169,8 +165,7 @@ pub fn categories(global: &GlobalFlags, args: CatalogCategoriesArgs) -> Result<(
     }
     let resp = client.get(&path, &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn category(global: &GlobalFlags, args: CatalogCategoryArgs) -> Result<()> {
@@ -179,8 +174,7 @@ pub fn category(global: &GlobalFlags, args: CatalogCategoryArgs) -> Result<()> {
     let path = format!("{BASE}/categories/{}", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn items(global: &GlobalFlags, args: CatalogItemsArgs) -> Result<()> {
@@ -205,8 +199,7 @@ pub fn items(global: &GlobalFlags, args: CatalogItemsArgs) -> Result<()> {
     }
     let resp = client.get(&format!("{BASE}/items"), &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn item(global: &GlobalFlags, args: CatalogItemArgs) -> Result<()> {
@@ -215,8 +208,7 @@ pub fn item(global: &GlobalFlags, args: CatalogItemArgs) -> Result<()> {
     let path = format!("{BASE}/items/{}", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn item_variables(global: &GlobalFlags, args: CatalogItemArgs) -> Result<()> {
@@ -225,8 +217,7 @@ pub fn item_variables(global: &GlobalFlags, args: CatalogItemArgs) -> Result<()>
     let path = format!("{BASE}/items/{}/variables", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn order(global: &GlobalFlags, args: CatalogOrderArgs) -> Result<()> {
@@ -243,8 +234,7 @@ pub fn order(global: &GlobalFlags, args: CatalogOrderArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn add_to_cart(global: &GlobalFlags, args: CatalogOrderArgs) -> Result<()> {
@@ -261,8 +251,7 @@ pub fn add_to_cart(global: &GlobalFlags, args: CatalogOrderArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn cart(global: &GlobalFlags) -> Result<()> {
@@ -270,8 +259,7 @@ pub fn cart(global: &GlobalFlags) -> Result<()> {
     let client = build_client(&profile, global.timeout)?;
     let resp = client.get(&format!("{BASE}/cart"), &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn cart_update(global: &GlobalFlags, args: CatalogCartUpdateArgs) -> Result<()> {
@@ -288,8 +276,7 @@ pub fn cart_update(global: &GlobalFlags, args: CatalogCartUpdateArgs) -> Result<
     let body = build_body(body_input)?;
     let resp = client.put(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn cart_remove(global: &GlobalFlags, args: CatalogCartItemArgs) -> Result<()> {
@@ -317,8 +304,7 @@ pub fn checkout(global: &GlobalFlags) -> Result<()> {
         &serde_json::json!({}),
     )?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn submit_order(global: &GlobalFlags) -> Result<()> {
@@ -330,8 +316,7 @@ pub fn submit_order(global: &GlobalFlags) -> Result<()> {
         &serde_json::json!({}),
     )?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn wishlist(global: &GlobalFlags) -> Result<()> {
@@ -339,6 +324,5 @@ pub fn wishlist(global: &GlobalFlags) -> Result<()> {
     let client = build_client(&profile, global.timeout)?;
     let resp = client.get(&format!("{BASE}/wishlist"), &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }

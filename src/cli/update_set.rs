@@ -111,8 +111,7 @@ pub fn create(global: &GlobalFlags, args: UpdateSetCreateArgs) -> Result<()> {
         &serde_json::json!({}),
     )?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn retrieve(global: &GlobalFlags, args: UpdateSetRetrieveArgs) -> Result<()> {
@@ -154,8 +153,7 @@ pub fn retrieve(global: &GlobalFlags, args: UpdateSetRetrieveArgs) -> Result<()>
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn preview(global: &GlobalFlags, args: UpdateSetIdArg) -> Result<()> {
@@ -184,8 +182,7 @@ pub fn preview(global: &GlobalFlags, args: UpdateSetIdArg) -> Result<()> {
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn commit(global: &GlobalFlags, args: UpdateSetIdArg) -> Result<()> {
@@ -214,8 +211,7 @@ pub fn commit(global: &GlobalFlags, args: UpdateSetIdArg) -> Result<()> {
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn commit_multiple(global: &GlobalFlags, args: UpdateSetCommitMultipleArgs) -> Result<()> {
@@ -245,8 +241,7 @@ pub fn commit_multiple(global: &GlobalFlags, args: UpdateSetCommitMultipleArgs) 
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn back_out(global: &GlobalFlags, args: UpdateSetBackOutArgs) -> Result<()> {
@@ -279,6 +274,5 @@ pub fn back_out(global: &GlobalFlags, args: UpdateSetBackOutArgs) -> Result<()> 
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }

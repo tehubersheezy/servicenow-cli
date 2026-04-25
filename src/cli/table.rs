@@ -240,12 +240,7 @@ pub fn list(global: &GlobalFlags, args: TableListArgs) -> Result<()> {
             for r in it {
                 out.push(r?);
             }
-            emit_value(
-                io::stdout().lock(),
-                &Value::Array(out),
-                format_from_flags(global),
-            )
-            .map_err(crate::output::map_stdout_err)?;
+            write_response(global, &Value::Array(out))?;
         } else {
             let mut stdout = io::stdout().lock();
             for r in it {
@@ -258,8 +253,7 @@ pub fn list(global: &GlobalFlags, args: TableListArgs) -> Result<()> {
 
     let resp: Value = client.get(&path, &q.to_pairs())?;
     let out = unwrap_or_raw(resp, global.output);
-    let fmt = format_from_flags(global);
-    emit_value(io::stdout().lock(), &out, fmt).map_err(crate::output::map_stdout_err)?;
+    write_response(global, &out)?;
     Ok(())
 }
 
@@ -335,7 +329,19 @@ pub(crate) fn format_from_flags(g: &GlobalFlags) -> ResolvedFormat {
 pub(crate) fn unwrap_or_raw(v: Value, mode: OutputMode) -> Value {
     match mode {
         OutputMode::Raw => v,
-        OutputMode::Default => v.get("result").cloned().unwrap_or(v),
+        OutputMode::Default | OutputMode::Table => v.get("result").cloned().unwrap_or(v),
+    }
+}
+
+/// Write a response value to stdout in whichever shape the global `--output` flag selects:
+/// JSON (`default`/`raw`) or human-readable columnar (`table`). Centralizes the OutputMode
+/// dispatch so each command's call site stays a one-liner.
+pub(crate) fn write_response(global: &GlobalFlags, value: &Value) -> Result<()> {
+    if matches!(global.output, OutputMode::Table) {
+        crate::output_table::write_table(value)
+    } else {
+        emit_value(io::stdout().lock(), value, format_from_flags(global))
+            .map_err(crate::output::map_stdout_err)
     }
 }
 
@@ -352,8 +358,7 @@ pub fn get(global: &GlobalFlags, args: TableGetArgs) -> Result<()> {
     let path = format!("/api/now/table/{}/{}", args.table, args.sys_id);
     let resp = client.get(&path, &q.to_pairs())?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn create(global: &GlobalFlags, args: TableCreateArgs) -> Result<()> {
@@ -383,8 +388,7 @@ pub fn create(global: &GlobalFlags, args: TableCreateArgs) -> Result<()> {
     let path = format!("/api/now/table/{}", args.table);
     let resp = client.post(&path, &q.to_pairs(), &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn update(global: &GlobalFlags, args: TableUpdateArgs) -> Result<()> {
@@ -472,8 +476,7 @@ fn write_op(
         HttpMutation::Put => client.put(&path, &q.to_pairs(), &body)?,
     };
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn delete(global: &GlobalFlags, args: TableDeleteArgs) -> Result<()> {

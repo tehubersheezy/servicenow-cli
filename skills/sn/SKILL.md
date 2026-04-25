@@ -183,6 +183,52 @@ sn scores favorite <uuid>
 - Using `--query` on `get` — only works on `list`; use `list --query "..." --setlimit 1`
 - Standard changes require `--template` — will error without it
 
+## Inspect / connectivity
+
+```bash
+sn ping                                   # auth + latency + ServiceNow build version, JSON output
+sn user me                                # the currently authenticated user record
+sn auth test                              # bare-bones auth check (lighter than ping)
+```
+
+## Open a record in the web UI
+
+```bash
+sn open incident <sys_id>                 # launches the form in the default browser
+sn open incident <sys_id> --print-url     # prints the URL instead (for chaining/scripts)
+```
+
+## Raw REST passthrough
+
+For endpoints not yet modeled as typed commands, use `sn raw`:
+
+```bash
+sn raw GET /api/now/v2/table/incident -q sysparm_limit=5
+sn raw POST /api/now/table/incident --data '{"short_description":"From sn raw"}'
+sn raw PATCH /api/now/table/incident/<sys_id> --field state=2
+sn raw DELETE /api/now/table/incident/<sys_id>
+```
+
+Response is emitted exactly as ServiceNow returns it (no envelope unwrapping). Method is case-insensitive.
+
+## Output modes
+
+The global `--output` flag accepts:
+
+- `default` (omitted) — unwrapped JSON, suitable for piping to `jq`
+- `raw` — full SN envelope (`{"result": ...}`) preserved
+- `table` — human-readable columnar output (interactive use only, do not pipe)
+
+## Shell completions
+
+```bash
+sn completion bash > /usr/local/etc/bash_completion.d/sn
+sn completion zsh > "${fpath[1]}/_sn"
+sn completion fish > ~/.config/fish/completions/sn.fish
+```
+
+Supported: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
+
 ## Introspection
 
 `sn introspect` dumps the full command tree as JSON (for MCP/tool generation).

@@ -102,8 +102,7 @@ pub fn run(global: &GlobalFlags, args: AtfRunArgs) -> Result<()> {
             .map_err(crate::output::map_stdout_err);
         }
     }
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn results(global: &GlobalFlags, args: AtfResultsArgs) -> Result<()> {
@@ -112,6 +111,5 @@ pub fn results(global: &GlobalFlags, args: AtfResultsArgs) -> Result<()> {
     let path = format!("/api/sn_cicd/testsuite/results/{}", args.result_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }

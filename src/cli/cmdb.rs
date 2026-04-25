@@ -1,10 +1,8 @@
 use crate::body::{build_body, BodyInput};
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::Result;
-use crate::output::emit_value;
 use clap::Subcommand;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum CmdbSub {
@@ -127,8 +125,7 @@ pub fn list(global: &GlobalFlags, args: CmdbListArgs) -> Result<()> {
     }
     let resp = client.get(&path, &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn get(global: &GlobalFlags, args: CmdbGetArgs) -> Result<()> {
@@ -137,8 +134,7 @@ pub fn get(global: &GlobalFlags, args: CmdbGetArgs) -> Result<()> {
     let path = format!("/api/now/cmdb/instance/{}/{}", args.class, args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn create(global: &GlobalFlags, args: CmdbCreateArgs) -> Result<()> {
@@ -155,8 +151,7 @@ pub fn create(global: &GlobalFlags, args: CmdbCreateArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn update(global: &GlobalFlags, args: CmdbUpdateArgs) -> Result<()> {
@@ -173,8 +168,7 @@ pub fn update(global: &GlobalFlags, args: CmdbUpdateArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.patch(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn replace(global: &GlobalFlags, args: CmdbReplaceArgs) -> Result<()> {
@@ -191,8 +185,7 @@ pub fn replace(global: &GlobalFlags, args: CmdbReplaceArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.put(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn meta(global: &GlobalFlags, args: CmdbMetaArgs) -> Result<()> {
@@ -201,8 +194,7 @@ pub fn meta(global: &GlobalFlags, args: CmdbMetaArgs) -> Result<()> {
     let path = format!("/api/now/cmdb/meta/{}", args.class);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn relation(global: &GlobalFlags, sub: CmdbRelationSub) -> Result<()> {
@@ -229,8 +221,7 @@ fn relation_add(global: &GlobalFlags, args: CmdbRelationAddArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn relation_delete(global: &GlobalFlags, args: CmdbRelationDeleteArgs) -> Result<()> {

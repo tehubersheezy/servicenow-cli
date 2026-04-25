@@ -1,10 +1,8 @@
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::{GlobalFlags, OutputMode};
 use crate::client::Client;
 use crate::error::{Error, Result};
-use crate::output::emit_value;
 use serde_json::Value;
-use std::io;
 
 #[derive(clap::Args, Debug)]
 pub struct ProgressArgs {
@@ -18,8 +16,7 @@ pub fn run(global: &GlobalFlags, args: ProgressArgs) -> Result<()> {
     let path = format!("/api/sn_cicd/progress/{}", args.progress_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 /// Poll `GET /api/sn_cicd/progress/{progress_id}` in a loop until the operation

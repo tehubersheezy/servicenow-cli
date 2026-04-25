@@ -1,7 +1,7 @@
 use clap::Parser;
 use sn::cli::{
     AppSub, AtfSub, AttachmentSub, AuthSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
-    IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub,
+    IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub, UserSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -134,5 +134,12 @@ fn run(cli: Cli) -> Result<()> {
             }
             IdentifySub::QueryEnhanced(args) => sn::cli::identify::query_enhanced(&global, args),
         },
+        Command::User { sub } => match sub {
+            UserSub::Me => sn::cli::user::me(&global),
+        },
+        Command::Ping => sn::cli::ping::run(&global),
+        Command::Open(args) => sn::cli::open_record::run(&global, args),
+        Command::Raw(args) => sn::cli::raw::run(&global, args),
+        Command::Completion(args) => sn::cli::completion::run(args),
     }
 }

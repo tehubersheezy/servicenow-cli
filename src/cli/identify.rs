@@ -1,10 +1,8 @@
 use crate::body::{build_body, BodyInput};
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::Result;
-use crate::output::emit_value;
 use clap::Subcommand;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum IdentifySub {
@@ -64,8 +62,7 @@ pub fn create_update(global: &GlobalFlags, args: IdentifyArgs) -> Result<()> {
     }
     let resp = client.post("/api/now/identifyreconcile", &query, &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn query(global: &GlobalFlags, args: IdentifyArgs) -> Result<()> {
@@ -85,8 +82,7 @@ pub fn query(global: &GlobalFlags, args: IdentifyArgs) -> Result<()> {
     }
     let resp = client.post("/api/now/identifyreconcile/query", &query_params, &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn create_update_enhanced(global: &GlobalFlags, args: IdentifyEnhancedArgs) -> Result<()> {
@@ -109,8 +105,7 @@ pub fn create_update_enhanced(global: &GlobalFlags, args: IdentifyEnhancedArgs) 
     }
     let resp = client.post("/api/now/identifyreconcile/enhanced", &query, &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn query_enhanced(global: &GlobalFlags, args: IdentifyEnhancedArgs) -> Result<()> {
@@ -133,6 +128,5 @@ pub fn query_enhanced(global: &GlobalFlags, args: IdentifyEnhancedArgs) -> Resul
     }
     let resp = client.post("/api/now/identifyreconcile/queryEnhanced", &query, &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }

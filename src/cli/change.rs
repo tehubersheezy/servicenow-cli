@@ -1,10 +1,8 @@
 use crate::body::{build_body, BodyInput};
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::{DisplayValueArg, GlobalFlags};
 use crate::error::{Error, Result};
-use crate::output::emit_value;
 use clap::{Subcommand, ValueEnum};
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum ChangeSub {
@@ -302,8 +300,7 @@ pub fn list(global: &GlobalFlags, args: ChangeListArgs) -> Result<()> {
     }
     let resp = client.get(path, &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn get(global: &GlobalFlags, args: ChangeGetArgs) -> Result<()> {
@@ -326,8 +323,7 @@ pub fn get(global: &GlobalFlags, args: ChangeGetArgs) -> Result<()> {
     }
     let resp = client.get(&path, &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn create(global: &GlobalFlags, args: ChangeCreateArgs) -> Result<()> {
@@ -360,8 +356,7 @@ pub fn create(global: &GlobalFlags, args: ChangeCreateArgs) -> Result<()> {
     }
     let resp = client.post(&path, &query, &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn update(global: &GlobalFlags, args: ChangeUpdateArgs) -> Result<()> {
@@ -386,8 +381,7 @@ pub fn update(global: &GlobalFlags, args: ChangeUpdateArgs) -> Result<()> {
     }
     let resp = client.patch(&path, &query, &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn delete(global: &GlobalFlags, args: ChangeDeleteArgs) -> Result<()> {
@@ -404,8 +398,7 @@ pub fn nextstates(global: &GlobalFlags, args: ChangeSysIdArg) -> Result<()> {
     let path = format!("/api/sn_chg_rest/change/{}/nextstates", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn approvals(global: &GlobalFlags, args: ChangeApprovalsArgs) -> Result<()> {
@@ -422,8 +415,7 @@ pub fn approvals(global: &GlobalFlags, args: ChangeApprovalsArgs) -> Result<()> 
     let body = build_body(body_input)?;
     let resp = client.patch(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn risk(global: &GlobalFlags, args: ChangeRiskArgs) -> Result<()> {
@@ -440,8 +432,7 @@ pub fn risk(global: &GlobalFlags, args: ChangeRiskArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.patch(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn schedule(global: &GlobalFlags, args: ChangeSysIdArg) -> Result<()> {
@@ -450,8 +441,7 @@ pub fn schedule(global: &GlobalFlags, args: ChangeSysIdArg) -> Result<()> {
     let path = format!("/api/sn_chg_rest/change/{}/schedule", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn models(global: &GlobalFlags, args: ChangeOptionalIdArg) -> Result<()> {
@@ -463,8 +453,7 @@ pub fn models(global: &GlobalFlags, args: ChangeOptionalIdArg) -> Result<()> {
     };
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn templates(global: &GlobalFlags, args: ChangeOptionalIdArg) -> Result<()> {
@@ -476,8 +465,7 @@ pub fn templates(global: &GlobalFlags, args: ChangeOptionalIdArg) -> Result<()> 
     };
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn task(global: &GlobalFlags, sub: ChangeTaskSub) -> Result<()> {
@@ -501,8 +489,7 @@ fn task_list(global: &GlobalFlags, args: ChangeTaskListArgs) -> Result<()> {
     query.push(("sysparm_limit".into(), args.setlimit.to_string()));
     let resp = client.get(&path, &query)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn task_get(global: &GlobalFlags, args: ChangeTaskGetArgs) -> Result<()> {
@@ -514,8 +501,7 @@ fn task_get(global: &GlobalFlags, args: ChangeTaskGetArgs) -> Result<()> {
     );
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn task_create(global: &GlobalFlags, args: ChangeTaskCreateArgs) -> Result<()> {
@@ -532,8 +518,7 @@ fn task_create(global: &GlobalFlags, args: ChangeTaskCreateArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn task_update(global: &GlobalFlags, args: ChangeTaskUpdateArgs) -> Result<()> {
@@ -553,8 +538,7 @@ fn task_update(global: &GlobalFlags, args: ChangeTaskUpdateArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.patch(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn task_delete(global: &GlobalFlags, args: ChangeTaskDeleteArgs) -> Result<()> {
@@ -581,8 +565,7 @@ fn ci_list(global: &GlobalFlags, args: ChangeSysIdArg) -> Result<()> {
     let path = format!("/api/sn_chg_rest/change/{}/ci", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn ci_add(global: &GlobalFlags, args: ChangeCiAddArgs) -> Result<()> {
@@ -599,8 +582,7 @@ fn ci_add(global: &GlobalFlags, args: ChangeCiAddArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn conflict(global: &GlobalFlags, sub: ChangeConflictSub) -> Result<()> {
@@ -617,8 +599,7 @@ fn conflict_get(global: &GlobalFlags, args: ChangeSysIdArg) -> Result<()> {
     let path = format!("/api/sn_chg_rest/change/{}/conflict", args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn conflict_add(global: &GlobalFlags, args: ChangeConflictAddArgs) -> Result<()> {
@@ -635,8 +616,7 @@ fn conflict_add(global: &GlobalFlags, args: ChangeConflictAddArgs) -> Result<()>
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 fn conflict_remove(global: &GlobalFlags, args: ChangeSysIdArg) -> Result<()> {

@@ -1,10 +1,8 @@
 use crate::body::{build_body, BodyInput};
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::Result;
-use crate::output::emit_value;
 use clap::Subcommand;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum ImportSub {
@@ -59,8 +57,7 @@ pub fn create(global: &GlobalFlags, args: ImportCreateArgs) -> Result<()> {
     let body = build_body(body_input)?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn bulk(global: &GlobalFlags, args: ImportBulkArgs) -> Result<()> {
@@ -70,8 +67,7 @@ pub fn bulk(global: &GlobalFlags, args: ImportBulkArgs) -> Result<()> {
     let body = build_body(BodyInput::Data(args.data))?;
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
 
 pub fn get(global: &GlobalFlags, args: ImportGetArgs) -> Result<()> {
@@ -80,6 +76,5 @@ pub fn get(global: &GlobalFlags, args: ImportGetArgs) -> Result<()> {
     let path = format!("/api/now/import/{}/{}", args.staging_table, args.sys_id);
     let resp = client.get(&path, &[])?;
     let out = unwrap_or_raw(resp, global.output);
-    emit_value(io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    crate::cli::table::write_response(global, &out)
 }
