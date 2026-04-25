@@ -23,3 +23,10 @@ install-path = "CARGO_HOME"
 install-updater = false
 # Whether to enable GitHub Attestations
 github-attestations = true
+
+# Pin ARM64 Windows builds to a native Windows runner. The default Linux
+# runner can't cross-compile `ring` (TLS dep) to aarch64-pc-windows-msvc
+# because its build script emits MSVC `/imsvc` flags that clang on Linux
+# rejects.
+[dist.github-custom-runners]
+aarch64-pc-windows-msvc = "windows-latest"

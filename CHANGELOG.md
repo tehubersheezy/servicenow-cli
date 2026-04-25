@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.1 (2026-04-25)
+
+### Fixes
+
+- **Release pipeline** (v0.4.0 was tagged but never published).
+  - `wix/main.wxs` was regenerated after the repo rename so the MSI's
+    `ARPHELPLINK` ("More info") points at the new
+    `tehubersheezy/servicenow-cli` URL. `dist plan` rejected v0.4.0 because
+    the WXS template hadn't been refreshed alongside `Cargo.toml`'s
+    `homepage` field.
+  - ARM64 Windows builds now run on a native Windows runner
+    (`windows-latest`) via `[dist.github-custom-runners]`. The default
+    Linux runner couldn't cross-compile `ring` because its build script
+    emits MSVC `/imsvc` flags that clang on Linux rejects.
+
 ## 0.4.0 (2026-04-25)
 
 ### New commands
