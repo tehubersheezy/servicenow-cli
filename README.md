@@ -1,5 +1,11 @@
 # sn
 
+[![CI](https://github.com/tehubersheezy/sn/actions/workflows/ci.yml/badge.svg)](https://github.com/tehubersheezy/sn/actions/workflows/ci.yml)
+[![Security](https://github.com/tehubersheezy/sn/actions/workflows/security.yml/badge.svg)](https://github.com/tehubersheezy/sn/actions/workflows/security.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tehubersheezy/sn/badge)](https://scorecard.dev/viewer/?uri=github.com/tehubersheezy/sn)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Latest release](https://img.shields.io/github/v/release/tehubersheezy/sn?display_name=tag&sort=semver)](https://github.com/tehubersheezy/sn/releases/latest)
+
 A fast, single-binary CLI for ServiceNow. Designed for LLM agents and human operators alike.
 
 `sn` wraps ServiceNow's REST APIs — Table, Change Management, Attachment, CMDB, Import Set, Service Catalog, Identification & Reconciliation, CICD, Aggregate, Performance Analytics, and schema discovery — into a predictable command-line interface with stable JSON output, structured error reporting, and deterministic exit codes.
