@@ -64,7 +64,8 @@ use clap::{Parser, Subcommand, ValueEnum};
     name = "sn",
     version,
     about = "ServiceNow CLI (Table API + schema + CICD)",
-    disable_version_flag = true
+    disable_version_flag = true,
+    after_help = "BODY INPUT (write commands accept any of these):\n  --data '<inline JSON>'             inline JSON object\n  --data @body.json                  read body from a file (multi-line safe)\n  --data @-                          read body from stdin (e.g. piped from jq)\n  --field name=value                 set one field\n  --field description=@notes.md      read one field's value from a file\n\nEXAMPLES:\n  sn table update incident <sys_id> --data @body.json\n  sn table update incident <sys_id> --field description=@notes.md\n  jq '.fields' patch.json | sn table update incident <sys_id> --data @-"
 )]
 #[allow(clippy::manual_non_exhaustive)] // `version` field exists only to wire the -v flag.
 pub struct Cli {

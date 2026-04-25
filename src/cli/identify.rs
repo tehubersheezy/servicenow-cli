@@ -20,8 +20,10 @@ pub enum IdentifySub {
 
 #[derive(clap::Args, Debug)]
 pub struct IdentifyArgs {
+    /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
     #[arg(long, conflicts_with = "field")]
     pub data: Option<String>,
+    /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
     #[arg(long = "field", conflicts_with = "data")]
     pub field: Vec<String>,
     /// Data source identifier.
@@ -31,8 +33,10 @@ pub struct IdentifyArgs {
 
 #[derive(clap::Args, Debug)]
 pub struct IdentifyEnhancedArgs {
+    /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
     #[arg(long, conflicts_with = "field")]
     pub data: Option<String>,
+    /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
     #[arg(long = "field", conflicts_with = "data")]
     pub field: Vec<String>,
     /// Data source identifier.

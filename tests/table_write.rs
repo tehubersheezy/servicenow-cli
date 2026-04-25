@@ -40,6 +40,88 @@ async fn update_sends_patch_with_only_named_fields() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn update_accepts_data_at_file_with_multiline_body() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/now/table/incident/abc"))
+        .and(body_partial_json(
+            json!({"description": "line one\nline two\nline three"}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"result": {"sys_id": "abc"}})),
+        )
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let dir = tempfile::tempdir().unwrap();
+        let body_path = dir.path().join("body.json");
+        std::fs::write(
+            &body_path,
+            "{\n  \"description\": \"line one\\nline two\\nline three\"\n}\n",
+        )
+        .unwrap();
+        let data_arg = format!("@{}", body_path.to_str().unwrap());
+        let mut cmd = Command::cargo_bin("sn").unwrap();
+        cmd.env("SN_INSTANCE", &server_uri)
+            .env("SN_USERNAME", "u")
+            .env("SN_PASSWORD", "p")
+            .args([
+                "--compact",
+                "table",
+                "update",
+                "incident",
+                "abc",
+                "--data",
+                &data_arg,
+            ])
+            .assert()
+            .success();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn update_accepts_field_at_file_for_multiline_value() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/now/table/incident/abc"))
+        .and(body_partial_json(
+            json!({"work_notes": "first line\nsecond line"}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"result": {"sys_id": "abc"}})),
+        )
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let dir = tempfile::tempdir().unwrap();
+        let value_path = dir.path().join("notes.txt");
+        std::fs::write(&value_path, "first line\nsecond line").unwrap();
+        let field_arg = format!("work_notes=@{}", value_path.to_str().unwrap());
+        let mut cmd = Command::cargo_bin("sn").unwrap();
+        cmd.env("SN_INSTANCE", &server_uri)
+            .env("SN_USERNAME", "u")
+            .env("SN_PASSWORD", "p")
+            .args([
+                "--compact",
+                "table",
+                "update",
+                "incident",
+                "abc",
+                "--field",
+                &field_arg,
+            ])
+            .assert()
+            .success();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn replace_sends_put_with_full_body() {
     let server = wiremock::MockServer::start().await;
     Mock::given(method("PUT"))
