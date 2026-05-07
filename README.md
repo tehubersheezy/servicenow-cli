@@ -83,7 +83,6 @@ Select a profile per command or set a default:
 ```bash
 sn --profile prod table list incident --setlimit 5
 sn profile use prod                  # set as default
-SN_PROFILE=dev sn table list change_request   # env override
 ```
 
 Verify credentials:
@@ -653,14 +652,16 @@ Credentials are stored in two files (AWS CLI-style split):
 | `config.toml` | Instance URLs, default profile | `~/.config/sn/` |
 | `credentials.toml` | Usernames, passwords (chmod 600) | `~/.config/sn/` |
 
-Environment variables override profile values:
+For one-off invocations against an instance/account that isn't a saved profile, use CLI flags:
 
 ```bash
-SN_INSTANCE=https://myco.service-now.com \
-SN_USERNAME=api-user \
-SN_PASSWORD=secret \
-  sn table list incident --setlimit 1
+sn --instance-override https://myco.service-now.com \
+   --username api-user \
+   --password secret \
+   table list incident --setlimit 1
 ```
+
+`--username` and `--password` are hidden from `--help` (visible in `ps` output and shell history) — they exist for tests and automation. For everyday use, run `sn init` and select with `--profile NAME`.
 
 Proxy and TLS environment variables:
 

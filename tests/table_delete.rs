@@ -16,10 +16,19 @@ async fn delete_with_yes_succeeds() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
         let out = cmd
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["table", "delete", "incident", "abc", "--yes"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "table",
+                "delete",
+                "incident",
+                "abc",
+                "--yes",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -33,12 +42,20 @@ async fn delete_with_yes_succeeds() {
 async fn delete_without_yes_in_non_tty_errors() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", "http://127.0.0.1:1")
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["table", "delete", "incident", "abc"])
-            .assert()
-            .code(1);
+        cmd.args([
+            "--instance-override",
+            "http://127.0.0.1:1",
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "table",
+            "delete",
+            "incident",
+            "abc",
+        ])
+        .assert()
+        .code(1);
     })
     .await
     .unwrap();

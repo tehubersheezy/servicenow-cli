@@ -20,20 +20,23 @@ async fn update_sends_patch_with_only_named_fields() {
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args([
-                "--compact",
-                "table",
-                "update",
-                "incident",
-                "abc",
-                "--field",
-                "state=2",
-            ])
-            .assert()
-            .success();
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--compact",
+            "table",
+            "update",
+            "incident",
+            "abc",
+            "--field",
+            "state=2",
+        ])
+        .assert()
+        .success();
     })
     .await
     .unwrap();
@@ -63,20 +66,23 @@ async fn update_accepts_data_at_file_with_multiline_body() {
         .unwrap();
         let data_arg = format!("@{}", body_path.to_str().unwrap());
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args([
-                "--compact",
-                "table",
-                "update",
-                "incident",
-                "abc",
-                "--data",
-                &data_arg,
-            ])
-            .assert()
-            .success();
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--compact",
+            "table",
+            "update",
+            "incident",
+            "abc",
+            "--data",
+            &data_arg,
+        ])
+        .assert()
+        .success();
     })
     .await
     .unwrap();
@@ -102,20 +108,23 @@ async fn update_accepts_field_at_file_for_multiline_value() {
         std::fs::write(&value_path, "first line\nsecond line").unwrap();
         let field_arg = format!("work_notes=@{}", value_path.to_str().unwrap());
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args([
-                "--compact",
-                "table",
-                "update",
-                "incident",
-                "abc",
-                "--field",
-                &field_arg,
-            ])
-            .assert()
-            .success();
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--compact",
+            "table",
+            "update",
+            "incident",
+            "abc",
+            "--field",
+            &field_arg,
+        ])
+        .assert()
+        .success();
     })
     .await
     .unwrap();
@@ -134,20 +143,23 @@ async fn replace_sends_put_with_full_body() {
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args([
-                "--compact",
-                "table",
-                "replace",
-                "incident",
-                "abc",
-                "--data",
-                r#"{"number":"INC1"}"#,
-            ])
-            .assert()
-            .success();
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--compact",
+            "table",
+            "replace",
+            "incident",
+            "abc",
+            "--data",
+            r#"{"number":"INC1"}"#,
+        ])
+        .assert()
+        .success();
     })
     .await
     .unwrap();

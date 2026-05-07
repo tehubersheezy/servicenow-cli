@@ -177,11 +177,9 @@ pub struct ResolvedProfile {
 
 pub struct ProfileResolverInputs<'a> {
     pub cli_profile: Option<&'a str>,
-    pub env_profile: Option<&'a str>,
     pub cli_instance_override: Option<&'a str>,
-    pub env_instance: Option<&'a str>,
-    pub env_username: Option<&'a str>,
-    pub env_password: Option<&'a str>,
+    pub cli_username: Option<&'a str>,
+    pub cli_password: Option<&'a str>,
     pub cli_proxy: Option<&'a str>,
     pub env_proxy: Option<&'a str>,
     pub cli_no_proxy: bool,
@@ -200,7 +198,6 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
     let name = inputs
         .cli_profile
         .map(ToString::to_string)
-        .or_else(|| inputs.env_profile.map(ToString::to_string))
         .or_else(|| inputs.config.default_profile.clone())
         .unwrap_or_else(|| "default".to_string());
 
@@ -210,31 +207,30 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
     let instance = inputs
         .cli_instance_override
         .map(ToString::to_string)
-        .or_else(|| inputs.env_instance.map(ToString::to_string))
         .or_else(|| profile_cfg.map(|p| p.instance.clone()))
         .ok_or_else(|| {
             Error::Config(format!(
-                "no instance configured for profile '{name}'; run `sn init` or set SN_INSTANCE"
+                "no instance configured for profile '{name}'; run `sn init` or pass --instance-override"
             ))
         })?;
 
     let username = inputs
-        .env_username
+        .cli_username
         .map(ToString::to_string)
         .or_else(|| profile_cred.map(|p| p.username.clone()))
         .ok_or_else(|| {
             Error::Config(format!(
-                "no username configured for profile '{name}'; run `sn init` or set SN_USERNAME"
+                "no username configured for profile '{name}'; run `sn init` or pass --username"
             ))
         })?;
 
     let password = inputs
-        .env_password
+        .cli_password
         .map(ToString::to_string)
         .or_else(|| profile_cred.map(|p| p.password.clone()))
         .ok_or_else(|| {
             Error::Config(format!(
-                "no password configured for profile '{name}'; run `sn init` or set SN_PASSWORD"
+                "no password configured for profile '{name}'; run `sn init` or pass --password"
             ))
         })?;
 
@@ -340,11 +336,9 @@ mod resolution_tests {
     fn base_inputs<'a>(cfg: &'a Config, cr: &'a Credentials) -> ProfileResolverInputs<'a> {
         ProfileResolverInputs {
             cli_profile: None,
-            env_profile: None,
             cli_instance_override: None,
-            env_instance: None,
-            env_username: None,
-            env_password: None,
+            cli_username: None,
+            cli_password: None,
             cli_proxy: None,
             env_proxy: None,
             cli_no_proxy: false,
@@ -370,12 +364,11 @@ mod resolution_tests {
     }
 
     #[test]
-    fn cli_flag_wins_over_env_and_default() {
+    fn cli_profile_wins_over_default() {
         let cfg = sample_config();
         let cr = sample_credentials();
         let r = resolve_profile(ProfileResolverInputs {
             cli_profile: Some("prod"),
-            env_profile: Some("dev"),
             ..base_inputs(&cfg, &cr)
         })
         .unwrap();
@@ -384,19 +377,19 @@ mod resolution_tests {
     }
 
     #[test]
-    fn env_overrides_per_field() {
+    fn cli_overrides_per_field() {
         let cfg = sample_config();
         let cr = sample_credentials();
         let r = resolve_profile(ProfileResolverInputs {
-            env_instance: Some("override.example.com"),
-            env_username: Some("env-u"),
-            env_password: Some("env-p"),
+            cli_instance_override: Some("override.example.com"),
+            cli_username: Some("cli-u"),
+            cli_password: Some("cli-p"),
             ..base_inputs(&cfg, &cr)
         })
         .unwrap();
         assert_eq!(r.instance, "override.example.com");
-        assert_eq!(r.username, "env-u");
-        assert_eq!(r.password, "env-p");
+        assert_eq!(r.username, "cli-u");
+        assert_eq!(r.password, "cli-p");
     }
 
     #[test]
@@ -404,8 +397,8 @@ mod resolution_tests {
         let cfg = Config::default();
         let cr = Credentials::default();
         let err = resolve_profile(ProfileResolverInputs {
-            env_username: Some("u"),
-            env_password: Some("p"),
+            cli_username: Some("u"),
+            cli_password: Some("p"),
             ..base_inputs(&cfg, &cr)
         })
         .unwrap_err();
@@ -434,5 +427,326 @@ mod resolution_tests {
         save_credentials_to(&path, &sample_credentials()).unwrap();
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    // -----------------------------------------------------------------------
+    // Contract regression tests: env vars must NEVER override credentials.
+    //
+    // Background: a user reported "profile switching is broken because env
+    // vars override profiles." That report is FALSE for the current code, and
+    // these tests lock the contract in so it can never silently regress.
+    // `resolve_profile()` only consults env-derived inputs for proxy/TLS
+    // settings — never for instance, username, password, or profile name.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn env_vars_never_leak_into_credentials() {
+        // Structural guarantee: `ProfileResolverInputs` has no
+        // `env_username` / `env_password` / `env_instance` field. There is
+        // deliberately no env-driven path for credential or instance
+        // selection — the only env-driven inputs are proxy/TLS related
+        // (`env_proxy`, `env_no_proxy`, `env_insecure`, `env_ca_cert`,
+        // `env_proxy_ca_cert`). This test verifies that even when those env
+        // inputs are set to garbage, the resolved instance/username/password
+        // come exclusively from the profile file.
+        let cfg = sample_config();
+        let cr = sample_credentials();
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_profile: Some("dev"),
+            env_proxy: Some("http://garbage.invalid:9999"),
+            env_no_proxy: Some("garbage"),
+            env_insecure: Some("1"),
+            env_ca_cert: Some("/garbage/ca.pem"),
+            env_proxy_ca_cert: Some("/garbage/proxy-ca.pem"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.name, "dev");
+        assert_eq!(r.instance, "dev.example.com");
+        assert_eq!(r.username, "dev-u");
+        assert_eq!(r.password, "dev-p");
+    }
+
+    #[test]
+    fn proxy_precedence_cli_beats_env_beats_profile() {
+        let mut cfg = sample_config();
+        cfg.profiles.get_mut("dev").unwrap().proxy = Some("http://profile.proxy:1".into());
+        let cr = sample_credentials();
+
+        // CLI > env > profile.
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_proxy: Some("http://cli.proxy:3"),
+            env_proxy: Some("http://env.proxy:2"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.proxy.as_deref(), Some("http://cli.proxy:3"));
+
+        // Drop CLI: env wins.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_proxy: Some("http://env.proxy:2"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.proxy.as_deref(), Some("http://env.proxy:2"));
+
+        // Drop env: profile wins.
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert_eq!(r.proxy.as_deref(), Some("http://profile.proxy:1"));
+    }
+
+    #[test]
+    fn no_proxy_flag_clears_all_proxies() {
+        let mut cfg = sample_config();
+        cfg.profiles.get_mut("dev").unwrap().proxy = Some("http://profile.proxy:1".into());
+        let cr = sample_credentials();
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_proxy: Some("http://cli.proxy:3"),
+            env_proxy: Some("http://env.proxy:2"),
+            cli_no_proxy: true,
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.proxy, None);
+    }
+
+    #[test]
+    fn env_no_proxy_string_propagates() {
+        let cfg = sample_config();
+        let cr = sample_credentials();
+        let r = resolve_profile(ProfileResolverInputs {
+            env_no_proxy: Some("localhost,127.0.0.1"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.no_proxy.as_deref(), Some("localhost,127.0.0.1"));
+    }
+
+    #[test]
+    fn env_insecure_recognizes_1_and_true() {
+        let cfg = sample_config();
+        let cr = sample_credentials();
+
+        // "1" flips the flag.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_insecure: Some("1"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(r.insecure);
+
+        // "true" (lowercase) flips the flag.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_insecure: Some("true"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(r.insecure);
+
+        // "TRUE" (uppercase) flips the flag.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_insecure: Some("TRUE"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(r.insecure);
+
+        // "0" does NOT flip the flag.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_insecure: Some("0"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(!r.insecure);
+
+        // "false" does NOT flip the flag.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_insecure: Some("false"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(!r.insecure);
+
+        // Arbitrary garbage does NOT flip the flag.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_insecure: Some("yes-please"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(!r.insecure);
+    }
+
+    #[test]
+    fn cli_insecure_or_env_or_profile_ored() {
+        let mut cfg = sample_config();
+        let cr = sample_credentials();
+
+        // CLI alone is enough.
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_insecure: true,
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(r.insecure);
+
+        // Env alone is enough.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_insecure: Some("1"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert!(r.insecure);
+
+        // Profile alone is enough.
+        cfg.profiles.get_mut("dev").unwrap().insecure = true;
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert!(r.insecure);
+
+        // All three false/unset → resolved is false.
+        cfg.profiles.get_mut("dev").unwrap().insecure = false;
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert!(!r.insecure);
+    }
+
+    #[test]
+    fn ca_cert_precedence_cli_beats_env_beats_profile() {
+        let mut cfg = sample_config();
+        cfg.profiles.get_mut("dev").unwrap().ca_cert = Some("/profile/ca.pem".into());
+        let cr = sample_credentials();
+
+        // CLI > env > profile.
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_ca_cert: Some("/cli/ca.pem"),
+            env_ca_cert: Some("/env/ca.pem"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.ca_cert.as_deref(), Some("/cli/ca.pem"));
+
+        // Drop CLI: env wins.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_ca_cert: Some("/env/ca.pem"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.ca_cert.as_deref(), Some("/env/ca.pem"));
+
+        // Drop env: profile wins.
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert_eq!(r.ca_cert.as_deref(), Some("/profile/ca.pem"));
+    }
+
+    #[test]
+    fn proxy_ca_cert_precedence_cli_beats_env_beats_profile() {
+        let mut cfg = sample_config();
+        cfg.profiles.get_mut("dev").unwrap().proxy_ca_cert = Some("/profile/proxy-ca.pem".into());
+        let cr = sample_credentials();
+
+        // CLI > env > profile.
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_proxy_ca_cert: Some("/cli/proxy-ca.pem"),
+            env_proxy_ca_cert: Some("/env/proxy-ca.pem"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.proxy_ca_cert.as_deref(), Some("/cli/proxy-ca.pem"));
+
+        // Drop CLI: env wins.
+        let r = resolve_profile(ProfileResolverInputs {
+            env_proxy_ca_cert: Some("/env/proxy-ca.pem"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.proxy_ca_cert.as_deref(), Some("/env/proxy-ca.pem"));
+
+        // Drop env: profile wins.
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert_eq!(r.proxy_ca_cert.as_deref(), Some("/profile/proxy-ca.pem"));
+    }
+
+    #[test]
+    fn proxy_credentials_only_come_from_profile_file() {
+        let cfg = sample_config();
+        let mut cr = sample_credentials();
+        let dev = cr.profiles.get_mut("dev").unwrap();
+        dev.proxy_username = Some("proxy-user".into());
+        dev.proxy_password = Some("proxy-pass".into());
+
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert_eq!(r.proxy_username.as_deref(), Some("proxy-user"));
+        assert_eq!(r.proxy_password.as_deref(), Some("proxy-pass"));
+    }
+
+    #[test]
+    fn unknown_profile_name_falls_through_to_missing_field_error() {
+        let cfg = sample_config();
+        let cr = sample_credentials();
+        let err = resolve_profile(ProfileResolverInputs {
+            cli_profile: Some("nonexistent"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap_err();
+        match err {
+            Error::Config(msg) => assert!(
+                msg.contains("nonexistent"),
+                "error message should name the profile, got: {msg}"
+            ),
+            other => panic!("expected Error::Config, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn profile_default_string_when_no_default_profile_configured() {
+        let cfg = Config::default();
+        let cr = Credentials::default();
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_instance_override: Some("override.example.com"),
+            cli_username: Some("u"),
+            cli_password: Some("p"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.name, "default");
+    }
+
+    #[test]
+    fn cli_profile_with_instance_override_uses_override_not_profile_instance() {
+        let cfg = sample_config();
+        let cr = sample_credentials();
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_profile: Some("dev"),
+            cli_instance_override: Some("foo.com"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.name, "dev");
+        assert_eq!(r.instance, "foo.com");
+        // Credentials still come from the "dev" profile.
+        assert_eq!(r.username, "dev-u");
+        assert_eq!(r.password, "dev-p");
+    }
+
+    #[test]
+    fn default_profile_in_config_used_when_no_cli_profile() {
+        let mut cfg = sample_config();
+        cfg.default_profile = Some("prod".into());
+        let cr = sample_credentials();
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert_eq!(r.name, "prod");
+        assert_eq!(r.instance, "prod.example.com");
+    }
+
+    #[test]
+    fn cli_profile_overrides_default_profile_in_config() {
+        let mut cfg = sample_config();
+        cfg.default_profile = Some("prod".into());
+        let cr = sample_credentials();
+        let r = resolve_profile(ProfileResolverInputs {
+            cli_profile: Some("dev"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap();
+        assert_eq!(r.name, "dev");
+        assert_eq!(r.instance, "dev.example.com");
     }
 }

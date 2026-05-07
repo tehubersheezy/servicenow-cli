@@ -54,7 +54,7 @@ sn auth test                               # verify credentials
 sn --profile prod table list incident      # select profile per command
 ```
 
-Env overrides: `SN_INSTANCE`, `SN_USERNAME`, `SN_PASSWORD`, `SN_PROFILE`, `SN_PROXY`, `SN_INSECURE`.
+CLI overrides for one-off use: `--instance-override URL`, `--username USER`, `--password PASSWORD` (the latter two are hidden from `--help`; prefer `sn init` + `--profile`). Proxy/TLS env vars: `SN_PROXY`, `SN_NO_PROXY`, `SN_INSECURE`, `SN_CA_CERT`, `SN_PROXY_CA_CERT`. There are no env vars for credentials or profile selection.
 
 ## Key flags
 

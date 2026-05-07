@@ -110,7 +110,7 @@ Uses `/api/now/identifyreconcile`. POST-only pattern for CI creation/updates and
 
 ### Profile resolution precedence
 
-`--profile` flag > `SN_PROFILE` env > `default_profile` in config.toml > literal "default" profile. Per-field overrides: `SN_INSTANCE`, `SN_USERNAME`, `SN_PASSWORD` override the resolved profile's values. `--instance-override URL` overrides the selected profile's instance URL for a single invocation (useful for one-off commands against a different instance without switching profiles).
+`--profile` flag > `default_profile` in config.toml > literal "default" profile. Per-field overrides come from CLI flags only: `--instance-override URL`, `--username USER`, `--password PASSWORD` replace the selected profile's stored values for a single invocation. The `--username` and `--password` flags are hidden from `--help` (intended for tests/automation; both are visible in `ps` output and shell history, so prefer `sn init` for everyday use). There are deliberately no env vars for credential or profile selection — env-driven overrides previously hijacked profile credentials silently and have been removed. Proxy/TLS env vars (`SN_PROXY` etc.) still exist; see the table below.
 
 ### Proxy and TLS
 

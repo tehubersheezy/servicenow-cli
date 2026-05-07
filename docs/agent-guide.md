@@ -155,27 +155,31 @@ Sample `auth test` output:
 
 **Multi-profile selection** (in precedence order, highest first):
 1. `--profile <name>` flag
-2. `SN_PROFILE` environment variable
-3. `default` profile
+2. `default_profile` in `config.toml`
+3. Literal `default` profile
 
 ```bash
 sn --profile prod table list incident --limit 5
-SN_PROFILE=prod sn table list incident --limit 5
 ```
 
-**Per-invocation env overrides** (bypass profile entirely; great for CI or
+**Per-invocation CLI overrides** (bypass profile entirely; useful for CI or
 ephemeral agent sessions):
 
 ```bash
-SN_INSTANCE=https://dev12345.service-now.com \
-SN_USERNAME=api.user \
-SN_PASSWORD='s3cr3t' \
-  sn table list incident --limit 1
+sn --instance-override https://dev12345.service-now.com \
+   --username api.user \
+   --password 's3cr3t' \
+   table list incident --limit 1
 ```
 
-Precedence for credential fields: env var > profile file.
-If `SN_INSTANCE` is set but username/password are not, the CLI falls back to
-the active profile for the missing pieces.
+Precedence for credential fields: CLI flag > profile file. If
+`--instance-override` is set but username/password are not, the CLI falls
+back to the active profile for the missing pieces. The `--username` and
+`--password` flags are hidden from `--help` (visible in `ps` output and
+shell history); prefer `sn init` + `--profile` for everyday use. There are
+deliberately no env vars for credentials — the previous `SN_INSTANCE` /
+`SN_USERNAME` / `SN_PASSWORD` overrides silently hijacked stored profile
+credentials and have been removed.
 
 **Proxy and TLS overrides** (useful when the agent runs behind a corporate proxy):
 
@@ -1326,7 +1330,7 @@ case $? in
     echo "network failure — check connectivity, then retry manually" >&2
     ;;
   4)
-    echo "auth failed — re-run 'sn init' or check SN_PASSWORD" >&2
+    echo "auth failed — re-run 'sn init' or pass --username/--password" >&2
     exit 1
     ;;
 esac
@@ -1362,7 +1366,7 @@ sn table get incident bogus_id 2>&1 >/dev/null | jq '.error'
 | ACL denies read/write | 2 | 403 | Distinct from auth (401) — credentials are fine, permissions aren't |
 | Bad credentials | 4 | 401 | Re-init profile |
 | Session expired / MFA | 4 | 401 | Same handling as bad creds |
-| TLS handshake failure | 3 | — | Usually `SN_INSTANCE` typo or proxy issue |
+| TLS handshake failure | 3 | — | Usually a typo in the profile's instance URL or a proxy issue |
 | DNS / connection refused | 3 | — | Network; check connectivity |
 | Timeout | 3 | — | Network timeout |
 | Rate limited | 2 | 429 | Back off and retry manually |
@@ -1639,6 +1643,8 @@ sn introspect
 Global flags (any command):
   --profile NAME          select credential profile
   --instance-override URL override instance URL for this invocation
+  --username USER         override profile's username (hidden; for tests/CI)
+  --password PASSWORD     override profile's password (hidden; for tests/CI)
   --proxy URL             HTTP/HTTPS/SOCKS5 proxy
   --no-proxy              bypass configured proxy
   --insecure              disable TLS cert verification
@@ -1647,11 +1653,8 @@ Global flags (any command):
   --timeout SECS          request timeout
   -v / -vv / -vvv         verbose logging on stderr
 
-Environment variables:
-  SN_PROFILE         profile override
-  SN_INSTANCE        https://<name>.service-now.com
-  SN_USERNAME        basic-auth username
-  SN_PASSWORD        basic-auth password
+Environment variables (proxy/TLS only — credential and profile env vars
+were removed; use --profile or the per-field CLI flags above):
   SN_PROXY           proxy URL
   SN_NO_PROXY        comma-separated bypass hosts
   SN_INSECURE        set to 1 to skip TLS verification

@@ -21,10 +21,19 @@ async fn schema_tables_filter() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "schema", "tables", "--filter", "incident"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "schema",
+                "tables",
+                "--filter",
+                "incident",
+            ])
             .assert()
             .success();
         let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -50,10 +59,19 @@ async fn schema_columns_writable_filter() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "schema", "columns", "incident", "--writable"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "schema",
+                "columns",
+                "incident",
+                "--writable",
+            ])
             .assert()
             .success();
         let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -78,10 +96,19 @@ async fn schema_choices_for_field() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "schema", "choices", "incident", "state"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "schema",
+                "choices",
+                "incident",
+                "state",
+            ])
             .assert()
             .success();
         let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -107,10 +134,18 @@ async fn schema_choices_missing_field_is_usage_error() {
     tokio::task::spawn_blocking(move || {
         Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["schema", "choices", "incident", "bogus_field"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "schema",
+                "choices",
+                "incident",
+                "bogus_field",
+            ])
             .assert()
             .code(1);
     })

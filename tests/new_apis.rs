@@ -19,10 +19,19 @@ async fn change_list_normal() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "change", "list", "--type", "normal"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "change",
+                "list",
+                "--type",
+                "normal",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -48,10 +57,13 @@ async fn change_create_normal() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
             .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
                 "--compact",
                 "change",
                 "create",
@@ -84,10 +96,19 @@ async fn change_task_list() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "change", "task", "list", "chg001"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "change",
+                "task",
+                "list",
+                "chg001",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -115,10 +136,13 @@ async fn attachment_list_with_query() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
             .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
                 "--compact",
                 "attachment",
                 "list",
@@ -149,10 +173,18 @@ async fn attachment_get_metadata() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "attachment", "get", "att001"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "attachment",
+                "get",
+                "att001",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -179,10 +211,18 @@ async fn cmdb_list_servers() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "cmdb", "list", "cmdb_ci_server"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "cmdb",
+                "list",
+                "cmdb_ci_server",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -207,10 +247,18 @@ async fn cmdb_meta() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "cmdb", "meta", "cmdb_ci_server"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "cmdb",
+                "meta",
+                "cmdb_ci_server",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -237,10 +285,13 @@ async fn import_create_record() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
             .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
                 "--compact",
                 "import",
                 "create",
@@ -272,10 +323,19 @@ async fn import_get_record() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "import", "get", "u_staging_table", "imp001"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "import",
+                "get",
+                "u_staging_table",
+                "imp001",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -302,10 +362,17 @@ async fn catalog_list() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "catalog", "list"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "catalog",
+                "list",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -331,10 +398,19 @@ async fn catalog_items_with_text_search() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "catalog", "items", "--text", "laptop"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "catalog",
+                "items",
+                "--text",
+                "laptop",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -359,10 +435,18 @@ async fn catalog_order_item() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "catalog", "order", "item001"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "catalog",
+                "order",
+                "item001",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -389,10 +473,13 @@ async fn identify_create_update() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
             .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
                 "--compact",
                 "identify",
                 "create-update",
@@ -423,10 +510,13 @@ async fn identify_query() {
     tokio::task::spawn_blocking(move || {
         let out = Command::cargo_bin("sn")
             .unwrap()
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
             .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
                 "--compact",
                 "identify",
                 "query",

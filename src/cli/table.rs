@@ -260,10 +260,6 @@ pub fn list(global: &GlobalFlags, args: TableListArgs) -> Result<()> {
 pub(crate) fn build_profile(global: &GlobalFlags) -> Result<ResolvedProfile> {
     let config = load_config_from(&config_path()?)?;
     let creds = load_credentials_from(&credentials_path()?)?;
-    let env_profile = std::env::var("SN_PROFILE").ok();
-    let env_instance = std::env::var("SN_INSTANCE").ok();
-    let env_username = std::env::var("SN_USERNAME").ok();
-    let env_password = std::env::var("SN_PASSWORD").ok();
     let env_proxy = std::env::var("SN_PROXY").ok();
     let env_no_proxy = std::env::var("SN_NO_PROXY").ok();
     let env_insecure = std::env::var("SN_INSECURE").ok();
@@ -271,11 +267,9 @@ pub(crate) fn build_profile(global: &GlobalFlags) -> Result<ResolvedProfile> {
     let env_proxy_ca_cert = std::env::var("SN_PROXY_CA_CERT").ok();
     resolve_profile(ProfileResolverInputs {
         cli_profile: global.profile.as_deref(),
-        env_profile: env_profile.as_deref(),
         cli_instance_override: global.instance_override.as_deref(),
-        env_instance: env_instance.as_deref(),
-        env_username: env_username.as_deref(),
-        env_password: env_password.as_deref(),
+        cli_username: global.username.as_deref(),
+        cli_password: global.password.as_deref(),
         cli_proxy: global.proxy.as_deref(),
         env_proxy: env_proxy.as_deref(),
         cli_no_proxy: global.no_proxy,

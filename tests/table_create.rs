@@ -22,22 +22,25 @@ async fn create_with_fields() {
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args([
-                "--compact",
-                "table",
-                "create",
-                "incident",
-                "--field",
-                "short_description=sd",
-                "--field",
-                "urgency=2",
-            ])
-            .assert()
-            .success()
-            .stdout(predicates::str::contains("\"sys_id\":\"new\""));
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--compact",
+            "table",
+            "create",
+            "incident",
+            "--field",
+            "short_description=sd",
+            "--field",
+            "urgency=2",
+        ])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"sys_id\":\"new\""));
     })
     .await
     .unwrap();
@@ -49,11 +52,20 @@ async fn data_and_field_together_is_usage_error() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
         let _ = cmd
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
             .args([
-                "table", "create", "incident", "--data", "{}", "--field", "x=1",
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "table",
+                "create",
+                "incident",
+                "--data",
+                "{}",
+                "--field",
+                "x=1",
             ])
             .assert();
         // clap returns exit code 2 for ArgConflict; just check it's nonzero

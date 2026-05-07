@@ -21,10 +21,20 @@ async fn list_default_unwraps_result() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
         let out = cmd
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["table", "list", "incident", "--setlimit", "5", "--compact"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "table",
+                "list",
+                "incident",
+                "--setlimit",
+                "5",
+                "--compact",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -46,10 +56,20 @@ async fn list_raw_preserves_envelope() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
         let out = cmd
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--output", "raw", "--compact", "table", "list", "incident"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--output",
+                "raw",
+                "--compact",
+                "table",
+                "list",
+                "incident",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();

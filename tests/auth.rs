@@ -20,12 +20,18 @@ async fn auth_test_ok() {
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["auth", "test"])
-            .assert()
-            .success();
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "auth",
+            "test",
+        ])
+        .assert()
+        .success();
     })
     .await
     .unwrap();
@@ -44,12 +50,18 @@ async fn auth_test_401_exit_4() {
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["auth", "test"])
-            .assert()
-            .code(4);
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "auth",
+            "test",
+        ])
+        .assert()
+        .code(4);
     })
     .await
     .unwrap();

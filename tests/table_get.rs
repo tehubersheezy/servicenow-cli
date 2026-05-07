@@ -20,10 +20,19 @@ async fn get_unwraps_single_record() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
         let out = cmd
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["--compact", "table", "get", "incident", "abc"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "table",
+                "get",
+                "incident",
+                "abc",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -47,12 +56,20 @@ async fn get_404_exit_2() {
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["table", "get", "incident", "missing"])
-            .assert()
-            .code(2);
+        cmd.args([
+            "--instance-override",
+            &server_uri,
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "table",
+            "get",
+            "incident",
+            "missing",
+        ])
+        .assert()
+        .code(2);
     })
     .await
     .unwrap();

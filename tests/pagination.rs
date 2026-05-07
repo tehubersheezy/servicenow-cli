@@ -35,10 +35,20 @@ async fn paginates_following_link_header() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
         let out = cmd
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["table", "list", "incident", "--setlimit", "2", "--all"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "table",
+                "list",
+                "incident",
+                "--setlimit",
+                "2",
+                "--all",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -66,10 +76,20 @@ async fn max_records_caps_output() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = Command::cargo_bin("sn").unwrap();
         let out = cmd
-            .env("SN_INSTANCE", &server_uri)
-            .env("SN_USERNAME", "u")
-            .env("SN_PASSWORD", "p")
-            .args(["table", "list", "incident", "--all", "--max-records", "2"])
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "table",
+                "list",
+                "incident",
+                "--all",
+                "--max-records",
+                "2",
+            ])
             .assert()
             .success();
         assert_eq!(

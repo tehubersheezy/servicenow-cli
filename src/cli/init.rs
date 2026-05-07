@@ -29,10 +29,14 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
         .trim()
         .to_string();
 
-    let instance = match args.instance {
+    let instance_input = match args.instance {
         Some(v) => v,
-        None => prompt("Instance (e.g. acme.service-now.com): ", None),
+        None => prompt(
+            "Instance (e.g. 'dev380385' or 'https://acme.service-now.com'): ",
+            None,
+        ),
     };
+    let instance = normalize_instance(&instance_input);
     let username = match args.username {
         Some(v) => v,
         None => prompt("Username: ", None),
@@ -118,7 +122,10 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
         &[("sysparm_limit".into(), "1".into())],
     )?;
 
-    eprintln!("profile '{profile_name}' saved and verified.");
+    eprintln!(
+        "profile '{profile_name}' saved and verified ({}).",
+        profile.instance
+    );
     Ok(())
 }
 
@@ -132,5 +139,72 @@ fn prompt(msg: &str, default: Option<String>) -> String {
         default.unwrap_or_default()
     } else {
         trimmed
+    }
+}
+
+/// Turn whatever the user typed into something `client.rs::normalize_base_url`
+/// can use. A short instance name like `dev380385` becomes `dev380385.service-now.com`;
+/// anything that already looks like a URL or FQDN is passed through untouched
+/// (modulo a trailing slash).
+fn normalize_instance(input: &str) -> String {
+    let trimmed = input.trim().trim_end_matches('/');
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.contains('.') {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}.service-now.com")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_instance;
+
+    #[test]
+    fn short_name_gets_service_now_suffix() {
+        assert_eq!(normalize_instance("dev380385"), "dev380385.service-now.com");
+    }
+
+    #[test]
+    fn fqdn_passes_through() {
+        assert_eq!(
+            normalize_instance("acme.service-now.com"),
+            "acme.service-now.com"
+        );
+    }
+
+    #[test]
+    fn full_url_passes_through() {
+        assert_eq!(
+            normalize_instance("https://dev380385.service-now.com"),
+            "https://dev380385.service-now.com"
+        );
+    }
+
+    #[test]
+    fn http_url_passes_through() {
+        assert_eq!(
+            normalize_instance("http://localhost:8080"),
+            "http://localhost:8080"
+        );
+    }
+
+    #[test]
+    fn trailing_slash_stripped() {
+        assert_eq!(
+            normalize_instance("dev380385/"),
+            "dev380385.service-now.com"
+        );
+        assert_eq!(
+            normalize_instance("https://dev380385.service-now.com/"),
+            "https://dev380385.service-now.com"
+        );
+    }
+
+    #[test]
+    fn whitespace_trimmed() {
+        assert_eq!(
+            normalize_instance("  dev380385 \n"),
+            "dev380385.service-now.com"
+        );
     }
 }
