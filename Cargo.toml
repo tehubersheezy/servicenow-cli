@@ -1,6 +1,6 @@
 [package]
 name = "sn"
-version = "0.4.1"
+version = "0.5.0"
 authors = ["Abey Ahmad <ibrahimsafah@gmail.com>"]
 edition = "2021"
 rust-version = "1.75"
