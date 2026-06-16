@@ -1,5 +1,38 @@
 #![allow(dead_code)]
 
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::time::Duration;
+
+/// Reserve and immediately release a free localhost TCP port, returning its
+/// number. The port is unbound on return so a loopback server can claim it.
+pub fn free_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    port
+}
+
+/// Connect to a loopback HTTP server on `127.0.0.1:port` (retrying until it
+/// binds), send one raw `GET <target>` request, and drain the response. Used to
+/// simulate the browser's OAuth redirect callback against `run_loopback`.
+pub fn send_loopback_request(port: u16, target: &str) {
+    let mut stream = None;
+    for _ in 0..100 {
+        if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
+            stream = Some(s);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let mut stream = stream.expect("connect to loopback server");
+    let req = format!("GET {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    stream.write_all(req.as_bytes()).unwrap();
+    stream.flush().unwrap();
+    let mut buf = Vec::new();
+    let _ = stream.read_to_end(&mut buf);
+}
+
 pub fn mock_profile(instance: &str) -> sn::config::ResolvedProfile {
     sn::config::ResolvedProfile {
         name: "test".into(),

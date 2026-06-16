@@ -375,6 +375,24 @@ pub fn login_authorization_code(
     profile: &ResolvedProfile,
     timeout: Option<u64>,
 ) -> Result<TokenSet> {
+    login_authorization_code_with(profile, timeout, |url| {
+        eprintln!("Opening browser for SSO login:\n  {url}");
+        if webbrowser::open(url).is_err() {
+            eprintln!("(could not open a browser automatically — open the URL above manually)");
+        }
+        Ok(())
+    })
+}
+
+/// Like [`login_authorization_code`], but with the browser-open step injected so
+/// the flow can be exercised end to end in tests without launching a real
+/// browser. `open` receives the fully-built authorization URL; the default
+/// caller hands it to `webbrowser::open`.
+pub fn login_authorization_code_with(
+    profile: &ResolvedProfile,
+    timeout: Option<u64>,
+    open: impl FnOnce(&str) -> Result<()>,
+) -> Result<TokenSet> {
     let o = profile
         .oauth
         .as_ref()
@@ -391,10 +409,7 @@ pub fn login_authorization_code(
     };
     let url = authorize_url(&base, o, &state, challenge.as_deref())?;
 
-    eprintln!("Opening browser for SSO login:\n  {url}");
-    if webbrowser::open(&url).is_err() {
-        eprintln!("(could not open a browser automatically — open the URL above manually)");
-    }
+    open(&url)?;
     eprintln!("Waiting for the SSO redirect on {} …", o.redirect_uri);
 
     let code = run_loopback(&o.redirect_uri, &state)?;
