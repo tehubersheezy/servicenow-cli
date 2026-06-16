@@ -31,15 +31,16 @@ src/
   error.rs          → Error enum (5 variants), exit_code(), to_stderr_json()
   output.rs         → emit_value (JSON), emit_jsonl (JSONL), emit_error (stderr)
   output_table.rs   → write_table (renders JSON object/array as a comfy-table columnar view for `--output table`)
-  config.rs         → Config/Credentials TOML types, load/save, resolve_profile()
-  client.rs         → reqwest blocking client (proxy/TLS), Paginator iterator
+  config.rs         → Config/Credentials TOML types, load/save, resolve_profile(); OAuth types (AuthMethod, OAuthConfig, OAuthGrant, TokenSet) + token persistence helpers
+  client.rs         → reqwest blocking client (proxy/TLS), Auth enum (Basic/Bearer/None), Paginator iterator
+  oauth.rs          → OAuth 2.0 for SSO instances: PKCE, loopback redirect server, token exchange (authorization_code/refresh/client_credentials), ensure_access_token()
   query.rs          → ListQuery/GetQuery/WriteQuery/DeleteQuery → Vec<(String,String)>
   body.rs           → --data / --field parsing into serde_json::Value
   observability.rs  → global AtomicU8 verbosity, log helpers (set_level called in main; log_request/response not yet wired into client)
   cli/
     mod.rs          → Cli struct, GlobalFlags, all Subcommand enums + arg structs
-    init.rs         → sn init (interactive profile setup + credential verification)
-    auth.rs         → sn auth test (GET sys_user with limit=1)
+    init.rs         → sn init (interactive profile setup — basic or oauth — + credential verification; oauth branch reuses auth::complete_oauth_login)
+    auth.rs         → sn auth test/login/logout/status/refresh (basic verify + OAuth login & token management)
     profile.rs      → sn profile list/show/remove/use
     table.rs        → sn table list/get/create/update/replace/delete + shared helpers
     schema.rs       → sn schema tables/columns/choices (undocumented SN endpoints)
@@ -111,6 +112,16 @@ Uses `/api/now/identifyreconcile`. POST-only pattern for CI creation/updates and
 ### Profile resolution precedence
 
 `--profile` flag > `default_profile` in config.toml > literal "default" profile. Per-field overrides come from CLI flags only: `--instance-override URL`, `--username USER`, `--password PASSWORD` replace the selected profile's stored values for a single invocation. The `--username` and `--password` flags are hidden from `--help` (intended for tests/automation; both are visible in `ps` output and shell history, so prefer `sn init` for everyday use). There are deliberately no env vars for credential or profile selection — env-driven overrides previously hijacked profile credentials silently and have been removed. Proxy/TLS env vars (`SN_PROXY` etc.) still exist; see the table below.
+
+### OAuth / SSO authentication
+
+A profile authenticates via one of two methods, selected by `auth = "basic"` (default) or `auth = "oauth"` in its `config.toml` entry. OAuth is the path for instances fronted by external SSO (Okta/Azure AD/ADFS), where a human's password lives in the IdP — so HTTP Basic and the OAuth password grant cannot work.
+
+- **Non-secret OAuth config** (client_id, redirect_uri, scope, endpoint overrides, grant, pkce) lives in `config.toml` under `[profiles.<name>.oauth]`. **The client secret and cached tokens** live in `credentials.toml` (`chmod 0600`), mirroring the username/password split.
+- **Two grants:** `authorization_code` (interactive — opens a browser, runs a loopback redirect server per RFC 8252, uses PKCE S256 by default) and `client_credentials` (non-interactive, requires a secret). The loopback `redirect_uri` (default `http://localhost:8400/callback`) **must be registered exactly** in ServiceNow's Application Registry.
+- **Endpoints:** authorization `GET /oauth_auth.do`, token `POST /oauth_token.do` (overridable per profile).
+- **Commands:** `sn auth login` (configure + run the flow + cache tokens; flags: `--client-id`, `--client-secret`, `--redirect-uri`, `--scope`, `--grant`, `--no-pkce`, `--instance`), `sn auth status`, `sn auth refresh`, `sn auth logout`.
+- **Transparent refresh:** `build_client` (in `cli/table.rs`) calls `oauth::ensure_access_token` for OAuth profiles before every request — it returns a cached token, refreshes a stale one via the refresh token (or mints a fresh one for client_credentials), and persists any new tokens. All command handlers get this for free with no call-site changes. The `Client` itself is auth-agnostic: a single `Auth` enum (`Basic`/`Bearer`/`None`) is applied in `send()`.
 
 ### Proxy and TLS
 

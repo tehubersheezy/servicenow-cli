@@ -1,12 +1,13 @@
+use crate::cli::auth::complete_oauth_login;
+use crate::cli::table::{build_client, build_profile};
 use crate::cli::GlobalFlags;
-use crate::client::Client;
 use crate::config::{
-    config_path, credentials_path, load_config_from, load_credentials_from, save_config_to,
-    save_credentials_to, ProfileConfig, ProfileCredentials, ResolvedProfile,
+    config_path, credentials_path, default_redirect_uri, load_config_from, load_credentials_from,
+    save_config_to, save_credentials_to, AuthMethod, OAuthConfig, OAuthGrant, ProfileConfig,
+    ProfileCredentials,
 };
 use crate::error::{Error, Result};
 use std::io::{self, Write};
-use std::time::Duration;
 
 #[derive(clap::Args, Debug)]
 pub struct InitArgs {
@@ -14,44 +15,71 @@ pub struct InitArgs {
     pub profile: Option<String>,
     #[arg(long)]
     pub instance: Option<String>,
+    /// Authentication method: `basic` (username/password) or `oauth` (SSO / OAuth 2.0).
+    #[arg(long, value_enum)]
+    pub auth: Option<AuthMethod>,
     #[arg(long)]
     pub username: Option<String>,
     /// Convenience flag; prefer the interactive prompt — `--password` is visible
     /// in `ps` output and shell history.
     #[arg(long)]
     pub password: Option<String>,
+    /// OAuth client_id (oauth only).
+    #[arg(long)]
+    pub client_id: Option<String>,
+    /// OAuth client secret (oauth confidential clients).
+    #[arg(long)]
+    pub client_secret: Option<String>,
+    /// OAuth loopback redirect URI (oauth only). Defaults to http://localhost:8400/callback.
+    #[arg(long, value_name = "URL")]
+    pub redirect_uri: Option<String>,
+    /// OAuth scope (oauth only), e.g. useraccount.
+    #[arg(long)]
+    pub scope: Option<String>,
+    /// OAuth grant: authorization_code (SSO, default) or client_credentials.
+    #[arg(long, value_enum)]
+    pub grant: Option<OAuthGrant>,
+    /// Disable PKCE for the authorization-code flow.
+    #[arg(long)]
+    pub no_pkce: bool,
 }
 
 pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
     let profile_name = args
         .profile
+        .clone()
         .unwrap_or_else(|| prompt("Profile name [default]: ", Some("default".into())))
         .trim()
         .to_string();
 
-    let instance_input = match args.instance {
-        Some(v) => v,
+    let instance_input = match &args.instance {
+        Some(v) => v.clone(),
         None => prompt(
             "Instance (e.g. 'dev380385' or 'https://acme.service-now.com'): ",
             None,
         ),
     };
     let instance = normalize_instance(&instance_input);
-    let username = match args.username {
-        Some(v) => v,
-        None => prompt("Username: ", None),
-    };
-    let password = match args.password {
-        Some(v) => v,
-        None => rpassword::prompt_password("Password: ")
-            .map_err(|e| Error::Usage(format!("read password: {e}")))?,
-    };
-
-    if instance.trim().is_empty() || username.trim().is_empty() || password.is_empty() {
-        return Err(Error::Usage(
-            "instance, username, and password are required".into(),
-        ));
+    if instance.trim().is_empty() {
+        return Err(Error::Usage("instance is required".into()));
     }
+
+    // Auth method: flag, else prompt (defaulting to basic).
+    let auth_method = match args.auth {
+        Some(m) => m,
+        None => match prompt("Auth method (basic/oauth) [basic]: ", Some("basic".into()))
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "oauth" => AuthMethod::Oauth,
+            "basic" => AuthMethod::Basic,
+            other => {
+                return Err(Error::Usage(format!(
+                    "unknown auth method '{other}' (expected basic or oauth)"
+                )))
+            }
+        },
+    };
 
     // Proxy/TLS settings from global flags are persisted with the profile so
     // subsequent invocations pick them up automatically.
@@ -64,68 +92,136 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
     let ca_cert = global.ca_cert.clone();
     let proxy_ca_cert = global.proxy_ca_cert.clone();
 
+    let mut pc = ProfileConfig {
+        instance: instance.clone(),
+        proxy: proxy.clone(),
+        insecure,
+        ca_cert: ca_cert.clone(),
+        proxy_ca_cert: proxy_ca_cert.clone(),
+        ..Default::default()
+    };
+    let mut cred = ProfileCredentials::default();
+    // For the OAuth branch, the grant chosen below drives the post-save flow.
+    let mut oauth_grant = OAuthGrant::default();
+
+    match auth_method {
+        AuthMethod::Basic => {
+            let username = match &args.username {
+                Some(v) => v.clone(),
+                None => prompt("Username: ", None),
+            };
+            let password = match &args.password {
+                Some(v) => v.clone(),
+                None => rpassword::prompt_password("Password: ")
+                    .map_err(|e| Error::Usage(format!("read password: {e}")))?,
+            };
+            if username.trim().is_empty() || password.is_empty() {
+                return Err(Error::Usage(
+                    "username and password are required for basic auth".into(),
+                ));
+            }
+            cred.username = username;
+            cred.password = password;
+        }
+        AuthMethod::Oauth => {
+            let client_id = match &args.client_id {
+                Some(v) => v.clone(),
+                None => prompt("OAuth client_id: ", None),
+            };
+            if client_id.trim().is_empty() {
+                return Err(Error::Usage("client_id is required for oauth".into()));
+            }
+            oauth_grant = args.grant.unwrap_or_default();
+            let redirect_uri = args.redirect_uri.clone().or_else(|| {
+                let d = default_redirect_uri();
+                let v = prompt(&format!("Redirect URI [{d}]: "), Some(d));
+                Some(v)
+            });
+            let scope = args
+                .scope
+                .clone()
+                .or_else(|| {
+                    let v = prompt("Scope (blank for none): ", Some(String::new()));
+                    if v.is_empty() {
+                        None
+                    } else {
+                        Some(v)
+                    }
+                })
+                .filter(|s| !s.is_empty());
+
+            // Secret: required for client_credentials, optional (public/PKCE) for
+            // authorization_code.
+            let secret = match &args.client_secret {
+                Some(s) => Some(s.clone()),
+                None => {
+                    let label = if matches!(oauth_grant, OAuthGrant::ClientCredentials) {
+                        "OAuth client_secret: "
+                    } else {
+                        "OAuth client_secret (blank for public/PKCE client): "
+                    };
+                    let s = rpassword::prompt_password(label)
+                        .map_err(|e| Error::Usage(format!("read secret: {e}")))?;
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(s)
+                    }
+                }
+            };
+            if matches!(oauth_grant, OAuthGrant::ClientCredentials) && secret.is_none() {
+                return Err(Error::Usage(
+                    "client_credentials grant requires a client secret".into(),
+                ));
+            }
+
+            pc.auth = AuthMethod::Oauth;
+            pc.oauth = Some(OAuthConfig {
+                client_id,
+                redirect_uri,
+                scope,
+                auth_path: None,
+                token_path: None,
+                grant: oauth_grant,
+                pkce: !args.no_pkce,
+            });
+            cred.client_secret = secret;
+        }
+    }
+
     let cfg_path = config_path()?;
     let cred_path = credentials_path()?;
     let mut config = load_config_from(&cfg_path)?;
     let mut creds = load_credentials_from(&cred_path)?;
-
     if config.default_profile.is_none() {
         config.default_profile = Some(profile_name.clone());
     }
-    config.profiles.insert(
-        profile_name.clone(),
-        ProfileConfig {
-            instance: instance.clone(),
-            proxy: proxy.clone(),
-            insecure,
-            ca_cert: ca_cert.clone(),
-            proxy_ca_cert: proxy_ca_cert.clone(),
-            ..Default::default()
-        },
-    );
-    creds.profiles.insert(
-        profile_name.clone(),
-        ProfileCredentials {
-            username: username.clone(),
-            password: password.clone(),
-            ..Default::default()
-        },
-    );
-
+    config.profiles.insert(profile_name.clone(), pc);
+    creds.profiles.insert(profile_name.clone(), cred);
     save_config_to(&cfg_path, &config)?;
     save_credentials_to(&cred_path, &creds)?;
 
-    let profile = ResolvedProfile {
-        name: profile_name.clone(),
-        instance,
-        username,
-        password,
-        proxy,
-        no_proxy: None,
-        insecure,
-        ca_cert,
-        proxy_ca_cert,
-        proxy_username: None,
-        proxy_password: None,
-    };
-    let mut builder = Client::builder()
-        .proxy(profile.proxy.clone())
-        .insecure(profile.insecure)
-        .ca_cert(profile.ca_cert.clone())
-        .proxy_ca_cert(profile.proxy_ca_cert.clone());
-    if let Some(secs) = global.timeout {
-        builder = builder.timeout(Duration::from_secs(secs));
+    // Verify (and, for OAuth, run the login flow).
+    match auth_method {
+        AuthMethod::Basic => {
+            let mut scoped = global.clone();
+            scoped.profile = Some(profile_name.clone());
+            let profile = build_profile(&scoped)?;
+            let client = build_client(&profile, scoped.timeout)?;
+            client.get(
+                "/api/now/table/sys_user",
+                &[("sysparm_limit".into(), "1".into())],
+            )?;
+            eprintln!("profile '{profile_name}' saved and verified ({instance}).");
+        }
+        AuthMethod::Oauth => {
+            let (_, user) = complete_oauth_login(global, &profile_name, oauth_grant)?;
+            let who = user.unwrap_or_else(|| "(unknown)".into());
+            eprintln!(
+                "profile '{profile_name}' saved and authenticated via oauth ({instance}, user {who})."
+            );
+        }
     }
-    let client = builder.build(&profile)?;
-    client.get(
-        "/api/now/table/sys_user",
-        &[("sysparm_limit".into(), "1".into())],
-    )?;
-
-    eprintln!(
-        "profile '{profile_name}' saved and verified ({}).",
-        profile.instance
-    );
     Ok(())
 }
 
@@ -146,7 +242,7 @@ fn prompt(msg: &str, default: Option<String>) -> String {
 /// can use. A short instance name like `dev380385` becomes `dev380385.service-now.com`;
 /// anything that already looks like a URL or FQDN is passed through untouched
 /// (modulo a trailing slash).
-fn normalize_instance(input: &str) -> String {
+pub(crate) fn normalize_instance(input: &str) -> String {
     let trimmed = input.trim().trim_end_matches('/');
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.contains('.') {
         trimmed.to_string()

@@ -7,18 +7,38 @@ use reqwest::{Method, StatusCode};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
+/// How a `Client` attaches credentials to each request. Resolved at build time
+/// so `send()` stays a single, branchless-per-request decision.
+#[derive(Clone)]
+pub enum Auth {
+    Basic {
+        username: String,
+        password: String,
+    },
+    Bearer {
+        token: String,
+    },
+    /// No credentials attached — used for the OAuth token endpoint, which
+    /// authenticates via form parameters (or a Basic client_id:secret) instead.
+    None,
+}
+
 pub struct Client {
     http: ReqwestClient,
     base_url: String,
-    username: String,
-    password: String,
+    auth: Auth,
 }
 
 impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let scheme = match &self.auth {
+            Auth::Basic { username, .. } => format!("basic({username})"),
+            Auth::Bearer { .. } => "bearer".to_string(),
+            Auth::None => "none".to_string(),
+        };
         f.debug_struct("Client")
             .field("base_url", &self.base_url)
-            .field("username", &self.username)
+            .field("auth", &scheme)
             .finish_non_exhaustive()
     }
 }
@@ -33,6 +53,7 @@ pub struct ClientBuilder {
     proxy_ca_cert: Option<String>,
     proxy_username: Option<String>,
     proxy_password: Option<String>,
+    auth: Option<Auth>,
 }
 
 impl Default for ClientBuilder {
@@ -47,6 +68,7 @@ impl Default for ClientBuilder {
             proxy_ca_cert: None,
             proxy_username: None,
             proxy_password: None,
+            auth: None,
         }
     }
 }
@@ -85,6 +107,13 @@ impl ClientBuilder {
     pub fn proxy_auth(mut self, username: Option<String>, password: Option<String>) -> Self {
         self.proxy_username = username;
         self.proxy_password = password;
+        self
+    }
+
+    /// Override how requests authenticate. When unset, `build()` falls back to
+    /// HTTP Basic using the profile's username/password (backward compatible).
+    pub fn auth(mut self, auth: Auth) -> Self {
+        self.auth = Some(auth);
         self
     }
 
@@ -143,11 +172,14 @@ impl ClientBuilder {
             .map_err(|e| Error::Transport(format!("build client: {e}")))?;
 
         let base_url = normalize_base_url(&profile.instance);
+        let auth = self.auth.unwrap_or_else(|| Auth::Basic {
+            username: profile.username.clone(),
+            password: profile.password.clone(),
+        });
         Ok(Client {
             http,
             base_url,
-            username: profile.username.clone(),
-            password: profile.password.clone(),
+            auth,
         })
     }
 }
@@ -183,6 +215,11 @@ impl Client {
         ClientBuilder::default()
     }
 
+    /// Normalized instance base URL (scheme + host, no trailing slash).
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
@@ -193,7 +230,11 @@ impl Client {
         method_name: &str,
         url: &str,
     ) -> Result<Response> {
-        req = req.basic_auth(&self.username, Some(&self.password));
+        req = match &self.auth {
+            Auth::Basic { username, password } => req.basic_auth(username, Some(password)),
+            Auth::Bearer { token } => req.bearer_auth(token),
+            Auth::None => req,
+        };
         log_request(method_name, url);
         let start = Instant::now();
         let resp = req.send().map_err(|e| Error::Transport(format!("{e}")))?;
@@ -259,6 +300,18 @@ impl Client {
             .query(query)
             .header(CONTENT_TYPE, content_type)
             .body(body);
+        parse_response(self.send(req, "POST", &url)?)
+    }
+
+    /// POST `application/x-www-form-urlencoded` and parse the JSON response
+    /// without unwrapping a `result` envelope. Used for the OAuth token
+    /// endpoint, whose responses are flat (`access_token`, `refresh_token`, …).
+    pub fn post_form(&self, path: &str, form: &[(String, String)]) -> Result<Value> {
+        let url = self.url(path);
+        // Avoid logging secrets (codes, tokens) — record only the field names.
+        let names: Vec<&str> = form.iter().map(|(k, _)| k.as_str()).collect();
+        log_body(">", &format!("<form: {}>", names.join(", ")));
+        let req = self.http.request(Method::POST, &url).form(form);
         parse_response(self.send(req, "POST", &url)?)
     }
 

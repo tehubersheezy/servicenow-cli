@@ -1,6 +1,6 @@
 [package]
 name = "sn"
-version = "0.5.0"
+version = "0.6.0"
 authors = ["Abey Ahmad <ibrahimsafah@gmail.com>"]
 edition = "2021"
 rust-version = "1.75"
@@ -37,6 +37,9 @@ is-terminal = "0.4"
 clap_complete = "4"
 webbrowser = "1"
 comfy-table = "7"
+base64 = "0.22"
+sha2 = "0.10"
+getrandom = "0.2"
 
 [dev-dependencies]
 wiremock = "0.6"

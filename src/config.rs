@@ -28,6 +28,120 @@ pub struct ProfileConfig {
     pub ca_cert: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy_ca_cert: Option<String>,
+    /// How requests authenticate. Defaults to `basic` so pre-OAuth profiles
+    /// deserialize unchanged.
+    #[serde(default, skip_serializing_if = "AuthMethod::is_basic")]
+    pub auth: AuthMethod,
+    /// Non-secret OAuth settings (the client secret + tokens live in
+    /// `credentials.toml`). Present only when `auth = "oauth"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<OAuthConfig>,
+}
+
+/// Which credential mechanism a profile authenticates with.
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+#[value(rename_all = "lowercase")]
+pub enum AuthMethod {
+    /// HTTP Basic with a stored username/password.
+    #[default]
+    Basic,
+    /// OAuth 2.0 bearer token (Authorization Code for SSO, or Client Credentials).
+    Oauth,
+}
+
+impl AuthMethod {
+    pub fn is_basic(&self) -> bool {
+        matches!(self, AuthMethod::Basic)
+    }
+}
+
+/// OAuth 2.0 grant type. `authorization_code` is the interactive (SSO) flow;
+/// `client_credentials` is the service-to-service flow.
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+#[value(rename_all = "snake_case")]
+pub enum OAuthGrant {
+    #[default]
+    AuthorizationCode,
+    ClientCredentials,
+}
+
+impl OAuthGrant {
+    fn is_default(&self) -> bool {
+        matches!(self, OAuthGrant::AuthorizationCode)
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
+/// Non-secret OAuth configuration persisted in `config.toml`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OAuthConfig {
+    pub client_id: String,
+    /// Loopback redirect registered in ServiceNow's Application Registry.
+    /// Defaults to `http://localhost:8400/callback`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_uri: Option<String>,
+    /// OAuth scope (e.g. `useraccount`). Omitted from the request when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Authorization endpoint path. Defaults to `/oauth_auth.do`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_path: Option<String>,
+    /// Token endpoint path. Defaults to `/oauth_token.do`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_path: Option<String>,
+    #[serde(default, skip_serializing_if = "OAuthGrant::is_default")]
+    pub grant: OAuthGrant,
+    /// Use PKCE (S256) for the authorization-code flow. Defaults to true.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub pkce: bool,
+}
+
+/// An OAuth token set, persisted in `credentials.toml` (chmod 0600 on Unix).
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenSet {
+    pub access_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    /// Absolute Unix-seconds expiry of the access token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_type: Option<String>,
+}
+
+impl TokenSet {
+    /// True when the access token is within `skew_secs` of (or past) expiry.
+    /// Tokens with an unknown expiry are treated as valid until a 401 forces a
+    /// re-login.
+    pub fn is_expired(&self, skew_secs: u64) -> bool {
+        match self.expires_at {
+            Some(exp) => now_unix().saturating_add(skew_secs) >= exp,
+            None => false,
+        }
+    }
+}
+
+/// Current wall-clock time in Unix seconds.
+pub fn now_unix() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Default loopback redirect URI for the authorization-code flow.
+pub fn default_redirect_uri() -> String {
+    "http://localhost:8400/callback".to_string()
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,12 +152,21 @@ pub struct Credentials {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProfileCredentials {
+    /// Empty for OAuth profiles (which have no stored password).
+    #[serde(default)]
     pub username: String,
+    #[serde(default)]
     pub password: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy_username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proxy_password: Option<String>,
+    /// OAuth client secret (confidential clients). Public/PKCE clients omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_secret: Option<String>,
+    /// Cached OAuth tokens, refreshed transparently when stale.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth_tokens: Option<TokenSet>,
 }
 
 /// Resolve the sn config directory via `directories::ProjectDirs`.
@@ -107,6 +230,96 @@ mod tests {
         let s = toml::to_string(&cr).unwrap();
         let parsed: Credentials = toml::from_str(&s).unwrap();
         assert_eq!(parsed, cr);
+    }
+
+    #[test]
+    fn oauth_profile_config_roundtrips() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "sso".into(),
+            ProfileConfig {
+                instance: "acme.service-now.com".into(),
+                auth: AuthMethod::Oauth,
+                oauth: Some(OAuthConfig {
+                    client_id: "abc".into(),
+                    redirect_uri: Some("http://localhost:8400/callback".into()),
+                    scope: Some("useraccount".into()),
+                    auth_path: None,
+                    token_path: None,
+                    grant: OAuthGrant::AuthorizationCode,
+                    pkce: true,
+                }),
+                ..Default::default()
+            },
+        );
+        let cfg = Config {
+            default_profile: Some("sso".into()),
+            profiles,
+        };
+        let s = toml::to_string(&cfg).unwrap();
+        let parsed: Config = toml::from_str(&s).unwrap();
+        assert_eq!(parsed, cfg);
+    }
+
+    #[test]
+    fn oauth_credentials_roundtrip_with_tokens() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "sso".into(),
+            ProfileCredentials {
+                client_secret: Some("shh".into()),
+                oauth_tokens: Some(TokenSet {
+                    access_token: "AT".into(),
+                    refresh_token: Some("RT".into()),
+                    expires_at: Some(1_700_000_000),
+                    token_type: Some("Bearer".into()),
+                }),
+                ..Default::default()
+            },
+        );
+        let cr = Credentials { profiles };
+        let s = toml::to_string(&cr).unwrap();
+        let parsed: Credentials = toml::from_str(&s).unwrap();
+        assert_eq!(parsed, cr);
+    }
+
+    #[test]
+    fn legacy_basic_config_without_auth_field_still_parses() {
+        // A pre-OAuth config.toml has no `auth`/`oauth` keys; it must deserialize
+        // as a Basic profile unchanged.
+        let toml = r#"
+default_profile = "dev"
+[profiles.dev]
+instance = "dev.example.com"
+"#;
+        let cfg: Config = toml::from_str(toml).unwrap();
+        let p = cfg.profiles.get("dev").unwrap();
+        assert_eq!(p.auth, AuthMethod::Basic);
+        assert!(p.oauth.is_none());
+    }
+
+    #[test]
+    fn basic_profile_omits_auth_and_oauth_keys_when_serialized() {
+        // Backward-compatibility: serializing a plain Basic profile must not
+        // emit `auth = "basic"` or an empty `[oauth]` table.
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "dev".into(),
+            ProfileConfig {
+                instance: "dev.example.com".into(),
+                ..Default::default()
+            },
+        );
+        let cfg = Config {
+            default_profile: Some("dev".into()),
+            profiles,
+        };
+        let s = toml::to_string(&cfg).unwrap();
+        assert!(!s.contains("auth ="), "unexpected auth key:\n{s}");
+        assert!(
+            !s.contains("[profiles.dev.oauth]"),
+            "unexpected oauth table:\n{s}"
+        );
     }
 }
 
@@ -173,6 +386,25 @@ pub struct ResolvedProfile {
     pub proxy_ca_cert: Option<String>,
     pub proxy_username: Option<String>,
     pub proxy_password: Option<String>,
+    /// How this profile authenticates.
+    pub auth_method: AuthMethod,
+    /// OAuth state (config + cached tokens). `Some` iff `auth_method` is Oauth.
+    pub oauth: Option<ResolvedOauth>,
+}
+
+/// Fully-resolved OAuth state for a single invocation: client config plus any
+/// cached tokens. All endpoint/redirect defaults are already applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedOauth {
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub redirect_uri: String,
+    pub scope: Option<String>,
+    pub auth_path: String,
+    pub token_path: String,
+    pub grant: OAuthGrant,
+    pub pkce: bool,
+    pub tokens: Option<TokenSet>,
 }
 
 pub struct ProfileResolverInputs<'a> {
@@ -214,25 +446,67 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
             ))
         })?;
 
-    let username = inputs
+    let auth_method = profile_cfg.map(|p| p.auth).unwrap_or_default();
+
+    let username_opt = inputs
         .cli_username
         .map(ToString::to_string)
-        .or_else(|| profile_cred.map(|p| p.username.clone()))
-        .ok_or_else(|| {
-            Error::Config(format!(
-                "no username configured for profile '{name}'; run `sn init` or pass --username"
-            ))
-        })?;
-
-    let password = inputs
+        .or_else(|| profile_cred.map(|p| p.username.clone()));
+    let password_opt = inputs
         .cli_password
         .map(ToString::to_string)
-        .or_else(|| profile_cred.map(|p| p.password.clone()))
-        .ok_or_else(|| {
-            Error::Config(format!(
-                "no password configured for profile '{name}'; run `sn init` or pass --password"
-            ))
-        })?;
+        .or_else(|| profile_cred.map(|p| p.password.clone()));
+
+    // Basic auth requires a username/password; OAuth profiles don't store them.
+    let (username, password) = match auth_method {
+        AuthMethod::Basic => (
+            username_opt.ok_or_else(|| {
+                Error::Config(format!(
+                    "no username configured for profile '{name}'; run `sn init` or pass --username"
+                ))
+            })?,
+            password_opt.ok_or_else(|| {
+                Error::Config(format!(
+                    "no password configured for profile '{name}'; run `sn init` or pass --password"
+                ))
+            })?,
+        ),
+        AuthMethod::Oauth => (
+            username_opt.unwrap_or_default(),
+            password_opt.unwrap_or_default(),
+        ),
+    };
+
+    let oauth = match auth_method {
+        AuthMethod::Basic => None,
+        AuthMethod::Oauth => {
+            let cfg = profile_cfg.and_then(|p| p.oauth.as_ref()).ok_or_else(|| {
+                Error::Config(format!(
+                    "profile '{name}' uses oauth but has no [oauth] config; run `sn auth login`"
+                ))
+            })?;
+            Some(ResolvedOauth {
+                client_id: cfg.client_id.clone(),
+                client_secret: profile_cred.and_then(|c| c.client_secret.clone()),
+                redirect_uri: cfg
+                    .redirect_uri
+                    .clone()
+                    .unwrap_or_else(default_redirect_uri),
+                scope: cfg.scope.clone(),
+                auth_path: cfg
+                    .auth_path
+                    .clone()
+                    .unwrap_or_else(|| "/oauth_auth.do".to_string()),
+                token_path: cfg
+                    .token_path
+                    .clone()
+                    .unwrap_or_else(|| "/oauth_token.do".to_string()),
+                grant: cfg.grant,
+                pkce: cfg.pkce,
+                tokens: profile_cred.and_then(|c| c.oauth_tokens.clone()),
+            })
+        }
+    };
 
     let proxy = if inputs.cli_no_proxy {
         None
@@ -283,7 +557,32 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
         proxy_ca_cert,
         proxy_username,
         proxy_password,
+        auth_method,
+        oauth,
     })
+}
+
+/// Persist a refreshed/new OAuth token set for `profile_name` into
+/// `credentials.toml`, leaving every other field untouched.
+pub fn save_oauth_tokens(profile_name: &str, tokens: &TokenSet) -> Result<()> {
+    let path = credentials_path()?;
+    let mut creds = load_credentials_from(&path)?;
+    creds
+        .profiles
+        .entry(profile_name.to_string())
+        .or_default()
+        .oauth_tokens = Some(tokens.clone());
+    save_credentials_to(&path, &creds)
+}
+
+/// Drop any cached OAuth tokens for `profile_name` (used by `sn auth logout`).
+pub fn clear_oauth_tokens(profile_name: &str) -> Result<()> {
+    let path = credentials_path()?;
+    let mut creds = load_credentials_from(&path)?;
+    if let Some(p) = creds.profiles.get_mut(profile_name) {
+        p.oauth_tokens = None;
+    }
+    save_credentials_to(&path, &creds)
 }
 
 #[cfg(test)]
@@ -734,6 +1033,77 @@ mod resolution_tests {
         let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
         assert_eq!(r.name, "prod");
         assert_eq!(r.instance, "prod.example.com");
+    }
+
+    #[test]
+    fn oauth_profile_resolves_without_requiring_username_password() {
+        let mut cfg = Config {
+            default_profile: Some("sso".into()),
+            ..Default::default()
+        };
+        cfg.profiles.insert(
+            "sso".into(),
+            ProfileConfig {
+                instance: "sso.example.com".into(),
+                auth: AuthMethod::Oauth,
+                oauth: Some(OAuthConfig {
+                    client_id: "abc".into(),
+                    redirect_uri: None,
+                    scope: Some("useraccount".into()),
+                    auth_path: None,
+                    token_path: None,
+                    grant: OAuthGrant::AuthorizationCode,
+                    pkce: true,
+                }),
+                ..Default::default()
+            },
+        );
+        let mut cr = Credentials::default();
+        cr.profiles.insert(
+            "sso".into(),
+            ProfileCredentials {
+                client_secret: Some("shh".into()),
+                oauth_tokens: Some(TokenSet {
+                    access_token: "AT".into(),
+                    refresh_token: Some("RT".into()),
+                    expires_at: Some(now_unix() + 3600),
+                    token_type: Some("Bearer".into()),
+                }),
+                ..Default::default()
+            },
+        );
+        let r = resolve_profile(base_inputs(&cfg, &cr)).unwrap();
+        assert_eq!(r.name, "sso");
+        assert_eq!(r.auth_method, AuthMethod::Oauth);
+        let o = r.oauth.expect("resolved oauth state");
+        assert_eq!(o.client_id, "abc");
+        // Defaults applied for the unset endpoint/redirect fields.
+        assert_eq!(o.redirect_uri, default_redirect_uri());
+        assert_eq!(o.auth_path, "/oauth_auth.do");
+        assert_eq!(o.token_path, "/oauth_token.do");
+        assert_eq!(o.client_secret.as_deref(), Some("shh"));
+        assert_eq!(o.tokens.unwrap().access_token, "AT");
+    }
+
+    #[test]
+    fn oauth_profile_without_config_section_errors() {
+        let mut cfg = Config::default();
+        cfg.profiles.insert(
+            "sso".into(),
+            ProfileConfig {
+                instance: "sso.example.com".into(),
+                auth: AuthMethod::Oauth,
+                oauth: None,
+                ..Default::default()
+            },
+        );
+        let cr = Credentials::default();
+        let err = resolve_profile(ProfileResolverInputs {
+            cli_profile: Some("sso"),
+            ..base_inputs(&cfg, &cr)
+        })
+        .unwrap_err();
+        assert!(matches!(err, Error::Config(_)));
     }
 
     #[test]
