@@ -1,9 +1,9 @@
 use crate::body::{build_body, BodyInput};
 use crate::cli::{GlobalFlags, OutputMode};
-use crate::client::Client;
+use crate::client::{Auth, Client};
 use crate::config::{
     config_path, credentials_path, load_config_from, load_credentials_from, resolve_profile,
-    ProfileResolverInputs, ResolvedProfile,
+    AuthMethod, ProfileResolverInputs, ResolvedProfile,
 };
 use crate::error::{Error, Result};
 use crate::output::{emit_value, Format, ResolvedFormat};
@@ -296,6 +296,13 @@ pub(crate) fn build_client(profile: &ResolvedProfile, timeout: Option<u64>) -> R
             profile.proxy_username.clone(),
             profile.proxy_password.clone(),
         );
+    // OAuth profiles attach a bearer token, refreshing (or minting, for
+    // client-credentials) it transparently and persisting any new tokens.
+    // Basic profiles fall through to the builder's default username/password.
+    if matches!(profile.auth_method, AuthMethod::Oauth) {
+        let token = crate::oauth::ensure_access_token(profile, timeout)?;
+        b = b.auth(Auth::Bearer { token });
+    }
     if let Some(secs) = timeout {
         b = b.timeout(Duration::from_secs(secs));
     }
