@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.0 (2026-06-16)
+
+### OAuth 2.0 / SSO authentication
+
+- Profiles can now authenticate via OAuth 2.0 (`auth = "oauth"`) in addition to
+  HTTP Basic — the supported path for instances fronted by external SSO
+  (Okta/Azure AD/ADFS), where a human's password lives in the IdP and Basic auth
+  cannot work.
+- Two grants:
+  - **`authorization_code`** — interactive browser flow with a loopback redirect
+    server (RFC 8252) and PKCE S256 by default. The redirect URI defaults to
+    `http://localhost:8400/callback` and must be registered exactly in
+    ServiceNow's Application Registry.
+  - **`client_credentials`** — non-interactive service-to-service tokens.
+- New commands:
+  - **`sn auth login`** — configure OAuth, run the flow, cache tokens, and verify
+    (`--client-id`, `--client-secret`, `--redirect-uri`, `--scope`, `--grant`,
+    `--no-pkce`, `--instance`).
+  - **`sn auth status`** — show the resolved auth method and token expiry.
+  - **`sn auth refresh`** — force a token refresh now.
+  - **`sn auth logout`** — discard cached tokens.
+- **`sn init`** now offers `basic` or `oauth` setup interactively (and via the
+  same flags), so a profile can be stood up end to end in one command.
+- Tokens are refreshed (or minted, for client-credentials) transparently before
+  every request; new tokens are persisted automatically. Non-secret OAuth config
+  lives in `config.toml`; the client secret and tokens live in
+  `credentials.toml` (chmod 0600 on Unix).
+
+Backward compatible: existing `config.toml` files without an `auth` field
+continue to behave as `basic` profiles.
+
 ## 0.4.1 (2026-04-25)
 
 ### Fixes
