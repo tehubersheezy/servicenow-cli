@@ -10,6 +10,31 @@ A fast, single-binary CLI for ServiceNow. Designed for LLM agents and human oper
 
 `sn` wraps ServiceNow's REST APIs — Table, Change Management, Attachment, CMDB, Import Set, Service Catalog, Identification & Reconciliation, CICD, Aggregate, Performance Analytics, and schema discovery — into a predictable command-line interface with stable JSON output, structured error reporting, and deterministic exit codes.
 
+```bash
+sn init                                      # connect to an instance
+sn table list incident --setlimit 5          # read records as JSON
+sn table create incident --field short_description="Disk full on prod-db-01"
+sn ping                                       # auth + latency health check
+```
+
+## Contents
+
+- [Installation](#installation)
+- [Setup](#setup) — [Basic auth](#basic-auth) · [OAuth / SSO](#oauth--sso)
+- [Usage](#usage)
+  - Records: [read](#reading-records) · [write](#writing-records) · [paginate](#pagination)
+  - Discovery: [schema](#schema-discovery) · [aggregate](#aggregate-queries)
+  - [Change Management](#change-management) · [Attachments](#attachments) · [CMDB](#cmdb) · [Import Sets](#import-sets)
+  - [Service Catalog](#service-catalog) · [Identification & Reconciliation](#identification--reconciliation)
+  - [CICD operations](#cicd-operations) · [Performance Analytics](#performance-analytics-scorecards)
+  - [Health & connection](#inspect-and-connect) · [Open in web UI](#open-a-record-in-the-web-ui) · [Raw REST](#raw-rest-passthrough)
+  - [Table output](#human-readable-table-output) · [Shell completions](#shell-completions) · [Agent integration](#agent-integration)
+- [Output contract](#output-contract) · [Exit codes](#exit-codes)
+- [Parameters](#parameters)
+- [Configuration](#configuration)
+- [Proxy and TLS](#proxy-and-tls)
+- [Debugging](#debugging)
+
 ## Installation
 
 ### Homebrew (macOS / Linux)
@@ -61,6 +86,10 @@ Download from [Releases](https://github.com/tehubersheezy/servicenow-cli/release
 
 ## Setup
 
+`sn` supports two authentication methods. Most instances use **basic auth** (username + password); instances fronted by an external identity provider — Okta, Azure AD, ADFS — use **OAuth / SSO**.
+
+### Basic auth
+
 Connect to a ServiceNow instance:
 
 ```bash
@@ -85,7 +114,31 @@ sn --profile prod table list incident --setlimit 5
 sn profile use prod                  # set as default
 ```
 
-Verify credentials:
+### OAuth / SSO
+
+When a user's password lives in an external IdP, basic auth and the OAuth password grant can't work. Authenticate with OAuth instead — `sn auth login` configures the profile, runs the flow, and caches the tokens:
+
+```bash
+# Interactive browser login (authorization-code + PKCE) — opens your SSO page
+sn auth login --client-id <id> --scope useraccount
+
+# Non-interactive, server-to-server (requires a client secret)
+sn auth login --grant client_credentials --client-id <id> --client-secret <secret>
+```
+
+After login, every command refreshes tokens transparently — no extra steps. Manage the session with:
+
+```bash
+sn auth status     # show the resolved auth method + token expiry
+sn auth refresh    # force a token refresh now
+sn auth logout     # discard cached tokens
+```
+
+The loopback redirect (`--redirect-uri`, default `http://localhost:8400/callback`) must be registered **exactly** in ServiceNow's Application Registry. The client_id, scope, and redirect URI are saved to `config.toml`; the client secret and tokens go to `credentials.toml` (chmod 600).
+
+### Verify credentials
+
+Works for either auth method:
 
 ```bash
 sn auth test
