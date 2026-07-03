@@ -39,9 +39,6 @@ pub struct LoginArgs {
     /// Defaults to http://localhost:8400/callback.
     #[arg(long, value_name = "URL")]
     pub redirect_uri: Option<String>,
-    /// OAuth scope (e.g. useraccount).
-    #[arg(long)]
-    pub scope: Option<String>,
     /// Grant type: authorization_code (SSO, default) or client_credentials.
     #[arg(long, value_enum)]
     pub grant: Option<OAuthGrant>,
@@ -150,9 +147,6 @@ pub fn login(global: &GlobalFlags, args: LoginArgs) -> Result<()> {
         redirect_uri: args
             .redirect_uri
             .or_else(|| existing.as_ref().and_then(|e| e.redirect_uri.clone())),
-        scope: args
-            .scope
-            .or_else(|| existing.as_ref().and_then(|e| e.scope.clone())),
         auth_path: existing.as_ref().and_then(|e| e.auth_path.clone()),
         token_path: existing.as_ref().and_then(|e| e.token_path.clone()),
         grant,

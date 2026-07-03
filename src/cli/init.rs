@@ -11,17 +11,20 @@ use std::io::{self, Write};
 
 #[derive(clap::Args, Debug)]
 pub struct InitArgs {
+    /// Profile name to create or update (default: "default").
     #[arg(long)]
     pub profile: Option<String>,
+    /// Instance: short name (`dev380385`) or full URL.
     #[arg(long)]
     pub instance: Option<String>,
     /// Authentication method: `basic` (username/password) or `oauth` (SSO / OAuth 2.0).
     #[arg(long, value_enum)]
     pub auth: Option<AuthMethod>,
+    /// Username (basic auth only).
     #[arg(long)]
     pub username: Option<String>,
-    /// Convenience flag; prefer the interactive prompt — `--password` is visible
-    /// in `ps` output and shell history.
+    /// Password (basic auth only). Convenience flag; prefer the interactive
+    /// prompt — `--password` is visible in `ps` output and shell history.
     #[arg(long)]
     pub password: Option<String>,
     /// OAuth client_id (oauth only).
@@ -33,9 +36,6 @@ pub struct InitArgs {
     /// OAuth loopback redirect URI (oauth only). Defaults to http://localhost:8400/callback.
     #[arg(long, value_name = "URL")]
     pub redirect_uri: Option<String>,
-    /// OAuth scope (oauth only), e.g. useraccount.
-    #[arg(long)]
-    pub scope: Option<String>,
     /// OAuth grant: authorization_code (SSO, default) or client_credentials.
     #[arg(long, value_enum)]
     pub grant: Option<OAuthGrant>,
@@ -132,26 +132,9 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
                 return Err(Error::Usage("client_id is required for oauth".into()));
             }
             oauth_grant = args.grant.unwrap_or_default();
-            let redirect_uri = args.redirect_uri.clone().or_else(|| {
-                let d = default_redirect_uri();
-                let v = prompt(&format!("Redirect URI [{d}]: "), Some(d));
-                Some(v)
-            });
-            let scope = args
-                .scope
-                .clone()
-                .or_else(|| {
-                    let v = prompt("Scope (blank for none): ", Some(String::new()));
-                    if v.is_empty() {
-                        None
-                    } else {
-                        Some(v)
-                    }
-                })
-                .filter(|s| !s.is_empty());
 
-            // Secret: required for client_credentials, optional (public/PKCE) for
-            // authorization_code.
+            // Secret directly follows the client_id it belongs to: required for
+            // client_credentials, optional (public/PKCE) for authorization_code.
             let secret = match &args.client_secret {
                 Some(s) => Some(s.clone()),
                 None => {
@@ -175,11 +158,21 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
                 ));
             }
 
+            // The loopback redirect only exists in the browser flow; don't ask
+            // for one under client_credentials.
+            let redirect_uri = if matches!(oauth_grant, OAuthGrant::ClientCredentials) {
+                args.redirect_uri.clone()
+            } else {
+                args.redirect_uri.clone().or_else(|| {
+                    let d = default_redirect_uri();
+                    Some(prompt(&format!("Redirect URI [{d}]: "), Some(d)))
+                })
+            };
+
             pc.auth = AuthMethod::Oauth;
             pc.oauth = Some(OAuthConfig {
                 client_id,
                 redirect_uri,
-                scope,
                 auth_path: None,
                 token_path: None,
                 grant: oauth_grant,

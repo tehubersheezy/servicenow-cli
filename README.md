@@ -120,12 +120,13 @@ When a user's password lives in an external IdP, basic auth and the OAuth passwo
 
 ```bash
 # Interactive browser login (authorization-code + PKCE) — opens your SSO page
-sn auth login --client-id <id> --scope useraccount
+sn auth login --client-id <id>
 
 # Non-interactive, server-to-server (requires a client secret)
 sn auth login --grant client_credentials --client-id <id> --client-secret <secret>
 ```
 
+One-time admin setup on the instance (if no registry entry exists yet): **System OAuth → Application Registry → New → "Create an OAuth API endpoint for external clients"**, set the redirect URL to `http://localhost:8400/callback`, and copy the generated client ID (and secret, for confidential clients).
 After login, every command refreshes tokens transparently — no extra steps. Manage the session with:
 
 ```bash
@@ -134,7 +135,7 @@ sn auth refresh    # force a token refresh now
 sn auth logout     # discard cached tokens
 ```
 
-The loopback redirect (`--redirect-uri`, default `http://localhost:8400/callback`) must be registered **exactly** in ServiceNow's Application Registry. The client_id, scope, and redirect URI are saved to `config.toml`; the client secret and tokens go to `credentials.toml` (chmod 600).
+The loopback redirect (`--redirect-uri`, default `http://localhost:8400/callback`) must be registered **exactly** in ServiceNow's Application Registry. The client_id and redirect URI are saved to `config.toml`; the client secret and tokens go to `credentials.toml` (chmod 600).
 
 ### Verify credentials
 

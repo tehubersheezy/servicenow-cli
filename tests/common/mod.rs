@@ -71,7 +71,6 @@ pub fn mock_oauth_profile(instance: &str, access_token: &str) -> sn::config::Res
             client_id: "cid".into(),
             client_secret: None,
             redirect_uri: sn::config::default_redirect_uri(),
-            scope: None,
             auth_path: "/oauth_auth.do".into(),
             token_path: "/oauth_token.do".into(),
             grant: sn::config::OAuthGrant::AuthorizationCode,

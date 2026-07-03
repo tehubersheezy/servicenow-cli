@@ -28,7 +28,7 @@ CLI overrides for one-off use: `--instance-override URL`, `--username USER`, `--
 For instances fronted by an external IdP (Okta, Azure AD, ADFS), basic auth cannot work — use OAuth (`auth = "oauth"` on the profile).
 
 ```bash
-sn auth login --client-id <id> --scope useraccount        # authorization_code: OPENS A BROWSER,
+sn auth login --client-id <id>                            # authorization_code: OPENS A BROWSER,
                                                           # blocks up to 300s on human login — not agent-safe
 sn auth login --grant client_credentials --client-id <id> --client-secret <secret>   # non-interactive
 sn auth status                                            # token state (never prints secrets)
