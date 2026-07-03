@@ -1,4 +1,6 @@
+use clap::error::ErrorKind;
 use clap::Parser;
+use is_terminal::IsTerminal;
 use sn::cli::{
     AppSub, AtfSub, AttachmentSub, AuthSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
     IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub, UserSub,
@@ -9,7 +11,10 @@ use std::io;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => return handle_clap_error(err),
+    };
     sn::observability::set_level(cli.global.verbose);
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
@@ -17,6 +22,27 @@ fn main() -> ExitCode {
         Err(err) => {
             let _ = emit_error(io::stderr().lock(), &err);
             ExitCode::from(err.exit_code() as u8)
+        }
+    }
+}
+
+/// Keep clap errors inside the machine contract: usage mistakes exit 1 (not
+/// clap's default 2, which this CLI reserves for API errors) and produce the
+/// JSON error envelope when stderr is not a terminal.
+fn handle_clap_error(err: clap::Error) -> ExitCode {
+    match err.kind() {
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => {
+            let _ = err.print();
+            ExitCode::SUCCESS
+        }
+        _ => {
+            if io::stderr().is_terminal() {
+                let _ = err.print();
+            } else {
+                let message = err.render().to_string().trim_end().to_string();
+                let _ = emit_error(io::stderr().lock(), &sn::error::Error::Usage(message));
+            }
+            ExitCode::from(1)
         }
     }
 }

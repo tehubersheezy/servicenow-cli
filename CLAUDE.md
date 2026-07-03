@@ -66,7 +66,7 @@ src/
 
 ### CICD async pattern
 
-CICD operations (`app`, `updateset`, `atf`) are async — they return a `progress_id` immediately and the operation runs in the background on the ServiceNow instance. The preferred way to wait for completion is `--wait`, which blocks the command until the operation succeeds or fails (polling `GET /api/sn_cicd/progress/{id}` every 2 seconds) and then emits the final progress result — eliminating the need for manual `sn progress` polling. Without `--wait`, the command returns immediately with the initial progress object. For operations already in flight, poll manually with `sn progress <progress_id>`. The progress response includes a `state` field (`running`, `complete`, `failed`) and a `percentComplete` indicator. All three command groups share the same polling mechanism via `cli/progress.rs`.
+CICD operations (`app`, `updateset`, `atf`) are async — they return a `progress_id` immediately and the operation runs in the background on the ServiceNow instance. The preferred way to wait for completion is `--wait`, which blocks the command until the operation succeeds or fails (polling `GET /api/sn_cicd/progress/{id}` every 2 seconds) and then emits the final progress result — eliminating the need for manual `sn progress` polling. `--wait-timeout <SECS>` (requires `--wait`) bounds the total wait; on expiry the command exits 3 with a pointer to `sn progress`. Without `--wait`, the command returns immediately with the initial progress object. For operations already in flight, poll manually with `sn progress <progress_id>`. The progress response includes a `state` field (`running`, `complete`, `failed`) and a `percentComplete` indicator. All command groups share the same tail via `cli/progress.rs::finish_cicd` (progress-link extraction + polling + emission through `write_response`, so `--output table` works under `--wait`) — new async commands must route through it rather than open-coding the wait block.
 
 ### Client binary methods
 
@@ -107,7 +107,7 @@ Uses `/api/now/identifyreconcile`. POST-only pattern for CI creation/updates and
 
 ### Exit codes
 
-`0` success, `1` usage/config, `2` API 4xx/5xx (non-auth), `3` network/transport, `4` auth (401/403).
+`0` success, `1` usage/config, `2` API 4xx/5xx (non-auth), `3` network/transport, `4` auth (401/403). Clap parse errors are intercepted in `main.rs` (`handle_clap_error`) so they honor this contract too: exit 1, with the JSON error envelope on stderr when stderr is not a TTY (clap's human-readable text when it is). `--help`/`--version` still exit 0.
 
 ### Profile resolution precedence
 
@@ -117,11 +117,10 @@ Uses `/api/now/identifyreconcile`. POST-only pattern for CI creation/updates and
 
 A profile authenticates via one of two methods, selected by `auth = "basic"` (default) or `auth = "oauth"` in its `config.toml` entry. OAuth is the path for instances fronted by external SSO (Okta/Azure AD/ADFS), where a human's password lives in the IdP — so HTTP Basic and the OAuth password grant cannot work.
 
-- **Non-secret OAuth config** (client_id, redirect_uri, scope, endpoint overrides, grant, pkce) lives in `config.toml` under `[profiles.<name>.oauth]`. **The client secret and cached tokens** live in `credentials.toml` (`chmod 0600`), mirroring the username/password split.
+- **Non-secret OAuth config** (client_id, redirect_uri, endpoint overrides, grant, pkce) lives in `config.toml` under `[profiles.<name>.oauth]`. **The client secret and cached tokens** live in `credentials.toml` (`chmod 0600`), mirroring the username/password split.
 - **Two grants:** `authorization_code` (interactive — opens a browser, runs a loopback redirect server per RFC 8252, uses PKCE S256 by default) and `client_credentials` (non-interactive, requires a secret). The loopback `redirect_uri` (default `http://localhost:8400/callback`) **must be registered exactly** in ServiceNow's Application Registry.
 - **Endpoints:** authorization `GET /oauth_auth.do`, token `POST /oauth_token.do` (overridable per profile).
-- **Commands:** `sn auth login` (configure + run the flow + cache tokens; flags: `--client-id`, `--client-secret`, `--redirect-uri`, `--scope`, `--grant`, `--no-pkce`, `--instance`), `sn auth status`, `sn auth refresh`, `sn auth logout`.
-- **Transparent refresh:** `build_client` (in `cli/table.rs`) calls `oauth::ensure_access_token` for OAuth profiles before every request — it returns a cached token, refreshes a stale one via the refresh token (or mints a fresh one for client_credentials), and persists any new tokens. All command handlers get this for free with no call-site changes. The `Client` itself is auth-agnostic: a single `Auth` enum (`Basic`/`Bearer`/`None`) is applied in `send()`.
+- **Commands:** `sn auth login` (configure + run the flow + cache tokens; flags: `--client-id`, `--client-secret`, `--redirect-uri`, `--grant`, `--no-pkce`, `--instance`), `sn auth status`, `sn auth refresh`, `sn auth logout`.- **Transparent refresh:** `build_client` (in `cli/table.rs`) calls `oauth::ensure_access_token` for OAuth profiles before every request — it returns a cached token, refreshes a stale one via the refresh token (or mints a fresh one for client_credentials), and persists any new tokens. All command handlers get this for free with no call-site changes. The `Client` itself is auth-agnostic: a single `Auth` enum (`Basic`/`Bearer`/`None`) is applied in `send()`.
 
 ### Proxy and TLS
 

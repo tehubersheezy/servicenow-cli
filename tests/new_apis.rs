@@ -1,6 +1,6 @@
 use assert_cmd::Command;
 use serde_json::json;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, ResponseTemplate};
 
 // ── change management ────────────────────────────────────────────────────────
@@ -341,6 +341,85 @@ async fn import_get_record() {
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
         let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
         assert_eq!(v["u_name"], "test");
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn import_bulk_wraps_array_into_records() {
+    let server = wiremock::MockServer::start().await;
+    // The README-documented bare-array form must reach the API wrapped as
+    // {"records": [...]} — the shape insertMultiple requires.
+    Mock::given(method("POST"))
+        .and(path("/api/now/import/u_staging_table/insertMultiple"))
+        .and(body_json(json!({
+            "records": [{"u_name": "Server-01"}, {"u_name": "Server-02"}]
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "result": [{"status": "inserted"}, {"status": "inserted"}]
+        })))
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let out = Command::cargo_bin("sn")
+            .unwrap()
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "import",
+                "bulk",
+                "u_staging_table",
+                "--data",
+                r#"[{"u_name":"Server-01"},{"u_name":"Server-02"}]"#,
+            ])
+            .assert()
+            .success();
+        let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(v[0]["status"], "inserted");
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn import_bulk_accepts_prewrapped_records_object() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/now/import/u_staging_table/insertMultiple"))
+        .and(body_json(json!({"records": [{"u_name": "Server-03"}]})))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "result": [{"status": "inserted"}]
+        })))
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        Command::cargo_bin("sn")
+            .unwrap()
+            .args([
+                "--instance-override",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--compact",
+                "import",
+                "bulk",
+                "u_staging_table",
+                "--data",
+                r#"{"records":[{"u_name":"Server-03"}]}"#,
+            ])
+            .assert()
+            .success();
     })
     .await
     .unwrap();

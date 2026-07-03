@@ -1,8 +1,9 @@
 use crate::body::{build_body, BodyInput};
 use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::GlobalFlags;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use clap::Subcommand;
+use serde_json::Value;
 
 #[derive(Subcommand, Debug)]
 pub enum ImportSub {
@@ -30,7 +31,7 @@ pub struct ImportCreateArgs {
 pub struct ImportBulkArgs {
     /// Staging table name.
     pub staging_table: String,
-    /// JSON array of records, @file, or @- for stdin.
+    /// JSON array of records (or `{"records": [...]}`), @file, or @- for stdin.
     #[arg(long, required = true)]
     pub data: String,
 }
@@ -64,7 +65,17 @@ pub fn bulk(global: &GlobalFlags, args: ImportBulkArgs) -> Result<()> {
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let path = format!("/api/now/import/{}/insertMultiple", args.staging_table);
-    let body = build_body(BodyInput::Data(args.data))?;
+    // insertMultiple expects {"records": [...]}; accept the documented bare
+    // array and wrap it, or pass a pre-wrapped object through as-is.
+    let body = match crate::body::parse_data_value(&args.data)? {
+        Value::Array(records) => serde_json::json!({ "records": records }),
+        obj @ Value::Object(_) => obj,
+        _ => {
+            return Err(Error::Usage(
+                "--data must be a JSON array of records or {\"records\": [...]}".into(),
+            ))
+        }
+    };
     let resp = client.post(&path, &[], &body)?;
     let out = unwrap_or_raw(resp, global.output);
     crate::cli::table::write_response(global, &out)

@@ -24,6 +24,19 @@ pub fn build_body(input: BodyInput) -> Result<Value> {
 }
 
 fn parse_data_spec(raw: &str) -> Result<Value> {
+    let value = parse_data_value(raw)?;
+    if !value.is_object() {
+        return Err(Error::Usage(
+            "--data must be a JSON object at the top level".into(),
+        ));
+    }
+    Ok(value)
+}
+
+/// Resolve a `--data` spec (inline JSON, `@file`, or `@-`) to any JSON value,
+/// without the top-level-object requirement. For endpoints that take arrays
+/// (e.g. `import bulk`).
+pub fn parse_data_value(raw: &str) -> Result<Value> {
     let source = if raw == "@-" {
         let mut s = String::new();
         io::stdin()
@@ -35,14 +48,8 @@ fn parse_data_spec(raw: &str) -> Result<Value> {
     } else {
         raw.to_string()
     };
-    let value: Value = serde_json::from_str(&source)
-        .map_err(|e| Error::Usage(format!("--data is not valid JSON: {e}")))?;
-    if !value.is_object() {
-        return Err(Error::Usage(
-            "--data must be a JSON object at the top level".into(),
-        ));
-    }
-    Ok(value)
+    serde_json::from_str(&source)
+        .map_err(|e| Error::Usage(format!("--data is not valid JSON: {e}")))
 }
 
 fn parse_field_specs(specs: &[String]) -> Result<Value> {
@@ -96,6 +103,12 @@ mod tests {
     fn data_top_level_must_be_object() {
         let err = build_body(BodyInput::Data("[1,2,3]".into())).unwrap_err();
         assert!(matches!(err, Error::Usage(_)));
+    }
+
+    #[test]
+    fn data_value_allows_top_level_array() {
+        let v = parse_data_value(r#"[{"a":1},{"a":2}]"#).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 2);
     }
 
     #[test]

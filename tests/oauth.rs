@@ -13,7 +13,6 @@ fn client_credentials_profile(uri: &str) -> ResolvedProfile {
             client_id: "cid".into(),
             client_secret: Some("shh".into()),
             redirect_uri: sn::config::default_redirect_uri(),
-            scope: Some("useraccount".into()),
             auth_path: "/oauth_auth.do".into(),
             token_path: "/oauth_token.do".into(),
             grant: OAuthGrant::ClientCredentials,

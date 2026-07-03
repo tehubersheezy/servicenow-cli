@@ -89,9 +89,6 @@ pub struct OAuthConfig {
     /// Defaults to `http://localhost:8400/callback`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_uri: Option<String>,
-    /// OAuth scope (e.g. `useraccount`). Omitted from the request when unset.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
     /// Authorization endpoint path. Defaults to `/oauth_auth.do`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_path: Option<String>,
@@ -243,7 +240,6 @@ mod tests {
                 oauth: Some(OAuthConfig {
                     client_id: "abc".into(),
                     redirect_uri: Some("http://localhost:8400/callback".into()),
-                    scope: Some("useraccount".into()),
                     auth_path: None,
                     token_path: None,
                     grant: OAuthGrant::AuthorizationCode,
@@ -399,7 +395,6 @@ pub struct ResolvedOauth {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub redirect_uri: String,
-    pub scope: Option<String>,
     pub auth_path: String,
     pub token_path: String,
     pub grant: OAuthGrant,
@@ -492,7 +487,6 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
                     .redirect_uri
                     .clone()
                     .unwrap_or_else(default_redirect_uri),
-                scope: cfg.scope.clone(),
                 auth_path: cfg
                     .auth_path
                     .clone()
@@ -1049,7 +1043,6 @@ mod resolution_tests {
                 oauth: Some(OAuthConfig {
                     client_id: "abc".into(),
                     redirect_uri: None,
-                    scope: Some("useraccount".into()),
                     auth_path: None,
                     token_path: None,
                     grant: OAuthGrant::AuthorizationCode,

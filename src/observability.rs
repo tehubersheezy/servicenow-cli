@@ -38,8 +38,13 @@ pub fn log_response_headers(headers: &reqwest::header::HeaderMap) {
 
 pub fn log_body(direction: &str, body: &str) {
     if level() >= 3 {
+        // Truncate on a char boundary: a raw byte-index slice panics mid-multi-byte UTF-8.
         let trimmed = if body.len() > 4096 {
-            &body[..4096]
+            let end = (0..=4096)
+                .rev()
+                .find(|&i| body.is_char_boundary(i))
+                .unwrap_or(0);
+            &body[..end]
         } else {
             body
         };

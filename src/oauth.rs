@@ -94,9 +94,6 @@ pub fn authorize_url(
         q.append_pair("client_id", &o.client_id);
         q.append_pair("redirect_uri", &o.redirect_uri);
         q.append_pair("state", state);
-        if let Some(s) = &o.scope {
-            q.append_pair("scope", s);
-        }
         if let Some(c) = pkce_challenge {
             q.append_pair("code_challenge", c);
             q.append_pair("code_challenge_method", "S256");
@@ -354,14 +351,11 @@ pub fn client_credentials(client: &Client, o: &ResolvedOauth) -> Result<TokenSet
         .client_secret
         .as_ref()
         .ok_or_else(|| Error::Config("client_credentials grant requires a client secret".into()))?;
-    let mut form = vec![
+    let form = vec![
         ("grant_type".into(), "client_credentials".into()),
         ("client_id".into(), o.client_id.clone()),
         ("client_secret".into(), secret.clone()),
     ];
-    if let Some(s) = &o.scope {
-        form.push(("scope".into(), s.clone()));
-    }
     parse_token_response(&client.post_form(&o.token_path, &form)?)
 }
 
@@ -374,6 +368,24 @@ pub fn client_credentials(client: &Client, o: &ResolvedOauth) -> Result<TokenSet
 pub fn login_authorization_code(
     profile: &ResolvedProfile,
     timeout: Option<u64>,
+) -> Result<TokenSet> {
+    login_authorization_code_with(profile, timeout, |url| {
+        eprintln!("Opening browser for SSO login:\n  {url}");
+        if webbrowser::open(url).is_err() {
+            eprintln!("(could not open a browser automatically — open the URL above manually)");
+        }
+        Ok(())
+    })
+}
+
+/// Like [`login_authorization_code`], but with the browser-open step injected so
+/// the flow can be exercised end to end in tests without launching a real
+/// browser. `open` receives the fully-built authorization URL; the default
+/// caller hands it to `webbrowser::open`.
+pub fn login_authorization_code_with(
+    profile: &ResolvedProfile,
+    timeout: Option<u64>,
+    open: impl FnOnce(&str) -> Result<()>,
 ) -> Result<TokenSet> {
     let o = profile
         .oauth
@@ -391,10 +403,7 @@ pub fn login_authorization_code(
     };
     let url = authorize_url(&base, o, &state, challenge.as_deref())?;
 
-    eprintln!("Opening browser for SSO login:\n  {url}");
-    if webbrowser::open(&url).is_err() {
-        eprintln!("(could not open a browser automatically — open the URL above manually)");
-    }
+    open(&url)?;
     eprintln!("Waiting for the SSO redirect on {} …", o.redirect_uri);
 
     let code = run_loopback(&o.redirect_uri, &state)?;
@@ -479,7 +488,6 @@ mod tests {
             client_id: "cid".into(),
             client_secret: None,
             redirect_uri: "http://localhost:8400/callback".into(),
-            scope: Some("useraccount".into()),
             auth_path: "/oauth_auth.do".into(),
             token_path: "/oauth_token.do".into(),
             grant: OAuthGrant::AuthorizationCode,
@@ -530,7 +538,6 @@ mod tests {
             "http://localhost:8400/callback"
         );
         assert_eq!(q.get("state").unwrap(), "xyz");
-        assert_eq!(q.get("scope").unwrap(), "useraccount");
         assert_eq!(q.get("code_challenge").unwrap(), "chal");
         assert_eq!(q.get("code_challenge_method").unwrap(), "S256");
     }

@@ -19,9 +19,36 @@ pub fn run(global: &GlobalFlags, args: ProgressArgs) -> Result<()> {
     crate::cli::table::write_response(global, &out)
 }
 
+/// Shared tail of every async CICD command (`app`, `updateset`, `atf`): if
+/// `--wait` was passed and the response carries a progress link, poll it to
+/// completion (bounded by `--wait-timeout`) and emit the final progress
+/// result; otherwise emit the initial response. Routing the final emission
+/// through `write_response` keeps `--output table` working under `--wait`.
+pub(crate) fn finish_cicd(
+    global: &GlobalFlags,
+    client: &Client,
+    out: Value,
+    wait: bool,
+    wait_timeout: Option<u64>,
+) -> Result<()> {
+    if wait {
+        if let Some(progress_id) = out
+            .get("links")
+            .and_then(|l| l.get("progress"))
+            .and_then(|p| p.get("id"))
+            .and_then(|id| id.as_str())
+        {
+            let final_result = wait_for_completion(client, progress_id, global, wait_timeout)?;
+            return crate::cli::table::write_response(global, &final_result);
+        }
+    }
+    crate::cli::table::write_response(global, &out)
+}
+
 /// Poll `GET /api/sn_cicd/progress/{progress_id}` in a loop until the operation
 /// reaches a terminal state (Successful, Failed, or Cancelled) and return the
-/// final result value.
+/// final result value. `wait_timeout` bounds the total wait in seconds; `None`
+/// waits indefinitely.
 ///
 /// Status codes:
 /// - "0" = Pending, "1" = Running, "2" = Successful, "3" = Failed, "4" = Cancelled
@@ -29,8 +56,11 @@ pub(crate) fn wait_for_completion(
     client: &Client,
     progress_id: &str,
     global: &GlobalFlags,
+    wait_timeout: Option<u64>,
 ) -> Result<Value> {
     let path = format!("/api/sn_cicd/progress/{}", progress_id);
+    let deadline =
+        wait_timeout.map(|secs| std::time::Instant::now() + std::time::Duration::from_secs(secs));
     loop {
         let resp = client.get(&path, &[])?;
         let result = unwrap_or_raw(resp, OutputMode::Default);
@@ -59,6 +89,15 @@ pub(crate) fn wait_for_completion(
                 if global.verbose > 0 {
                     if let Some(pct) = result.get("percent_complete").and_then(|v| v.as_str()) {
                         eprintln!("sn: progress {}%", pct);
+                    }
+                }
+                if let Some(d) = deadline {
+                    if std::time::Instant::now() >= d {
+                        return Err(Error::Transport(format!(
+                            "--wait timed out after {}s; operation still running, poll with `sn progress {}`",
+                            wait_timeout.unwrap_or_default(),
+                            progress_id
+                        )));
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_secs(2));
