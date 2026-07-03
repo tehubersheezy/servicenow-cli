@@ -504,6 +504,12 @@ sn app install --scope x_myapp --version 1.2.0 --wait
 sn atf run --suite-name "Regression Suite" --wait
 ```
 
+Add `--wait-timeout <SECS>` to bound the wait — if the operation is still running when the deadline passes, `sn` exits 3 with a pointer to `sn progress` (by default `--wait` waits indefinitely):
+
+```bash
+sn atf run --suite-name "Regression Suite" --wait --wait-timeout 900
+```
+
 To check the status of an already-running operation, use `sn progress` with the `progress_id` from the initial response:
 
 ```bash

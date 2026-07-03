@@ -66,7 +66,7 @@ src/
 
 ### CICD async pattern
 
-CICD operations (`app`, `updateset`, `atf`) are async — they return a `progress_id` immediately and the operation runs in the background on the ServiceNow instance. The preferred way to wait for completion is `--wait`, which blocks the command until the operation succeeds or fails (polling `GET /api/sn_cicd/progress/{id}` every 2 seconds) and then emits the final progress result — eliminating the need for manual `sn progress` polling. Without `--wait`, the command returns immediately with the initial progress object. For operations already in flight, poll manually with `sn progress <progress_id>`. The progress response includes a `state` field (`running`, `complete`, `failed`) and a `percentComplete` indicator. All three command groups share the same polling mechanism via `cli/progress.rs`.
+CICD operations (`app`, `updateset`, `atf`) are async — they return a `progress_id` immediately and the operation runs in the background on the ServiceNow instance. The preferred way to wait for completion is `--wait`, which blocks the command until the operation succeeds or fails (polling `GET /api/sn_cicd/progress/{id}` every 2 seconds) and then emits the final progress result — eliminating the need for manual `sn progress` polling. `--wait-timeout <SECS>` (requires `--wait`) bounds the total wait; on expiry the command exits 3 with a pointer to `sn progress`. Without `--wait`, the command returns immediately with the initial progress object. For operations already in flight, poll manually with `sn progress <progress_id>`. The progress response includes a `state` field (`running`, `complete`, `failed`) and a `percentComplete` indicator. All command groups share the same tail via `cli/progress.rs::finish_cicd` (progress-link extraction + polling + emission through `write_response`, so `--output table` works under `--wait`) — new async commands must route through it rather than open-coding the wait block.
 
 ### Client binary methods
 
@@ -107,7 +107,7 @@ Uses `/api/now/identifyreconcile`. POST-only pattern for CI creation/updates and
 
 ### Exit codes
 
-`0` success, `1` usage/config, `2` API 4xx/5xx (non-auth), `3` network/transport, `4` auth (401/403).
+`0` success, `1` usage/config, `2` API 4xx/5xx (non-auth), `3` network/transport, `4` auth (401/403). Clap parse errors are intercepted in `main.rs` (`handle_clap_error`) so they honor this contract too: exit 1, with the JSON error envelope on stderr when stderr is not a TTY (clap's human-readable text when it is). `--help`/`--version` still exit 0.
 
 ### Profile resolution precedence
 

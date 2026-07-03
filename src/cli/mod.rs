@@ -85,7 +85,7 @@ pub struct Cli {
     pub command: Command,
 
     /// Print version and exit.
-    #[arg(short = 'v', long = "version", action = clap::ArgAction::Version)]
+    #[arg(short = 'V', long = "version", action = clap::ArgAction::Version)]
     version: (),
 }
 
@@ -125,8 +125,8 @@ pub struct GlobalFlags {
     #[arg(long, global = true, value_name = "SECS")]
     pub timeout: Option<u64>,
 
-    /// Verbosity: --verbose, -vv, -vvv (see spec §9).
-    #[arg(long, global = true, action = clap::ArgAction::Count)]
+    /// Increase verbosity (-v requests, -vv headers, -vvv bodies).
+    #[arg(short = 'v', long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
     /// Proxy URL (http://, https://, socks5://). Overrides SN_PROXY and profile config.

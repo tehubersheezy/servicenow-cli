@@ -1,9 +1,7 @@
-use crate::cli::table::{build_client, build_profile, format_from_flags, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::{Error, Result};
-use crate::output::emit_value;
 use clap::Subcommand;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum AppSub {
@@ -35,6 +33,9 @@ pub struct AppInstallArgs {
     /// Block until the operation completes (polls progress API).
     #[arg(long)]
     pub wait: bool,
+    /// Give up on --wait after this many seconds (exit 3). Default: no limit.
+    #[arg(long, value_name = "SECS", requires = "wait")]
+    pub wait_timeout: Option<u64>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -54,6 +55,9 @@ pub struct AppPublishArgs {
     /// Block until the operation completes (polls progress API).
     #[arg(long)]
     pub wait: bool,
+    /// Give up on --wait after this many seconds (exit 3). Default: no limit.
+    #[arg(long, value_name = "SECS", requires = "wait")]
+    pub wait_timeout: Option<u64>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -70,6 +74,9 @@ pub struct AppRollbackArgs {
     /// Block until the operation completes (polls progress API).
     #[arg(long)]
     pub wait: bool,
+    /// Give up on --wait after this many seconds (exit 3). Default: no limit.
+    #[arg(long, value_name = "SECS", requires = "wait")]
+    pub wait_timeout: Option<u64>,
 }
 
 pub fn install(global: &GlobalFlags, args: AppInstallArgs) -> Result<()> {
@@ -102,24 +109,7 @@ pub fn install(global: &GlobalFlags, args: AppInstallArgs) -> Result<()> {
         &serde_json::json!({}),
     )?;
     let out = unwrap_or_raw(resp, global.output);
-    if args.wait {
-        if let Some(progress_id) = out
-            .get("links")
-            .and_then(|l| l.get("progress"))
-            .and_then(|p| p.get("id"))
-            .and_then(|id| id.as_str())
-        {
-            let final_result =
-                crate::cli::progress::wait_for_completion(&client, progress_id, global)?;
-            return emit_value(
-                io::stdout().lock(),
-                &final_result,
-                format_from_flags(global),
-            )
-            .map_err(crate::output::map_stdout_err);
-        }
-    }
-    crate::cli::table::write_response(global, &out)
+    crate::cli::progress::finish_cicd(global, &client, out, args.wait, args.wait_timeout)
 }
 
 pub fn publish(global: &GlobalFlags, args: AppPublishArgs) -> Result<()> {
@@ -149,24 +139,7 @@ pub fn publish(global: &GlobalFlags, args: AppPublishArgs) -> Result<()> {
         &serde_json::json!({}),
     )?;
     let out = unwrap_or_raw(resp, global.output);
-    if args.wait {
-        if let Some(progress_id) = out
-            .get("links")
-            .and_then(|l| l.get("progress"))
-            .and_then(|p| p.get("id"))
-            .and_then(|id| id.as_str())
-        {
-            let final_result =
-                crate::cli::progress::wait_for_completion(&client, progress_id, global)?;
-            return emit_value(
-                io::stdout().lock(),
-                &final_result,
-                format_from_flags(global),
-            )
-            .map_err(crate::output::map_stdout_err);
-        }
-    }
-    crate::cli::table::write_response(global, &out)
+    crate::cli::progress::finish_cicd(global, &client, out, args.wait, args.wait_timeout)
 }
 
 pub fn rollback(global: &GlobalFlags, args: AppRollbackArgs) -> Result<()> {
@@ -191,22 +164,5 @@ pub fn rollback(global: &GlobalFlags, args: AppRollbackArgs) -> Result<()> {
         &serde_json::json!({}),
     )?;
     let out = unwrap_or_raw(resp, global.output);
-    if args.wait {
-        if let Some(progress_id) = out
-            .get("links")
-            .and_then(|l| l.get("progress"))
-            .and_then(|p| p.get("id"))
-            .and_then(|id| id.as_str())
-        {
-            let final_result =
-                crate::cli::progress::wait_for_completion(&client, progress_id, global)?;
-            return emit_value(
-                io::stdout().lock(),
-                &final_result,
-                format_from_flags(global),
-            )
-            .map_err(crate::output::map_stdout_err);
-        }
-    }
-    crate::cli::table::write_response(global, &out)
+    crate::cli::progress::finish_cicd(global, &client, out, args.wait, args.wait_timeout)
 }
