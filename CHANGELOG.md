@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.6.1 (2026-07-04)
+
+### Fixes
+
+- **Exit-code contract at the CLI edge.** Clap parse errors (unknown flags,
+  missing args) are now intercepted via `try_parse` so usage mistakes exit `1`
+  — clap's default `2` is reserved for API errors — and emit the JSON error
+  envelope on stderr when stderr is piped. `--help`/`--version` still exit `0`.
+- **`-v` is now `--verbose`** (as the help text always claimed); `--version`
+  moves to `-V` per clap convention.
+- **`import bulk`** accepts the README-documented bare JSON array and wraps it
+  as `{"records": [...]}` for `insertMultiple`; pre-wrapped objects still pass
+  through unchanged.
+- **`introspect`** builds the clap command before describing it, so boolean
+  flags no longer report `takes_value: true` with `["true","false"]` (which led
+  agents to emit `--all true`); adds `positional`, `repeatable`, and
+  `default_values` fields.
+- **`--wait-timeout <SECS>`** now bounds the CICD poll loop (exit `3` on
+  expiry); all eight async CICD call sites route their final emission through a
+  shared `finish_cicd`, so `--output table` works under `--wait`.
+- **`-vvv` body logging** truncates on a char boundary instead of panicking
+  mid-UTF-8 sequence.
+
+### OAuth
+
+- `sn init`'s OAuth branch prompts for the client secret immediately after the
+  client id, and skips the redirect-URI prompt under `client_credentials`.
+- **OAuth scope removed entirely** (flag, config field, request parameter).
+  ServiceNow grants scopes through the Application Registry entry an admin
+  configures, so a client-requested scope granted nothing and only invited
+  misconfiguration. Existing `config.toml` files with a leftover `scope=` line
+  still parse (serde ignores unknown keys).
+
+### Dependencies
+
+- Bump `quinn-proto` to 0.11.15 (RUSTSEC-2026-0185).
+
+### CI
+
+- The security workflow's `cargo audit` job now installs a prebuilt cargo-audit
+  binary (via `taiki-e/install-action`) instead of compiling it from source,
+  which had been failing intermittently on crates.io index fetches.
+
+### Docs
+
+- README gains a table of contents, an at-a-glance command block, and an
+  OAuth / SSO setup section documenting `sn auth login/status/refresh/logout`.
+
 ## 0.6.0 (2026-06-16)
 
 ### OAuth 2.0 / SSO authentication

@@ -29,9 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
+      # Install a prebuilt cargo-audit binary rather than compiling it from
+      # source (as rustsec/audit-check does) — the from-source build re-fetches
+      # the crates.io index every run and was failing intermittently with HTTP2
+      # framing errors. A prebuilt binary never touches the index.
+      - uses: taiki-e/install-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      - run: cargo audit
 
   cargo-deny:
     name: cargo deny (advisories, bans, licenses, sources)
