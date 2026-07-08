@@ -415,9 +415,6 @@ pub struct ResolvedOauth {
 
 pub struct ProfileResolverInputs<'a> {
     pub cli_profile: Option<&'a str>,
-    pub cli_instance_override: Option<&'a str>,
-    pub cli_username: Option<&'a str>,
-    pub cli_password: Option<&'a str>,
     pub cli_proxy: Option<&'a str>,
     pub env_proxy: Option<&'a str>,
     pub cli_no_proxy: bool,
@@ -442,38 +439,34 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
     let profile_cfg = inputs.config.profiles.get(&name);
     let profile_cred = inputs.credentials.profiles.get(&name);
 
-    let instance = inputs
-        .cli_instance_override
-        .map(ToString::to_string)
-        .or_else(|| profile_cfg.map(|p| p.instance.clone()))
+    // An absent profile and a profile with an empty/whitespace instance are the
+    // same failure: without a real host there is nothing to talk to (an empty
+    // instance would otherwise produce the scheme-only base URL "https://").
+    let instance = profile_cfg
+        .map(|p| p.instance.clone())
+        .filter(|i| !i.trim().is_empty())
         .ok_or_else(|| {
             Error::Config(format!(
-                "no instance configured for profile '{name}'; run `sn init` or pass --instance-override"
+                "no instance configured for profile '{name}'; run `sn init`"
             ))
         })?;
 
     let auth_method = profile_cfg.map(|p| p.auth).unwrap_or_default();
 
-    let username_opt = inputs
-        .cli_username
-        .map(ToString::to_string)
-        .or_else(|| profile_cred.map(|p| p.username.clone()));
-    let password_opt = inputs
-        .cli_password
-        .map(ToString::to_string)
-        .or_else(|| profile_cred.map(|p| p.password.clone()));
+    let username_opt = profile_cred.map(|p| p.username.clone());
+    let password_opt = profile_cred.map(|p| p.password.clone());
 
     // Basic auth requires a username/password; OAuth profiles don't store them.
     let (username, password) = match auth_method {
         AuthMethod::Basic => (
             username_opt.ok_or_else(|| {
                 Error::Config(format!(
-                    "no username configured for profile '{name}'; run `sn init` or pass --username"
+                    "no username configured for profile '{name}'; run `sn init`"
                 ))
             })?,
             password_opt.ok_or_else(|| {
                 Error::Config(format!(
-                    "no password configured for profile '{name}'; run `sn init` or pass --password"
+                    "no password configured for profile '{name}'; run `sn init`"
                 ))
             })?,
         ),
@@ -488,7 +481,7 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
         AuthMethod::Oauth => {
             let cfg = profile_cfg.and_then(|p| p.oauth.as_ref()).ok_or_else(|| {
                 Error::Config(format!(
-                    "profile '{name}' uses oauth but has no [oauth] config; run `sn auth login`"
+                    "profile '{name}' uses oauth but has no [oauth] config; run `sn init`"
                 ))
             })?;
             Some(ResolvedOauth {
@@ -640,9 +633,6 @@ mod resolution_tests {
     fn base_inputs<'a>(cfg: &'a Config, cr: &'a Credentials) -> ProfileResolverInputs<'a> {
         ProfileResolverInputs {
             cli_profile: None,
-            cli_instance_override: None,
-            cli_username: None,
-            cli_password: None,
             cli_proxy: None,
             env_proxy: None,
             cli_no_proxy: false,
@@ -681,32 +671,36 @@ mod resolution_tests {
     }
 
     #[test]
-    fn cli_overrides_per_field() {
-        let cfg = sample_config();
-        let cr = sample_credentials();
-        let r = resolve_profile(ProfileResolverInputs {
-            cli_instance_override: Some("override.example.com"),
-            cli_username: Some("cli-u"),
-            cli_password: Some("cli-p"),
-            ..base_inputs(&cfg, &cr)
-        })
-        .unwrap();
-        assert_eq!(r.instance, "override.example.com");
-        assert_eq!(r.username, "cli-u");
-        assert_eq!(r.password, "cli-p");
+    fn missing_instance_errors_clearly() {
+        // Empty config: no profiles at all, so instance resolution fails with
+        // a message that names the profile and points at `sn init`.
+        let cfg = Config::default();
+        let cr = Credentials::default();
+        let err = resolve_profile(base_inputs(&cfg, &cr)).unwrap_err();
+        match err {
+            Error::Config(msg) => assert!(
+                msg.contains("no instance configured") && msg.contains("sn init"),
+                "unexpected error message: {msg}"
+            ),
+            other => panic!("expected Error::Config, got: {other:?}"),
+        }
     }
 
     #[test]
-    fn missing_instance_errors_clearly() {
-        let cfg = Config::default();
-        let cr = Credentials::default();
-        let err = resolve_profile(ProfileResolverInputs {
-            cli_username: Some("u"),
-            cli_password: Some("p"),
-            ..base_inputs(&cfg, &cr)
-        })
-        .unwrap_err();
-        assert!(matches!(err, Error::Config(_)));
+    fn empty_instance_rejected() {
+        // A stored profile whose instance is empty/whitespace must be rejected
+        // instead of producing a scheme-only base URL like "https://".
+        let mut cfg = sample_config();
+        cfg.profiles.get_mut("dev").unwrap().instance = "   ".into();
+        let cr = sample_credentials();
+        let err = resolve_profile(base_inputs(&cfg, &cr)).unwrap_err();
+        match err {
+            Error::Config(msg) => assert!(
+                msg.contains("no instance configured for profile 'dev'"),
+                "unexpected error message: {msg}"
+            ),
+            other => panic!("expected Error::Config, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -997,37 +991,6 @@ mod resolution_tests {
             ),
             other => panic!("expected Error::Config, got: {other:?}"),
         }
-    }
-
-    #[test]
-    fn profile_default_string_when_no_default_profile_configured() {
-        let cfg = Config::default();
-        let cr = Credentials::default();
-        let r = resolve_profile(ProfileResolverInputs {
-            cli_instance_override: Some("override.example.com"),
-            cli_username: Some("u"),
-            cli_password: Some("p"),
-            ..base_inputs(&cfg, &cr)
-        })
-        .unwrap();
-        assert_eq!(r.name, "default");
-    }
-
-    #[test]
-    fn cli_profile_with_instance_override_uses_override_not_profile_instance() {
-        let cfg = sample_config();
-        let cr = sample_credentials();
-        let r = resolve_profile(ProfileResolverInputs {
-            cli_profile: Some("dev"),
-            cli_instance_override: Some("foo.com"),
-            ..base_inputs(&cfg, &cr)
-        })
-        .unwrap();
-        assert_eq!(r.name, "dev");
-        assert_eq!(r.instance, "foo.com");
-        // Credentials still come from the "dev" profile.
-        assert_eq!(r.username, "dev-u");
-        assert_eq!(r.password, "dev-p");
     }
 
     #[test]

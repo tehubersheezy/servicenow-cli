@@ -112,7 +112,7 @@ pub fn login(global: &GlobalFlags, args: LoginArgs) -> Result<()> {
     if let Some(inst) = &args.instance {
         pc.instance = normalize_instance(inst);
     }
-    if pc.instance.trim().is_empty() && global.instance_override.is_none() {
+    if pc.instance.trim().is_empty() {
         return Err(Error::Usage(format!(
             "profile '{name}' has no instance configured; pass --instance"
         )));

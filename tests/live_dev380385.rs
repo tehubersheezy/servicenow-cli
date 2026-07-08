@@ -204,28 +204,6 @@ fn live_unknown_profile_errors_clearly() {
         ));
 }
 
-#[test]
-#[ignore]
-fn live_instance_override_redirects_traffic() {
-    require_profile!();
-    // Use the dev380385 profile's credentials against the same instance via
-    // --instance-override. This proves --instance-override doesn't disturb
-    // the credentials fetch from the profile.
-    sn_cmd()
-        .args([
-            "--profile",
-            PROFILE,
-            "--instance-override",
-            EXPECTED_INSTANCE,
-            "--timeout",
-            "60",
-            "auth",
-            "test",
-        ])
-        .assert()
-        .success();
-}
-
 // =============================================================================
 // Output-mode contract — verifies JSON contract holds against a real backend.
 // =============================================================================
