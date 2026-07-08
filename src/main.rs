@@ -55,7 +55,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Init(args) => sn::cli::init::run(&global, args),
         Command::Auth { sub } => match sub {
             AuthSub::Test => sn::cli::auth::test(&global),
-            AuthSub::Login(args) => sn::cli::auth::login(&global, args),
+            AuthSub::Login => sn::cli::auth::login(&global),
             AuthSub::Logout => sn::cli::auth::logout(&global),
             AuthSub::Status => sn::cli::auth::status(&global),
             AuthSub::Refresh => sn::cli::auth::refresh(&global),

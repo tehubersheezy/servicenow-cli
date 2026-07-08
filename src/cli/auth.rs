@@ -1,15 +1,13 @@
-use crate::cli::init::normalize_instance;
 use crate::cli::table::{build_client, build_profile};
 use crate::cli::GlobalFlags;
 use crate::config::{
-    clear_oauth_tokens, config_path, credentials_path, load_config_from, load_credentials_from,
-    now_unix, resolve_profile_name, save_config_to, save_credentials_to, save_oauth_tokens,
-    AuthMethod, OAuthConfig, OAuthGrant, ResolvedProfile,
+    clear_oauth_tokens, config_path, load_config_from, now_unix, resolve_profile_name,
+    save_oauth_tokens, AuthMethod, OAuthGrant, ResolvedProfile,
 };
 use crate::error::{Error, Result};
 use crate::oauth;
 use crate::output::{emit_value, map_stdout_err, Format};
-use clap::{Args, Subcommand};
+use clap::Subcommand;
 use serde_json::json;
 use std::io::{self, Write};
 
@@ -17,37 +15,14 @@ use std::io::{self, Write};
 pub enum AuthSub {
     /// Verify credentials by calling /api/now/table/sys_user?sysparm_limit=1.
     Test,
-    /// Authenticate via OAuth 2.0 (browser SSO or client-credentials) and cache tokens.
-    Login(LoginArgs),
+    /// Run the OAuth flow for the selected (already-configured) profile and cache tokens.
+    Login,
     /// Discard the profile's cached OAuth tokens.
     Logout,
     /// Show the resolved auth method and OAuth token status for a profile.
     Status,
     /// Force an OAuth token refresh now.
     Refresh,
-}
-
-#[derive(Args, Debug)]
-pub struct LoginArgs {
-    /// OAuth client_id from the ServiceNow Application Registry.
-    #[arg(long)]
-    pub client_id: Option<String>,
-    /// OAuth client secret (confidential clients). Prompted when required and absent.
-    #[arg(long)]
-    pub client_secret: Option<String>,
-    /// Loopback redirect URI; must match the Application Registry exactly.
-    /// Defaults to http://localhost:8400/callback.
-    #[arg(long, value_name = "URL")]
-    pub redirect_uri: Option<String>,
-    /// Grant type: authorization_code (SSO, default) or client_credentials.
-    #[arg(long, value_enum)]
-    pub grant: Option<OAuthGrant>,
-    /// Disable PKCE for the authorization-code flow.
-    #[arg(long)]
-    pub no_pkce: bool,
-    /// Set or override the profile's instance.
-    #[arg(long)]
-    pub instance: Option<String>,
 }
 
 pub fn test(global: &GlobalFlags) -> Result<()> {
@@ -79,96 +54,24 @@ fn grant_str(g: OAuthGrant) -> &'static str {
     }
 }
 
-fn prompt(msg: &str) -> Result<String> {
-    print!("{msg}");
-    io::stdout().flush().ok();
-    let mut s = String::new();
-    io::stdin()
-        .read_line(&mut s)
-        .map_err(|e| Error::Usage(format!("read input: {e}")))?;
-    Ok(s.trim().to_string())
-}
-
-pub fn login(global: &GlobalFlags, args: LoginArgs) -> Result<()> {
-    let cfg_path = config_path()?;
-    let cred_path = credentials_path()?;
-    let mut config = load_config_from(&cfg_path)?;
-    let mut creds = load_credentials_from(&cred_path)?;
-
+/// Pure session command: run the OAuth flow for an already-configured OAuth
+/// profile and cache the tokens. All configuration lives in `sn init`.
+pub fn login(global: &GlobalFlags) -> Result<()> {
+    let config = load_config_from(&config_path()?)?;
     let name = resolve_profile_name(global.profile.as_deref(), &config)?;
-    let mut pc = config.profiles.get(&name).cloned().unwrap_or_default();
-    let existing = pc.oauth.clone();
-
-    if let Some(inst) = &args.instance {
-        pc.instance = normalize_instance(inst);
-    }
-    if pc.instance.trim().is_empty() {
-        return Err(Error::Usage(format!(
-            "profile '{name}' has no instance configured; pass --instance"
-        )));
-    }
-
-    // Merge flags over any previously-stored OAuth config.
-    let client_id = match args
-        .client_id
-        .or_else(|| existing.as_ref().map(|e| e.client_id.clone()))
-        .filter(|s| !s.is_empty())
-    {
-        Some(c) => c,
-        None => {
-            let c = prompt("OAuth client_id: ")?;
-            if c.is_empty() {
-                return Err(Error::Usage("client_id is required".into()));
-            }
-            c
+    let grant = match config.profiles.get(&name) {
+        Some(pc) if matches!(pc.auth, AuthMethod::Oauth) && pc.oauth.is_some() => {
+            pc.oauth.as_ref().map(|o| o.grant).unwrap_or_default()
+        }
+        _ => {
+            return Err(Error::Usage(format!(
+                "profile '{name}' does not use oauth; run `sn init`"
+            )))
         }
     };
-    let grant = args
-        .grant
-        .or_else(|| existing.as_ref().map(|e| e.grant))
-        .unwrap_or_default();
-    let pkce = if args.no_pkce {
-        false
-    } else {
-        existing.as_ref().map(|e| e.pkce).unwrap_or(true)
-    };
-    let oc = OAuthConfig {
-        client_id,
-        redirect_uri: args
-            .redirect_uri
-            .or_else(|| existing.as_ref().and_then(|e| e.redirect_uri.clone())),
-        auth_path: existing.as_ref().and_then(|e| e.auth_path.clone()),
-        token_path: existing.as_ref().and_then(|e| e.token_path.clone()),
-        grant,
-        pkce,
-    };
-    pc.auth = AuthMethod::Oauth;
-    pc.oauth = Some(oc);
-    config.profiles.insert(name.clone(), pc);
-    if config.default_profile.is_none() {
-        config.default_profile = Some(name.clone());
-    }
 
-    // Persist the client secret (and prompt for it when client_credentials
-    // needs one but none was supplied or stored).
-    {
-        let cred = creds.profiles.entry(name.clone()).or_default();
-        if let Some(secret) = args.client_secret {
-            cred.client_secret = Some(secret);
-        }
-        if matches!(grant, OAuthGrant::ClientCredentials) && cred.client_secret.is_none() {
-            let s = rpassword::prompt_password("OAuth client_secret: ")
-                .map_err(|e| Error::Usage(format!("read secret: {e}")))?;
-            cred.client_secret = Some(s);
-        }
-    }
-
-    save_config_to(&cfg_path, &config)?;
-    save_credentials_to(&cred_path, &creds)?;
-
-    // Resolve the now-persisted profile and run the flow.
     let (profile, user) = complete_oauth_login(global, &name, grant)?;
-    let msg = json!({
+    let out = json!({
         "ok": true,
         "profile": name,
         "instance": profile.instance,
@@ -176,8 +79,7 @@ pub fn login(global: &GlobalFlags, args: LoginArgs) -> Result<()> {
         "grant": grant_str(grant),
         "user": user,
     });
-    writeln!(std::io::stderr(), "{msg}").ok();
-    Ok(())
+    emit_value(io::stdout().lock(), &out, Format::Auto.resolve()).map_err(map_stdout_err)
 }
 
 /// Run the OAuth flow for an already-persisted profile named `name`, cache the

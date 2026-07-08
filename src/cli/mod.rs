@@ -29,7 +29,7 @@ pub use attachment::{
     AttachmentDeleteArgs, AttachmentDownloadArgs, AttachmentGetArgs, AttachmentListArgs,
     AttachmentSub, AttachmentUploadArgs,
 };
-pub use auth::{AuthSub, LoginArgs};
+pub use auth::AuthSub;
 pub use catalog::{
     CatalogCartEmptyArgs, CatalogCartItemArgs, CatalogCartUpdateArgs, CatalogCategoriesArgs,
     CatalogCategoryArgs, CatalogGetArgs, CatalogItemArgs, CatalogItemsArgs, CatalogListArgs,

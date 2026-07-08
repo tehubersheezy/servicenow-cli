@@ -5,7 +5,7 @@
 
 mod common;
 
-use common::{sn_cmd, write_oauth_profile};
+use common::{sn_cmd, write_oauth_profile, write_profiles, ProfileSpec};
 use serde_json::Value;
 use sn::config::now_unix;
 use std::path::Path;
@@ -34,6 +34,30 @@ fn auth_status_reports_oauth_profile() {
     assert_eq!(v["loggedIn"], true);
     assert_eq!(v["hasRefreshToken"], true);
     assert_eq!(v["grant"], "authorization_code");
+}
+
+#[test]
+fn auth_login_rejects_basic_profile() {
+    let tmp = write_profiles(
+        "basic",
+        &[ProfileSpec {
+            name: "basic",
+            instance: "https://example.invalid",
+            username: "admin",
+            password: "pw",
+        }],
+    );
+
+    let out = sn_cmd(tmp.path())
+        .args(["--profile", "basic", "auth", "login"])
+        .assert()
+        .failure()
+        .code(1);
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr);
+    assert!(
+        stderr.contains("does not use oauth"),
+        "expected oauth usage error, got: {stderr}"
+    );
 }
 
 #[test]
