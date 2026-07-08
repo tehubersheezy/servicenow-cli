@@ -17,21 +17,24 @@ Install `sn` first: `brew install tehubersheezy/sn/sn` or see https://github.com
 ```bash
 sn init                                    # interactive (prompts for auth method, instance, credentials)
 sn init --profile prod --instance X --username Y --password Z   # scripted (basic auth)
-sn auth test                               # verify credentials
+sn ping                                    # verify connectivity + credentials
 sn --profile prod table list incident      # select profile per command
 sn profile list                            # profiles: list / show <name> / use <name> / remove <name>
 ```
 
-CLI overrides for one-off use: `--instance-override URL`, `--username USER`, `--password PASSWORD` (the latter two are hidden from `--help`; prefer `sn init` + `--profile`). Proxy/TLS env vars: `SN_PROXY`, `SN_NO_PROXY`, `SN_INSECURE`, `SN_CA_CERT`, `SN_PROXY_CA_CERT`. There are no env vars for credentials or profile selection.
+Proxy/TLS env vars: `SN_PROXY`, `SN_NO_PROXY`, `SN_INSECURE`, `SN_CA_CERT`, `SN_PROXY_CA_CERT`. `SN_CONFIG_DIR` overrides the config directory (the folder holding `config.toml`/`credentials.toml`). There are no env vars for credential values or profile selection.
 
 ## OAuth / SSO instances
 
 For instances fronted by an external IdP (Okta, Azure AD, ADFS), basic auth cannot work — use OAuth (`auth = "oauth"` on the profile).
 
+Configure the OAuth profile with `sn init` (all config lives there); `sn auth login` is a pure session command that runs the flow and caches tokens.
+
 ```bash
-sn auth login --client-id <id>                            # authorization_code: OPENS A BROWSER,
+sn init --auth oauth --client-id <id>                     # configure authorization_code (SSO, default)
+sn init --auth oauth --grant client_credentials --client-id <id> --client-secret <secret>   # non-interactive grant
+sn auth login                                             # run the flow: OPENS A BROWSER,
                                                           # blocks up to 300s on human login — not agent-safe
-sn auth login --grant client_credentials --client-id <id> --client-secret <secret>   # non-interactive
 sn auth status                                            # token state (never prints secrets)
 sn auth refresh                                           # force a refresh
 sn auth logout                                            # drop cached tokens
@@ -241,7 +244,6 @@ sn scores unfavorite <uuid>
 ```bash
 sn ping                                   # auth + latency + ServiceNow build version, JSON output
 sn user me                                # the currently authenticated user record
-sn auth test                              # bare-bones auth check (lighter than ping)
 ```
 
 ## Open a record in the web UI

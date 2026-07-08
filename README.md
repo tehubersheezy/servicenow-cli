@@ -116,14 +116,18 @@ sn profile use prod                  # set as default
 
 ### OAuth / SSO
 
-When a user's password lives in an external IdP, basic auth and the OAuth password grant can't work. Authenticate with OAuth instead — `sn auth login` configures the profile, runs the flow, and caches the tokens:
+When a user's password lives in an external IdP, basic auth and the OAuth password grant can't work. Authenticate with OAuth instead — configure the profile with `sn init --auth oauth`, then run the flow with `sn auth login`:
 
 ```bash
-# Interactive browser login (authorization-code + PKCE) — opens your SSO page
-sn auth login --client-id <id>
+# Configure an OAuth profile (authorization-code + PKCE is the default)
+sn init --profile sso --auth oauth --instance acme.service-now.com --client-id <id>
 
 # Non-interactive, server-to-server (requires a client secret)
-sn auth login --grant client_credentials --client-id <id> --client-secret <secret>
+sn init --profile svc --auth oauth --instance acme.service-now.com \
+  --grant client_credentials --client-id <id> --client-secret <secret>
+
+# Run the OAuth flow and cache tokens for the selected profile
+sn --profile sso auth login
 ```
 
 One-time admin setup on the instance (if no registry entry exists yet): **System OAuth → Application Registry → New → "Create an OAuth API endpoint for external clients"**, set the redirect URL to `http://localhost:8400/callback`, and copy the generated client ID (and secret, for confidential clients).
@@ -142,7 +146,7 @@ The loopback redirect (`--redirect-uri`, default `http://localhost:8400/callback
 Works for either auth method:
 
 ```bash
-sn auth test
+sn ping
 ```
 
 ## Usage
@@ -540,9 +544,6 @@ Quick checks for "is the connection working?" and "who am I authenticated as?":
 sn ping
 # {"ok":true,"profile":"prod","instance":"https://acme.service-now.com","username":"admin","latency_ms":134,"build_name":"Vancouver","build_tag":"glide-vancouver-..."}
 
-# Bare-bones auth check (just verifies the credentials work)
-sn auth test
-
 # The currently authenticated user (resolved via gs.getUserName(), works regardless of auth method)
 sn user me
 ```
@@ -700,7 +701,6 @@ Every ServiceNow `sysparm_*` parameter has both a friendly name and a raw alias:
 | `--suppress-auto-sys-field` | `--sysparm-suppress-auto-sys-field` | Boolean (writes) |
 | `--query-no-domain` | `--sysparm-query-no-domain` | Boolean |
 | `--no-count` | `--sysparm-no-count` | Boolean |
-| `--instance-override` | (CLI only) | Override instance URL for this invocation |
 | `--output` | (CLI only) | `default` (unwrapped JSON), `raw` (full envelope), or `table` (columnar — interactive only) |
 
 ## Configuration
@@ -712,23 +712,34 @@ Credentials are stored in two files (AWS CLI-style split):
 | `config.toml` | Instance URLs, default profile | `~/.config/sn/` |
 | `credentials.toml` | Usernames, passwords (chmod 600) | `~/.config/sn/` |
 
-For one-off invocations against an instance/account that isn't a saved profile, use CLI flags:
+A profile is the single unit of identity. Create one with `sn init` (add `--profile NAME` for additional instances), then select it per command with `--profile NAME` or set a default with `sn profile use NAME`:
 
 ```bash
-sn --instance-override https://myco.service-now.com \
-   --username api-user \
-   --password secret \
-   table list incident --setlimit 1
+sn init --profile myco --instance myco.service-now.com --username api-user
+sn --profile myco table list incident --setlimit 1
 ```
 
-`--username` and `--password` are hidden from `--help` (visible in `ps` output and shell history) — they exist for tests and automation. For everyday use, run `sn init` and select with `--profile NAME`.
+Profile resolution is `--profile` flag > `default_profile` in `config.toml` > a clear error. There are no environment variables or global flags that override an individual profile field — this prevents chimera identities (and, for OAuth profiles, avoids leaking cached tokens to an arbitrary host).
 
-Proxy and TLS environment variables:
+To point `sn` at a different config directory (for testing or sandboxing), set `SN_CONFIG_DIR` — see the environment-variable table below.
+
+### Environment variables
+
+| Env var | Description |
+|---|---|
+| `SN_CONFIG_DIR` | Override the config directory. Points **directly** at the directory containing `config.toml` and `credentials.toml` (no `sn` subdirectory is appended). This is the documented, cross-platform override; when unset, the platform-native location is used. |
+| `SN_PROXY` | HTTP/HTTPS/SOCKS5 proxy URL |
+| `SN_NO_PROXY` | Comma-separated hosts to bypass the proxy |
+| `SN_INSECURE=1` | Disable TLS certificate verification |
+| `SN_CA_CERT` | Path to a custom CA cert for ServiceNow |
+| `SN_PROXY_CA_CERT` | Path to a custom CA cert for the proxy |
 
 ```bash
 SN_PROXY=http://proxy:8080 sn table list incident
 SN_INSECURE=1 sn table list incident    # skip cert verification
 ```
+
+There are deliberately no environment variables for credential values or profile selection — use profiles (`sn init`, `--profile`) instead.
 
 ## Proxy and TLS
 
