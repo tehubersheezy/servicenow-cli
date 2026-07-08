@@ -9,12 +9,10 @@ use crate::oauth;
 use crate::output::{emit_value, map_stdout_err, Format};
 use clap::Subcommand;
 use serde_json::json;
-use std::io::{self, Write};
+use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum AuthSub {
-    /// Verify credentials by calling /api/now/table/sys_user?sysparm_limit=1.
-    Test,
     /// Run the OAuth flow for the selected (already-configured) profile and cache tokens.
     Login,
     /// Discard the profile's cached OAuth tokens.
@@ -23,28 +21,6 @@ pub enum AuthSub {
     Status,
     /// Force an OAuth token refresh now.
     Refresh,
-}
-
-pub fn test(global: &GlobalFlags) -> Result<()> {
-    let profile = build_profile(global)?;
-    let client = build_client(&profile, global.timeout)?;
-    let v = client.get(
-        "/api/now/table/sys_user",
-        &[("sysparm_limit".into(), "1".into())],
-    )?;
-    let user = v["result"]
-        .get(0)
-        .and_then(|r| r.get("user_name"))
-        .and_then(|x| x.as_str())
-        .unwrap_or(&profile.username);
-    let msg = json!({
-        "ok": true,
-        "instance": profile.instance,
-        "username": user,
-        "profile": profile.name,
-    });
-    writeln!(std::io::stderr(), "{msg}").ok();
-    Ok(())
 }
 
 fn grant_str(g: OAuthGrant) -> &'static str {
@@ -129,13 +105,8 @@ pub fn logout(global: &GlobalFlags) -> Result<()> {
     let config = load_config_from(&config_path()?)?;
     let name = resolve_profile_name(global.profile.as_deref(), &config)?;
     clear_oauth_tokens(&name)?;
-    writeln!(
-        std::io::stderr(),
-        "{}",
-        json!({"ok": true, "profile": name, "loggedOut": true})
-    )
-    .ok();
-    Ok(())
+    let out = json!({"ok": true, "profile": name, "loggedOut": true});
+    emit_value(io::stdout().lock(), &out, Format::Auto.resolve()).map_err(map_stdout_err)
 }
 
 pub fn status(global: &GlobalFlags) -> Result<()> {
@@ -178,12 +149,11 @@ pub fn refresh(global: &GlobalFlags) -> Result<()> {
         )));
     }
     let tokens = oauth::force_refresh(&profile, global.timeout)?;
-    let msg = json!({
+    let out = json!({
         "ok": true,
         "profile": profile.name,
         "refreshed": true,
         "expiresAt": tokens.expires_at,
     });
-    writeln!(std::io::stderr(), "{msg}").ok();
-    Ok(())
+    emit_value(io::stdout().lock(), &out, Format::Auto.resolve()).map_err(map_stdout_err)
 }

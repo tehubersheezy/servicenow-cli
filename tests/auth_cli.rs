@@ -69,13 +69,44 @@ fn auth_logout_clears_tokens() {
         (now_unix() + 3600) as i64,
     );
 
-    sn_cmd(tmp.path())
+    let out = sn_cmd(tmp.path())
         .args(["--profile", "cli", "auth", "logout"])
         .assert()
         .success();
 
+    // Success JSON is part of the machine contract: it must land on stdout.
+    let v: Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["profile"], "cli");
+    assert_eq!(v["loggedOut"], true);
+    assert!(
+        out.get_output().stderr.is_empty(),
+        "expected empty stderr, got: {}",
+        String::from_utf8_lossy(&out.get_output().stderr)
+    );
+
     let creds = load_creds(tmp.path());
     assert!(creds.profiles["cli"].oauth_tokens.is_none());
+}
+
+#[test]
+fn auth_test_subcommand_is_gone() {
+    let tmp = write_profiles(
+        "basic",
+        &[ProfileSpec {
+            name: "basic",
+            instance: "https://example.invalid",
+            username: "admin",
+            password: "pw",
+        }],
+    );
+
+    // `auth test` was folded into `sn ping`; it must now be a usage error.
+    sn_cmd(tmp.path())
+        .args(["--profile", "basic", "auth", "test"])
+        .assert()
+        .failure()
+        .code(1);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -97,10 +128,22 @@ async fn auth_refresh_rotates_and_persists_token() {
     let dir = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&dir)
+        let out = sn_cmd(&dir)
             .args(["--profile", "cli", "--timeout", "30", "auth", "refresh"])
             .assert()
             .success();
+
+        // Success JSON is part of the machine contract: it must land on stdout.
+        let v: Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["profile"], "cli");
+        assert_eq!(v["refreshed"], true);
+        assert!(v["expiresAt"].is_number(), "expected expiresAt, got: {v}");
+        assert!(
+            out.get_output().stderr.is_empty(),
+            "expected empty stderr, got: {}",
+            String::from_utf8_lossy(&out.get_output().stderr)
+        );
     })
     .await
     .unwrap();
