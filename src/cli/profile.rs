@@ -1,13 +1,13 @@
+use crate::cli::table::write_response;
+use crate::cli::GlobalFlags;
 use crate::config::{
     config_path, credentials_path, default_redirect_uri, load_config_from, load_credentials_from,
     resolve_profile_name, save_config_to, save_credentials_to, AuthMethod, OAuthGrant,
     ProfileConfig,
 };
 use crate::error::{Error, Result};
-use crate::output::{emit_value, Format};
 use clap::Subcommand;
 use serde_json::json;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum ProfileSub {
@@ -17,10 +17,10 @@ pub enum ProfileSub {
     Use { name: String },
 }
 
-pub fn run(sub: ProfileSub) -> Result<()> {
+pub fn run(global: &GlobalFlags, sub: ProfileSub) -> Result<()> {
     match sub {
-        ProfileSub::List => list(),
-        ProfileSub::Show { name } => show(name),
+        ProfileSub::List => list(global),
+        ProfileSub::Show { name } => show(global, name),
         ProfileSub::Remove { name } => remove(name),
         ProfileSub::Use { name } => set_default(name),
     }
@@ -40,7 +40,7 @@ fn grant_str(g: OAuthGrant) -> &'static str {
     }
 }
 
-fn list() -> Result<()> {
+fn list(global: &GlobalFlags) -> Result<()> {
     let cfg = load_config_from(&config_path()?)?;
     let profiles: Vec<serde_json::Value> = cfg
         .profiles
@@ -54,15 +54,10 @@ fn list() -> Result<()> {
             })
         })
         .collect();
-    emit_value(
-        io::stdout().lock(),
-        &json!(profiles),
-        Format::Auto.resolve(),
-    )
-    .map_err(crate::output::map_stdout_err)
+    write_response(global, &json!(profiles))
 }
 
-fn show(name: Option<String>) -> Result<()> {
+fn show(global: &GlobalFlags, name: Option<String>) -> Result<()> {
     let cfg = load_config_from(&config_path()?)?;
     let name = resolve_profile_name(name.as_deref(), &cfg)?;
     let p: &ProfileConfig = cfg
@@ -103,8 +98,7 @@ fn show(name: Option<String>) -> Result<()> {
             }
         }
     }
-    emit_value(io::stdout().lock(), &out, Format::Auto.resolve())
-        .map_err(crate::output::map_stdout_err)
+    write_response(global, &out)
 }
 
 fn remove(name: String) -> Result<()> {

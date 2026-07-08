@@ -1,4 +1,4 @@
-use crate::cli::table::{build_client, build_profile};
+use crate::cli::table::{build_client, build_profile, write_response};
 use crate::cli::GlobalFlags;
 use crate::config::{
     clear_oauth_tokens, config_path, load_config_from, now_unix, resolve_profile_name,
@@ -6,10 +6,8 @@ use crate::config::{
 };
 use crate::error::{Error, Result};
 use crate::oauth;
-use crate::output::{emit_value, map_stdout_err, Format};
 use clap::Subcommand;
 use serde_json::json;
-use std::io;
 
 #[derive(Subcommand, Debug)]
 pub enum AuthSub {
@@ -55,7 +53,7 @@ pub fn login(global: &GlobalFlags) -> Result<()> {
         "grant": grant_str(grant),
         "user": user,
     });
-    emit_value(io::stdout().lock(), &out, Format::Auto.resolve()).map_err(map_stdout_err)
+    write_response(global, &out)
 }
 
 /// Run the OAuth flow for an already-persisted profile named `name`, cache the
@@ -106,7 +104,7 @@ pub fn logout(global: &GlobalFlags) -> Result<()> {
     let name = resolve_profile_name(global.profile.as_deref(), &config)?;
     clear_oauth_tokens(&name)?;
     let out = json!({"ok": true, "profile": name, "loggedOut": true});
-    emit_value(io::stdout().lock(), &out, Format::Auto.resolve()).map_err(map_stdout_err)
+    write_response(global, &out)
 }
 
 pub fn status(global: &GlobalFlags) -> Result<()> {
@@ -137,7 +135,7 @@ pub fn status(global: &GlobalFlags) -> Result<()> {
             }
         }
     }
-    emit_value(io::stdout().lock(), &out, Format::Auto.resolve()).map_err(map_stdout_err)
+    write_response(global, &out)
 }
 
 pub fn refresh(global: &GlobalFlags) -> Result<()> {
@@ -155,5 +153,5 @@ pub fn refresh(global: &GlobalFlags) -> Result<()> {
         "refreshed": true,
         "expiresAt": tokens.expires_at,
     });
-    emit_value(io::stdout().lock(), &out, Format::Auto.resolve()).map_err(map_stdout_err)
+    write_response(global, &out)
 }
