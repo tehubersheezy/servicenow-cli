@@ -1,70 +1,31 @@
 //! End-to-end CLI tests for the `sn auth` OAuth commands, driving the compiled
-//! binary with `assert_cmd`. Each invocation gets its own `XDG_CONFIG_HOME` (set
-//! per-process via `.env`, so no global env mutation and no `serial` needed).
-//! Gated to Linux because the override only redirects the config path there —
-//! this keeps the tests from ever touching the developer's real macOS config.
-#![cfg(target_os = "linux")]
+//! binary with `assert_cmd`. Each invocation gets its own config dir (set
+//! per-process via `SN_CONFIG_DIR`, so no global env mutation and no `serial`
+//! needed) — cross-platform, no XDG/Linux gating required.
 
 mod common;
 
-use assert_cmd::Command;
+use common::{sn_cmd, write_oauth_profile};
 use serde_json::Value;
 use sn::config::now_unix;
-use std::fs;
 use std::path::Path;
 use wiremock::matchers::{body_string_contains, header, method, path as wm_path};
 use wiremock::{Mock, ResponseTemplate};
 
-/// Seed a `cli` OAuth profile (config + credentials) under `<dir>/sn/`.
-fn seed(dir: &Path, instance: &str, expires_at: i64) {
-    let sn_dir = dir.join("sn");
-    fs::create_dir_all(&sn_dir).unwrap();
-    fs::write(
-        sn_dir.join("config.toml"),
-        format!(
-            "default_profile = \"cli\"\n\n\
-             [profiles.cli]\n\
-             instance = \"{instance}\"\n\
-             auth = \"oauth\"\n\n\
-             [profiles.cli.oauth]\n\
-             client_id = \"cid\"\n\
-             redirect_uri = \"http://localhost:8400/callback\"\n\
-             grant = \"authorization_code\"\n\
-             pkce = true\n"
-        ),
-    )
-    .unwrap();
-    fs::write(
-        sn_dir.join("credentials.toml"),
-        format!(
-            "[profiles.cli]\n\
-             client_secret = \"shh\"\n\n\
-             [profiles.cli.oauth_tokens]\n\
-             access_token = \"VALID_AT\"\n\
-             refresh_token = \"RT\"\n\
-             expires_at = {expires_at}\n\
-             token_type = \"Bearer\"\n"
-        ),
-    )
-    .unwrap();
-}
-
 fn load_creds(dir: &Path) -> sn::config::Credentials {
-    sn::config::load_credentials_from(&dir.join("sn/credentials.toml")).unwrap()
+    sn::config::load_credentials_from(&dir.join("credentials.toml")).unwrap()
 }
 
 #[test]
 fn auth_status_reports_oauth_profile() {
-    let tmp = tempfile::tempdir().unwrap();
-    seed(
-        tmp.path(),
+    let tmp = write_oauth_profile(
+        "cli",
         "https://example.invalid",
+        "cid",
         (now_unix() + 3600) as i64,
     );
 
-    let out = Command::cargo_bin("sn")
-        .unwrap()
-        .env("XDG_CONFIG_HOME", tmp.path())
+    let out = sn_cmd(tmp.path())
         .args(["--profile", "cli", "auth", "status"])
         .assert()
         .success();
@@ -77,16 +38,14 @@ fn auth_status_reports_oauth_profile() {
 
 #[test]
 fn auth_logout_clears_tokens() {
-    let tmp = tempfile::tempdir().unwrap();
-    seed(
-        tmp.path(),
+    let tmp = write_oauth_profile(
+        "cli",
         "https://example.invalid",
+        "cid",
         (now_unix() + 3600) as i64,
     );
 
-    Command::cargo_bin("sn")
-        .unwrap()
-        .env("XDG_CONFIG_HOME", tmp.path())
+    sn_cmd(tmp.path())
         .args(["--profile", "cli", "auth", "logout"])
         .assert()
         .success();
@@ -110,14 +69,11 @@ async fn auth_refresh_rotates_and_persists_token() {
         .mount(&server)
         .await;
 
-    let tmp = tempfile::tempdir().unwrap();
-    seed(tmp.path(), &server.uri(), (now_unix() + 3600) as i64);
+    let tmp = write_oauth_profile("cli", &server.uri(), "cid", (now_unix() + 3600) as i64);
     let dir = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        Command::cargo_bin("sn")
-            .unwrap()
-            .env("XDG_CONFIG_HOME", &dir)
+        sn_cmd(&dir)
             .args(["--profile", "cli", "--timeout", "30", "auth", "refresh"])
             .assert()
             .success();
@@ -162,14 +118,11 @@ async fn expired_token_auto_refreshes_then_calls_api() {
         .mount(&server)
         .await;
 
-    let tmp = tempfile::tempdir().unwrap();
-    seed(tmp.path(), &server.uri(), (now_unix() as i64) - 10); // expired
+    let tmp = write_oauth_profile("cli", &server.uri(), "cid", (now_unix() as i64) - 10); // expired
     let dir = tmp.path().to_path_buf();
 
     let out = tokio::task::spawn_blocking(move || {
-        Command::cargo_bin("sn")
-            .unwrap()
-            .env("XDG_CONFIG_HOME", &dir)
+        sn_cmd(&dir)
             .args([
                 "--profile",
                 "cli",

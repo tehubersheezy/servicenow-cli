@@ -36,7 +36,8 @@ fn sn_cmd() -> Command {
         .env_remove("SN_USERNAME")
         .env_remove("SN_PASSWORD")
         .env_remove("SN_PROFILE")
-        .env_remove("SN_TIMEOUT");
+        .env_remove("SN_TIMEOUT")
+        .env_remove("SN_CONFIG_DIR");
     cmd
 }
 
@@ -45,6 +46,7 @@ fn sn_cmd() -> Command {
 fn profile_exists() -> bool {
     let out = Command::cargo_bin("sn")
         .unwrap()
+        .env_remove("SN_CONFIG_DIR")
         .args(["profile", "show", PROFILE])
         .output()
         .expect("spawn sn");

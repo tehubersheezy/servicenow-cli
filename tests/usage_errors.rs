@@ -65,8 +65,7 @@ fn lowercase_v_is_verbose_not_version() {
     // JSON envelope), not print the version and exit 0.
     let out = Command::cargo_bin("sn")
         .unwrap()
-        .env("HOME", "/nonexistent-sn-test-home")
-        .env("XDG_CONFIG_HOME", "/nonexistent-sn-test-home/.config")
+        .env("SN_CONFIG_DIR", "/nonexistent-sn-test-dir")
         .args(["-v", "ping"])
         .assert()
         .code(1);

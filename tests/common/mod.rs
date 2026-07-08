@@ -33,6 +33,125 @@ pub fn send_loopback_request(port: u16, target: &str) {
     let _ = stream.read_to_end(&mut buf);
 }
 
+/// Description of a basic-auth profile to be written into
+/// `config.toml` + `credentials.toml` by [`write_profiles`].
+pub struct ProfileSpec<'a> {
+    pub name: &'a str,
+    pub instance: &'a str,
+    pub username: &'a str,
+    pub password: &'a str,
+}
+
+/// Write `config.toml` and `credentials.toml` at the root of a fresh temp dir
+/// (point `SN_CONFIG_DIR` at it via [`sn_cmd`]). `default_profile` is always
+/// set explicitly. Returns the temp dir handle (drop = cleanup).
+pub fn write_profiles(default_profile: &str, profiles: &[ProfileSpec<'_>]) -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+
+    let mut cfg_profiles: std::collections::BTreeMap<String, sn::config::ProfileConfig> =
+        std::collections::BTreeMap::new();
+    let mut cred_profiles: std::collections::BTreeMap<String, sn::config::ProfileCredentials> =
+        std::collections::BTreeMap::new();
+
+    for p in profiles {
+        cfg_profiles.insert(
+            p.name.to_string(),
+            sn::config::ProfileConfig {
+                instance: p.instance.to_string(),
+                ..Default::default()
+            },
+        );
+        cred_profiles.insert(
+            p.name.to_string(),
+            sn::config::ProfileCredentials {
+                username: p.username.to_string(),
+                password: p.password.to_string(),
+                ..Default::default()
+            },
+        );
+    }
+
+    let cfg = sn::config::Config {
+        default_profile: Some(default_profile.to_string()),
+        profiles: cfg_profiles,
+    };
+    let cr = sn::config::Credentials {
+        profiles: cred_profiles,
+    };
+
+    sn::config::save_config_to(&tmp.path().join("config.toml"), &cfg).unwrap();
+    sn::config::save_credentials_to(&tmp.path().join("credentials.toml"), &cr).unwrap();
+
+    tmp
+}
+
+/// Seed an OAuth (authorization_code + PKCE) profile as raw TOML at the root
+/// of a fresh temp dir: `config.toml` with the profile + `[oauth]` block, and
+/// `credentials.toml` with a client secret and a cached token set
+/// (`access_token = "VALID_AT"`, `refresh_token = "RT"`) expiring at
+/// `expires_at` (unix seconds). `default_profile` is set to `name`.
+pub fn write_oauth_profile(
+    name: &str,
+    instance: &str,
+    client_id: &str,
+    expires_at: i64,
+) -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tmp.path().join("config.toml"),
+        format!(
+            "default_profile = \"{name}\"\n\n\
+             [profiles.{name}]\n\
+             instance = \"{instance}\"\n\
+             auth = \"oauth\"\n\n\
+             [profiles.{name}.oauth]\n\
+             client_id = \"{client_id}\"\n\
+             redirect_uri = \"http://localhost:8400/callback\"\n\
+             grant = \"authorization_code\"\n\
+             pkce = true\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join("credentials.toml"),
+        format!(
+            "[profiles.{name}]\n\
+             client_secret = \"shh\"\n\n\
+             [profiles.{name}.oauth_tokens]\n\
+             access_token = \"VALID_AT\"\n\
+             refresh_token = \"RT\"\n\
+             expires_at = {expires_at}\n\
+             token_type = \"Bearer\"\n"
+        ),
+    )
+    .unwrap();
+    tmp
+}
+
+/// Build a `Command` for the compiled `sn` binary rooted at `config_dir`
+/// (via `SN_CONFIG_DIR`, which points directly at the directory containing
+/// `config.toml`/`credentials.toml`). Every env var the binary might read —
+/// plus system proxy vars that could redirect requests on a CI host — is
+/// explicitly cleared; tests opt back in with `cmd.env(...)`. Per-process env
+/// only (no `std::env::set_var`), so tests can run in parallel safely.
+pub fn sn_cmd(config_dir: &std::path::Path) -> assert_cmd::Command {
+    let mut cmd = assert_cmd::Command::cargo_bin("sn").unwrap();
+    cmd.env("SN_CONFIG_DIR", config_dir)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("SN_PROXY")
+        .env_remove("SN_NO_PROXY")
+        .env_remove("SN_INSECURE")
+        .env_remove("SN_CA_CERT")
+        .env_remove("SN_PROXY_CA_CERT")
+        .env_remove("HTTP_PROXY")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("ALL_PROXY")
+        .env_remove("NO_PROXY");
+    cmd
+}
+
 pub fn mock_profile(instance: &str) -> sn::config::ResolvedProfile {
     sn::config::ResolvedProfile {
         name: "test".into(),

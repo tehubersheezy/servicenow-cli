@@ -166,8 +166,19 @@ pub struct ProfileCredentials {
     pub oauth_tokens: Option<TokenSet>,
 }
 
-/// Resolve the sn config directory via `directories::ProjectDirs`.
+/// Resolve the sn config directory.
+///
+/// If the `SN_CONFIG_DIR` environment variable is set to a non-empty value,
+/// it is used as-is — this is the documented cross-platform override, and it
+/// points **directly** at the directory containing `config.toml` and
+/// `credentials.toml` (no `sn` subdirectory is appended). Otherwise the
+/// platform-native location from `directories::ProjectDirs` is used.
 pub fn config_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("SN_CONFIG_DIR") {
+        if !dir.is_empty() {
+            return Ok(PathBuf::from(dir));
+        }
+    }
     ProjectDirs::from("", "", "sn")
         .map(|pd| pd.config_dir().to_path_buf())
         .ok_or_else(|| Error::Config("cannot resolve home directory for config".into()))

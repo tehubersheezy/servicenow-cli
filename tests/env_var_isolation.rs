@@ -1,12 +1,7 @@
-#![cfg(target_os = "linux")] // directories respects XDG_CONFIG_HOME only on Linux
-
 mod common;
 
-use assert_cmd::Command;
+use common::{sn_cmd, write_profiles, ProfileSpec};
 use serde_json::json;
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use wiremock::matchers::{basic_auth, method, path as path_matcher};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -24,8 +19,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 //   - SN_TIMEOUT
 // Those names belonged to a previous design and were intentionally removed.
 //
-// The ONLY env vars currently consulted are the proxy/TLS set documented in
-// CLAUDE.md:
+// The ONLY env vars currently consulted are `SN_CONFIG_DIR` (config directory
+// selection) plus the proxy/TLS set documented in CLAUDE.md:
 //   - SN_PROXY
 //   - SN_NO_PROXY
 //   - SN_INSECURE
@@ -39,82 +34,24 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 // env-var-driven credential resolution.
 // -----------------------------------------------------------------------------
 
-/// Write a single-profile `config.toml` + `credentials.toml` under
-/// `<tmp>/sn/` such that `XDG_CONFIG_HOME=<tmp>` lets the binary discover
-/// them. The profile is named `"test"`, set as `default_profile`, with
-/// `instance = server_uri`, `username = "real_user"`, `password = "real_pass"`.
-/// Returns the temp dir handle (drop = cleanup).
-fn setup_profile(server_uri: &str) -> TempDir {
-    let tmp = tempfile::tempdir().unwrap();
-    let sn_dir: PathBuf = tmp.path().join("sn");
-    fs::create_dir_all(&sn_dir).unwrap();
-
-    let mut cfg_profiles: BTreeMap<String, sn::config::ProfileConfig> = BTreeMap::new();
-    cfg_profiles.insert(
-        "test".into(),
-        sn::config::ProfileConfig {
-            instance: server_uri.to_string(),
-            ..Default::default()
-        },
-    );
-
-    let mut cred_profiles: BTreeMap<String, sn::config::ProfileCredentials> = BTreeMap::new();
-    cred_profiles.insert(
-        "test".into(),
-        sn::config::ProfileCredentials {
-            username: "real_user".into(),
-            password: "real_pass".into(),
-            ..Default::default()
-        },
-    );
-
-    let cfg = sn::config::Config {
-        default_profile: Some("test".into()),
-        profiles: cfg_profiles,
-    };
-    let cr = sn::config::Credentials {
-        profiles: cred_profiles,
-    };
-
-    sn::config::save_config_to(&sn_dir.join("config.toml"), &cfg).unwrap();
-    sn::config::save_credentials_to(&sn_dir.join("credentials.toml"), &cr).unwrap();
-
-    tmp
+/// Seed a single-profile config dir: profile `"test"` (also `default_profile`)
+/// with `instance = server_uri`, `username = "real_user"`,
+/// `password = "real_pass"`. Returns the temp dir handle (drop = cleanup).
+fn seed(server_uri: &str) -> TempDir {
+    write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: server_uri,
+            username: "real_user",
+            password: "real_pass",
+        }],
+    )
 }
 
-/// Build a `Command` for `sn` rooted at the given temp config dir, with every
-/// env var that the binary might read explicitly cleared. Tests then opt into
-/// setting whichever env they want to exercise via `cmd.env(...)`. We never
-/// touch process-global env (`std::env::set_var`), so tests can run in
-/// parallel safely.
-fn sn_cmd(xdg_home: &Path) -> Command {
-    let mut cmd = Command::cargo_bin("sn").unwrap();
-    cmd.env("XDG_CONFIG_HOME", xdg_home)
-        // Proxy/TLS env vars the binary DOES read.
-        .env_remove("SN_PROXY")
-        .env_remove("SN_NO_PROXY")
-        .env_remove("SN_INSECURE")
-        .env_remove("SN_CA_CERT")
-        .env_remove("SN_PROXY_CA_CERT")
-        // System proxies that could redirect requests on a CI host.
-        .env_remove("HTTP_PROXY")
-        .env_remove("HTTPS_PROXY")
-        .env_remove("http_proxy")
-        .env_remove("https_proxy")
-        // Removed-design env vars that must not leak. Clearing them here also
-        // protects against a developer's shell having any of these set
-        // (the user's actual shell has SN_INSTANCE_URL, for example).
-        .env_remove("SN_INSTANCE")
-        .env_remove("SN_INSTANCE_URL")
-        .env_remove("SN_USERNAME")
-        .env_remove("SN_PASSWORD")
-        .env_remove("SN_PROFILE")
-        .env_remove("SN_TIMEOUT");
-    cmd
-}
-
-/// Mount the standard `sn auth test` mock — `GET /api/now/table/sys_user` with
-/// the given basic-auth pair — expecting exactly `n_calls`.
+/// Mount the standard `sn ping` mock — `GET /api/now/table/sys_user` with the
+/// given basic-auth pair — expecting exactly `n_calls`. Ping's best-effort
+/// `sys_properties` lookup 404s harmlessly against wiremock and is ignored.
 async fn mount_auth_mock(server: &MockServer, user: &str, pass: &str, n_calls: u64) {
     Mock::given(method("GET"))
         .and(path_matcher("/api/now/table/sys_user"))
@@ -141,13 +78,13 @@ async fn sn_username_env_does_not_override_profile() {
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_USERNAME", "hacker")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .success();
     })
@@ -163,13 +100,13 @@ async fn sn_password_env_does_not_override_profile() {
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_PASSWORD", "wrongpass")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .success();
     })
@@ -185,16 +122,16 @@ async fn sn_instance_env_does_not_override_profile() {
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     // If SN_INSTANCE leaked, the binary would resolve traffic toward
     // nonexistent.invalid → DNS failure → exit 3. Success means the env was
     // ignored and the profile's URL was used.
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_INSTANCE", "http://nonexistent.invalid")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .success();
     })
@@ -212,13 +149,13 @@ async fn sn_instance_url_env_does_not_override_profile() {
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_INSTANCE_URL", "http://nonexistent.invalid")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .success();
     })
@@ -234,17 +171,17 @@ async fn sn_profile_env_does_not_override_default_profile() {
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     // Set SN_PROFILE to a name that doesn't exist anywhere in the config. If
     // SN_PROFILE were honored, profile resolution would fail with "no
     // instance configured for profile 'other_profile_name'" (exit 1). It must
     // instead fall through to default_profile = "test" and succeed.
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_PROFILE", "other_profile_name")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .success();
     })
@@ -258,19 +195,19 @@ async fn sn_profile_env_does_not_override_default_profile() {
 async fn sn_timeout_env_is_not_consulted() {
     // SN_TIMEOUT is NOT read by the binary. To prove that, we set it to "0"
     // — if it were honored as a `Duration::from_secs(0)`, every request
-    // would time out instantly. A successful auth round-trip proves the env
+    // would time out instantly. A successful ping round-trip proves the env
     // var was ignored and the default timeout applied.
     let server = MockServer::start().await;
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_TIMEOUT", "0")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .success();
     })
@@ -289,18 +226,18 @@ async fn all_credential_env_vars_set_to_garbage_still_works() {
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_INSTANCE", "http://nonexistent.invalid")
             .env("SN_INSTANCE_URL", "http://also-nonexistent.invalid")
             .env("SN_USERNAME", "hacker")
             .env("SN_PASSWORD", "wrongpass")
             .env("SN_PROFILE", "no_such_profile")
             .env("SN_TIMEOUT", "0")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .success();
     })
@@ -330,13 +267,13 @@ async fn sn_proxy_env_routes_through_proxy() {
     mount_auth_mock(&server, "real_user", "real_pass", 0).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_PROXY", "http://127.0.0.1:1")
-            .args(["auth", "test"])
+            .args(["ping"])
             .assert()
             .code(3);
     })
@@ -355,13 +292,13 @@ async fn cli_proxy_flag_overrides_sn_proxy_env() {
     mount_auth_mock(&server, "real_user", "real_pass", 1).await;
     let uri = server.uri();
 
-    let tmp = setup_profile(&uri);
-    let xdg = tmp.path().to_path_buf();
+    let tmp = seed(&uri);
+    let cfg = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&xdg)
+        sn_cmd(&cfg)
             .env("SN_PROXY", "http://127.0.0.1:1")
-            .args(["--no-proxy", "auth", "test"])
+            .args(["--no-proxy", "ping"])
             .assert()
             .success();
     })

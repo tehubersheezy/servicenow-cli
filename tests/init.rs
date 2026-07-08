@@ -1,8 +1,5 @@
-#![cfg(target_os = "linux")] // directories respects XDG_CONFIG_HOME only on Linux
-
 mod common;
 
-use assert_cmd::Command;
 use predicates::str::contains;
 use serde_json::json;
 use wiremock::matchers::{basic_auth, method, path};
@@ -23,8 +20,7 @@ async fn init_writes_files_and_verifies_creds() {
     let server_uri = server.uri();
 
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.env("XDG_CONFIG_HOME", &tmp_path)
+        common::sn_cmd(&tmp_path)
             .args([
                 "init",
                 "--profile",
@@ -40,8 +36,8 @@ async fn init_writes_files_and_verifies_creds() {
             .success()
             .stderr(contains("saved and verified"));
 
-        assert!(tmp_path.join("sn/config.toml").exists());
-        assert!(tmp_path.join("sn/credentials.toml").exists());
+        assert!(tmp_path.join("config.toml").exists());
+        assert!(tmp_path.join("credentials.toml").exists());
     })
     .await
     .unwrap();
