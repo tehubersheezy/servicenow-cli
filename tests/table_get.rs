@@ -1,6 +1,6 @@
 mod common;
 
-use assert_cmd::Command;
+use common::{sn_cmd, write_profiles, ProfileSpec};
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, ResponseTemplate};
@@ -16,23 +16,19 @@ async fn get_unwraps_single_record() {
         )
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "table",
-                "get",
-                "incident",
-                "abc",
-            ])
+            .args(["--compact", "table", "get", "incident", "abc"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -53,23 +49,20 @@ async fn get_404_exit_2() {
         )
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.args([
-            "--instance-override",
-            &server_uri,
-            "--username",
-            "u",
-            "--password",
-            "p",
-            "table",
-            "get",
-            "incident",
-            "missing",
-        ])
-        .assert()
-        .code(2);
+        let mut cmd = sn_cmd(tmp.path());
+        cmd.args(["table", "get", "incident", "missing"])
+            .assert()
+            .code(2);
     })
     .await
     .unwrap();

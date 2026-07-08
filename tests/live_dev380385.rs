@@ -75,16 +75,6 @@ macro_rules! require_profile {
 
 #[test]
 #[ignore]
-fn live_auth_test_succeeds() {
-    require_profile!();
-    sn_cmd()
-        .args(["--profile", PROFILE, "--timeout", "60", "auth", "test"])
-        .assert()
-        .success();
-}
-
-#[test]
-#[ignore]
 fn live_ping_returns_correct_instance() {
     require_profile!();
     let out = sn_cmd()
@@ -173,7 +163,7 @@ fn live_credential_env_vars_do_not_leak() {
         .env("SN_PASSWORD", "wrongpass")
         .env("SN_PROFILE", "totally_made_up_profile")
         .env("SN_TIMEOUT", "0")
-        .args(["--profile", PROFILE, "--timeout", "60", "auth", "test"])
+        .args(["--profile", PROFILE, "--timeout", "60", "ping"])
         .assert()
         .success();
 }
@@ -190,7 +180,7 @@ fn live_user_shell_env_does_not_leak() {
         .env("SN_INSTANCE_URL", "https://other-instance.example.com")
         .env("SN_USERNAME", "stale-shell-user")
         .env("SN_PASSWORD", "definitely-the-wrong-password-for-dev380385")
-        .args(["--profile", PROFILE, "--timeout", "60", "auth", "test"])
+        .args(["--profile", PROFILE, "--timeout", "60", "ping"])
         .assert()
         .success();
 }
@@ -206,12 +196,7 @@ fn live_unknown_profile_errors_clearly() {
     // run it as part of the live suite to verify the error path doesn't
     // accidentally fall back to env vars at runtime.
     sn_cmd()
-        .args([
-            "--profile",
-            "no_such_profile_exists_hopefully",
-            "auth",
-            "test",
-        ])
+        .args(["--profile", "no_such_profile_exists_hopefully", "ping"])
         .assert()
         .code(1)
         .stderr(predicates::str::contains(

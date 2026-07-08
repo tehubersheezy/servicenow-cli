@@ -1,6 +1,6 @@
 mod common;
 
-use assert_cmd::Command;
+use common::{sn_cmd, write_profiles, ProfileSpec};
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, ResponseTemplate};
@@ -33,28 +33,25 @@ async fn paginates_following_link_header() {
 
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let tmp = write_profiles(
+            "test",
+            &[ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "table",
-                "list",
-                "incident",
-                "--setlimit",
-                "2",
-                "--all",
-            ])
+            .args(["table", "list", "incident", "--setlimit", "2", "--all"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
         assert_eq!(stdout.lines().count(), 3);
         assert!(stdout.contains("\"n\":1"));
         assert!(stdout.contains("\"n\":3"));
+        drop(tmp);
     })
     .await
     .unwrap();
@@ -74,22 +71,18 @@ async fn max_records_caps_output() {
 
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let tmp = write_profiles(
+            "test",
+            &[ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "table",
-                "list",
-                "incident",
-                "--all",
-                "--max-records",
-                "2",
-            ])
+            .args(["table", "list", "incident", "--all", "--max-records", "2"])
             .assert()
             .success();
         assert_eq!(
@@ -99,6 +92,7 @@ async fn max_records_caps_output() {
                 .count(),
             2
         );
+        drop(tmp);
     })
     .await
     .unwrap();

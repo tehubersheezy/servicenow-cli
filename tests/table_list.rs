@@ -1,6 +1,6 @@
 mod common;
 
-use assert_cmd::Command;
+use common::{sn_cmd, write_profiles, ProfileSpec};
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, ResponseTemplate};
@@ -17,24 +17,19 @@ async fn list_default_unwraps_result() {
         )
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "table",
-                "list",
-                "incident",
-                "--setlimit",
-                "5",
-                "--compact",
-            ])
+            .args(["table", "list", "incident", "--setlimit", "5", "--compact"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -52,24 +47,19 @@ async fn list_raw_preserves_envelope() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"result": [{"n": 1}]})))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--output",
-                "raw",
-                "--compact",
-                "table",
-                "list",
-                "incident",
-            ])
+            .args(["--output", "raw", "--compact", "table", "list", "incident"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();

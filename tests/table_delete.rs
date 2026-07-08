@@ -1,6 +1,6 @@
 mod common;
 
-use assert_cmd::Command;
+use common::{sn_cmd, write_profiles, ProfileSpec};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, ResponseTemplate};
 
@@ -14,25 +14,23 @@ async fn delete_with_yes_succeeds() {
         .await;
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let tmp = write_profiles(
+            "test",
+            &[ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "table",
-                "delete",
-                "incident",
-                "abc",
-                "--yes",
-            ])
+            .args(["table", "delete", "incident", "abc", "--yes"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
         assert_eq!(stdout.trim(), "");
+        drop(tmp);
     })
     .await
     .unwrap();
@@ -41,21 +39,20 @@ async fn delete_with_yes_succeeds() {
 #[tokio::test(flavor = "current_thread")]
 async fn delete_without_yes_in_non_tty_errors() {
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
-        cmd.args([
-            "--instance-override",
-            "http://127.0.0.1:1",
-            "--username",
-            "u",
-            "--password",
-            "p",
-            "table",
-            "delete",
-            "incident",
-            "abc",
-        ])
-        .assert()
-        .code(1);
+        let tmp = write_profiles(
+            "test",
+            &[ProfileSpec {
+                name: "test",
+                instance: "http://127.0.0.1:1",
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = sn_cmd(tmp.path());
+        cmd.args(["table", "delete", "incident", "abc"])
+            .assert()
+            .code(1);
+        drop(tmp);
     })
     .await
     .unwrap();
