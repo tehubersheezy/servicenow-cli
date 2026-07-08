@@ -429,12 +429,21 @@ pub struct ProfileResolverInputs<'a> {
     pub credentials: &'a Credentials,
 }
 
-pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProfile> {
-    let name = inputs
-        .cli_profile
+/// Resolve which profile name an invocation targets: the `--profile` flag
+/// wins, then `default_profile` from config.toml. With neither there is no
+/// implicit fallback — selection fails with a clear error instead of
+/// inventing a profile nobody created.
+pub fn resolve_profile_name(cli_profile: Option<&str>, config: &Config) -> Result<String> {
+    cli_profile
         .map(ToString::to_string)
-        .or_else(|| inputs.config.default_profile.clone())
-        .unwrap_or_else(|| "default".to_string());
+        .or_else(|| config.default_profile.clone())
+        .ok_or_else(|| {
+            Error::Config("no profile selected; pass --profile <name> or run `sn init`".into())
+        })
+}
+
+pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProfile> {
+    let name = resolve_profile_name(inputs.cli_profile, inputs.config)?;
 
     let profile_cfg = inputs.config.profiles.get(&name);
     let profile_cred = inputs.credentials.profiles.get(&name);
@@ -671,15 +680,17 @@ mod resolution_tests {
     }
 
     #[test]
-    fn missing_instance_errors_clearly() {
-        // Empty config: no profiles at all, so instance resolution fails with
-        // a message that names the profile and points at `sn init`.
+    fn no_profile_selected_errors_clearly() {
+        // No --profile flag and no default_profile: selection must fail with
+        // a clear error instead of falling back to a phantom "default".
         let cfg = Config::default();
         let cr = Credentials::default();
         let err = resolve_profile(base_inputs(&cfg, &cr)).unwrap_err();
         match err {
             Error::Config(msg) => assert!(
-                msg.contains("no instance configured") && msg.contains("sn init"),
+                msg.contains("no profile selected")
+                    && msg.contains("--profile")
+                    && msg.contains("sn init"),
                 "unexpected error message: {msg}"
             ),
             other => panic!("expected Error::Config, got: {other:?}"),

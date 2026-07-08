@@ -3,8 +3,8 @@ use crate::cli::table::{build_client, build_profile};
 use crate::cli::GlobalFlags;
 use crate::config::{
     clear_oauth_tokens, config_path, credentials_path, load_config_from, load_credentials_from,
-    now_unix, save_config_to, save_credentials_to, save_oauth_tokens, AuthMethod, Config,
-    OAuthConfig, OAuthGrant, ResolvedProfile,
+    now_unix, resolve_profile_name, save_config_to, save_credentials_to, save_oauth_tokens,
+    AuthMethod, OAuthConfig, OAuthGrant, ResolvedProfile,
 };
 use crate::error::{Error, Result};
 use crate::oauth;
@@ -79,16 +79,6 @@ fn grant_str(g: OAuthGrant) -> &'static str {
     }
 }
 
-/// Resolve which profile name an auth command targets, mirroring
-/// `resolve_profile`'s precedence (CLI flag > default_profile > "default").
-fn resolve_name(global: &GlobalFlags, config: &Config) -> String {
-    global
-        .profile
-        .clone()
-        .or_else(|| config.default_profile.clone())
-        .unwrap_or_else(|| "default".to_string())
-}
-
 fn prompt(msg: &str) -> Result<String> {
     print!("{msg}");
     io::stdout().flush().ok();
@@ -105,7 +95,7 @@ pub fn login(global: &GlobalFlags, args: LoginArgs) -> Result<()> {
     let mut config = load_config_from(&cfg_path)?;
     let mut creds = load_credentials_from(&cred_path)?;
 
-    let name = resolve_name(global, &config);
+    let name = resolve_profile_name(global.profile.as_deref(), &config)?;
     let mut pc = config.profiles.get(&name).cloned().unwrap_or_default();
     let existing = pc.oauth.clone();
 
@@ -235,7 +225,7 @@ pub(crate) fn complete_oauth_login(
 
 pub fn logout(global: &GlobalFlags) -> Result<()> {
     let config = load_config_from(&config_path()?)?;
-    let name = resolve_name(global, &config);
+    let name = resolve_profile_name(global.profile.as_deref(), &config)?;
     clear_oauth_tokens(&name)?;
     writeln!(
         std::io::stderr(),

@@ -182,30 +182,25 @@ async fn unknown_profile_errors_clearly() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn missing_default_profile_falls_back_to_literal_default() {
-    // Config has no default_profile field, but a profile literally named
-    // "default" exists. With no --profile flag the resolver must fall back
-    // to "default". The shared `write_profiles` always sets default_profile,
-    // so this test writes its fixture inline to keep the field absent.
-    let server = MockServer::start().await;
-    mount_ping_mock(&server, "u", "p", 1).await;
-
-    let uri = server.uri();
-
+async fn no_profile_selected_errors_clearly() {
+    // Config exists but has no default_profile, and no --profile flag is
+    // passed: the CLI must error with "no profile selected" instead of
+    // inventing a phantom "default" profile. The shared `write_profiles`
+    // always sets default_profile, so this fixture is written inline.
     let tmp = tempfile::tempdir().unwrap();
     let cfg = sn::config::Config {
         default_profile: None,
         profiles: std::collections::BTreeMap::from([(
-            "default".to_string(),
+            "dev".to_string(),
             sn::config::ProfileConfig {
-                instance: uri.clone(),
+                instance: "dev.example.com".to_string(),
                 ..Default::default()
             },
         )]),
     };
     let cr = sn::config::Credentials {
         profiles: std::collections::BTreeMap::from([(
-            "default".to_string(),
+            "dev".to_string(),
             sn::config::ProfileCredentials {
                 username: "u".to_string(),
                 password: "p".to_string(),
@@ -218,12 +213,14 @@ async fn missing_default_profile_falls_back_to_literal_default() {
     let dir = tmp.path().to_path_buf();
 
     tokio::task::spawn_blocking(move || {
-        sn_cmd(&dir).args(["ping"]).assert().success();
+        sn_cmd(&dir)
+            .args(["ping"])
+            .assert()
+            .code(1)
+            .stderr(contains("no profile selected"));
     })
     .await
     .unwrap();
-
-    drop(server);
 }
 
 #[tokio::test(flavor = "current_thread")]
