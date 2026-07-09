@@ -6,9 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Latest release](https://img.shields.io/github/v/release/tehubersheezy/servicenow-cli?display_name=tag&sort=semver)](https://github.com/tehubersheezy/servicenow-cli/releases/latest)
 
-A fast, single-binary CLI for ServiceNow. Designed for LLM agents and human operators alike.
+A fast, single-binary CLI for ServiceNow, built for LLM agents and human operators alike.
 
-`sn` wraps ServiceNow's REST APIs — Table, Change Management, Attachment, CMDB, Import Set, Service Catalog, Identification & Reconciliation, CICD, Aggregate, Performance Analytics, and schema discovery — into a predictable command-line interface with stable JSON output, structured error reporting, and deterministic exit codes.
+It wraps ServiceNow's REST APIs — Table, Change Management, Attachment, CMDB, Import Set, Service Catalog, Identification & Reconciliation, CICD, Aggregate, Performance Analytics, and schema discovery — behind one predictable interface: stable JSON on stdout, structured errors on stderr, and deterministic exit codes.
 
 ```bash
 sn init                                      # connect to an instance
@@ -20,20 +20,36 @@ sn ping                                       # auth + latency health check
 ## Contents
 
 - [Installation](#installation)
-- [Setup](#setup) — [Basic auth](#basic-auth) · [OAuth / SSO](#oauth--sso)
+- [Setup](#setup)
+  - [Basic auth](#basic-auth)
+  - [OAuth / SSO](#oauth--sso)
 - [Usage](#usage)
-  - Records: [read](#reading-records) · [write](#writing-records) · [paginate](#pagination)
-  - Discovery: [schema](#schema-discovery) · [aggregate](#aggregate-queries)
-  - [Change Management](#change-management) · [Attachments](#attachments) · [CMDB](#cmdb) · [Import Sets](#import-sets)
-  - [Service Catalog](#service-catalog) · [Identification & Reconciliation](#identification--reconciliation)
-  - [CICD operations](#cicd-operations) · [Performance Analytics](#performance-analytics-scorecards)
-  - [Health & connection](#inspect-and-connect) · [Open in web UI](#open-a-record-in-the-web-ui) · [Raw REST](#raw-rest-passthrough)
-  - [Table output](#human-readable-table-output) · [Shell completions](#shell-completions) · [Agent integration](#agent-integration)
-- [Output contract](#output-contract) · [Exit codes](#exit-codes)
+  - [Reading records](#reading-records)
+  - [Writing records](#writing-records)
+  - [Pagination](#pagination)
+  - [Schema discovery](#schema-discovery)
+  - [Aggregate queries](#aggregate-queries)
+  - [Change Management](#change-management)
+  - [Attachments](#attachments)
+  - [CMDB](#cmdb)
+  - [Import Sets](#import-sets)
+  - [Service Catalog](#service-catalog)
+  - [Identification & Reconciliation](#identification--reconciliation)
+  - [CICD operations](#cicd-operations)
+  - [Performance Analytics scorecards](#performance-analytics-scorecards)
+  - [Inspect and connect](#inspect-and-connect)
+  - [Open a record in the web UI](#open-a-record-in-the-web-ui)
+  - [Raw REST passthrough](#raw-rest-passthrough)
+  - [Human-readable table output](#human-readable-table-output)
+  - [Agent integration](#agent-integration)
+- [Output contract](#output-contract)
+  - [Exit codes](#exit-codes)
 - [Parameters](#parameters)
 - [Configuration](#configuration)
+  - [Environment variables](#environment-variables)
 - [Proxy and TLS](#proxy-and-tls)
 - [Debugging](#debugging)
+- [License](#license)
 
 ## Installation
 
@@ -41,14 +57,7 @@ sn ping                                       # auth + latency health check
 
 ```bash
 brew install tehubersheezy/sn/sn
-```
-
-Or tap once, then install/upgrade by short name:
-
-```bash
-brew tap tehubersheezy/sn
-brew install sn
-brew upgrade sn
+# or: brew tap tehubersheezy/sn && brew install sn   (upgrade later with: brew upgrade sn)
 ```
 
 ### Shell installer (macOS / Linux)
@@ -57,20 +66,9 @@ brew upgrade sn
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/tehubersheezy/servicenow-cli/releases/latest/download/sn-installer.sh | sh
 ```
 
-### MSI installer (Windows)
+### Windows (MSI or PowerShell)
 
-Download the appropriate `.msi` from the [latest release](https://github.com/tehubersheezy/servicenow-cli/releases/latest):
-
-- `sn-x86_64-pc-windows-msvc.msi` — 64-bit Intel/AMD
-- `sn-aarch64-pc-windows-msvc.msi` — ARM64 (Surface Pro X, Copilot+ PCs)
-
-Double-click to install, or for unattended/SCCM/Intune deployment:
-
-```powershell
-msiexec /i sn-x86_64-pc-windows-msvc.msi /qn
-```
-
-### PowerShell installer (Windows)
+Download `sn-x86_64-pc-windows-msvc.msi` (64-bit Intel/AMD) or `sn-aarch64-pc-windows-msvc.msi` (ARM64 — Surface Pro X, Copilot+ PCs) from the [latest release](https://github.com/tehubersheezy/servicenow-cli/releases/latest) and double-click. For unattended/SCCM/Intune deployment use `msiexec /i sn-x86_64-pc-windows-msvc.msi /qn`. Or install via PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/tehubersheezy/servicenow-cli/releases/latest/download/sn-installer.ps1 | iex"
@@ -78,19 +76,13 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/tehubersheezy/serv
 
 ### Pre-built binaries
 
-Download from [Releases](https://github.com/tehubersheezy/servicenow-cli/releases). Binaries are available for:
-
-- Linux (x86_64, ARM64)
-- macOS (Intel, Apple Silicon)
-- Windows (x86_64, ARM64) — both as standalone `.zip` (portable, no install) and `.msi` installer
+Download from [Releases](https://github.com/tehubersheezy/servicenow-cli/releases): Linux (x86_64, ARM64), macOS (Intel, Apple Silicon), and Windows (x86_64, ARM64) — the latter as a portable `.zip` (no install) or `.msi` installer.
 
 ## Setup
 
-`sn` supports two authentication methods. Most instances use **basic auth** (username + password); instances fronted by an external identity provider — Okta, Azure AD, ADFS — use **OAuth / SSO**.
+`sn` supports **basic auth** (username + password) for most instances, and **OAuth / SSO** for instances fronted by an external identity provider (Okta, Azure AD, ADFS), where the password lives in the IdP and basic auth cannot work.
 
 ### Basic auth
-
-Connect to a ServiceNow instance:
 
 ```bash
 sn init
@@ -100,56 +92,35 @@ sn init
 # profile 'default' saved and verified.
 ```
 
-Add additional instances with named profiles:
+Add more instances as named profiles, then pick one per command or set a default:
 
 ```bash
 sn init --profile prod --instance prod.service-now.com --username svc-user
-sn init --profile dev  --instance dev.service-now.com  --username admin
-```
-
-Select a profile per command or set a default:
-
-```bash
 sn --profile prod table list incident --setlimit 5
-sn profile use prod                  # set as default
+sn profile use prod                  # make it the default
 ```
 
 ### OAuth / SSO
 
-When a user's password lives in an external IdP, basic auth and the OAuth password grant can't work. Authenticate with OAuth instead — configure the profile with `sn init --auth oauth`, then run the flow with `sn auth login`:
+Configure the profile with `sn init --auth oauth`, then run the flow with `sn auth login`:
 
 ```bash
-# Configure an OAuth profile. Authorization-code + PKCE is the default: a
-# PUBLIC client, so no client secret is needed or prompted for.
+# Authorization-code + PKCE (default): a PUBLIC client — no secret needed or prompted for.
 sn init --profile sso --auth oauth --instance acme.service-now.com --client-id <id>
 
-# Non-interactive, server-to-server. client_credentials is a CONFIDENTIAL
-# client and requires a secret (prompted if --client-secret is omitted).
+# Non-interactive server-to-server: client_credentials is a CONFIDENTIAL client and needs a secret
+# (prompted if --client-secret is omitted).
 sn init --profile svc --auth oauth --instance acme.service-now.com \
   --grant client_credentials --client-id <id> --client-secret <secret>
 
-# Run the OAuth flow and cache tokens for the selected profile
-sn --profile sso auth login
+sn --profile sso auth login          # run the OAuth flow, cache tokens
 ```
 
-One-time admin setup on the instance (if no registry entry exists yet): **System OAuth → Application Registry → New → "Create an OAuth API endpoint for external clients"**, set the redirect URL to `http://localhost:8400/callback`, and copy the generated client ID. For the default authorization-code flow, enable the **Public Client** / **PKCE required** option so no secret is needed; only `client_credentials` requires copying the generated secret.
-After login, every command refreshes tokens transparently — no extra steps. Manage the session with:
+**One-time admin setup** (if the instance has no registry entry yet): **System OAuth → Application Registry → New → "Create an OAuth API endpoint for external clients"**; set the redirect URL to `http://localhost:8400/callback` — which must match `--redirect-uri` **exactly** — and copy the client ID. For the default authorization-code flow, enable **Public Client / PKCE required** so no secret is needed; only `client_credentials` needs the generated secret.
 
-```bash
-sn auth status     # show the resolved auth method + token expiry
-sn auth refresh    # force a token refresh now
-sn auth logout     # discard cached tokens
-```
+After login, tokens refresh transparently. Manage the session with `sn auth status` (method + token expiry), `sn auth refresh`, and `sn auth logout`. The client ID and redirect URI live in `config.toml`; the secret and tokens in `credentials.toml` (chmod 600).
 
-The loopback redirect (`--redirect-uri`, default `http://localhost:8400/callback`) must be registered **exactly** in ServiceNow's Application Registry. The client_id and redirect URI are saved to `config.toml`; the client secret and tokens go to `credentials.toml` (chmod 600).
-
-### Verify credentials
-
-Works for either auth method:
-
-```bash
-sn ping
-```
+Verify either auth method at any time with `sn ping`.
 
 ## Usage
 
@@ -159,49 +130,29 @@ sn ping
 # List incidents (default: up to 1000 records)
 sn table list incident
 
-# Filter + select fields
-sn table list incident \
-  --query "active=true^priority=1" \
-  --fields "number,short_description,state" \
-  --setlimit 10
+# Filter, select fields, limit
+sn table list incident --query "active=true^priority=1" \
+  --fields "number,short_description,state" --setlimit 10
 
-# Get a single record
-sn table get incident <sys_id>
-
-# Display human-readable values instead of internal codes
+# One record; --display-value swaps internal codes for readable labels
 sn table get incident <sys_id> --display-value all
 ```
 
 ### Writing records
 
-All three write verbs (`create`, `update`, `replace`) accept either `--data` or `--field` (mutually exclusive):
+`create`, `update`, and `replace` take either `--data` or `--field` (mutually exclusive):
 
-- `--data '<json>'` — inline JSON object
-- `--data @file.json` — read JSON from file
-- `--data @-` — read JSON from stdin
-- `--field key=value` — repeatable; builds a JSON object from key-value pairs
-- `--field key=@file` — field value read from file
+- `--data '<json>'` — inline JSON object (`@file.json` reads a file, `@-` reads stdin)
+- `--field key=value` — repeatable key/value pairs (`key=@file` reads the value from a file)
 
 ```bash
-# Create with key-value pairs
-sn table create incident \
-  --field short_description="Disk full on prod-db-01" \
-  --field urgency=2
+# Key/value pairs, or inline JSON, or piped from another tool
+sn table create incident --field short_description="Disk full on prod-db-01" --field urgency=2
+sn table create incident --data '{"short_description":"Server down","priority":"1"}'
+echo '{"short_description":"from pipe"}' | sn table create incident --data @-
 
-# Create with inline JSON
-sn table create incident --data '{"short_description": "Server down", "priority": "1"}'
-
-# Create from file
-sn table create incident --data @body.json
-
-# Create from stdin (pipe from another tool)
-echo '{"short_description": "from pipe"}' | sn table create incident --data @-
-
-# Update (PATCH) — only changes the fields you name
+# update = PATCH (changes only the fields you name); replace = PUT (omitted fields are blanked)
 sn table update incident <sys_id> --field state=2
-sn table update incident <sys_id> --data '{"state": "6", "close_notes": "Resolved"}'
-
-# Replace (PUT) — overwrites the entire record (omitted fields are blanked)
 sn table replace incident <sys_id> --data @full-record.json
 
 # Delete
@@ -211,422 +162,272 @@ sn table delete incident <sys_id> --yes
 ### Pagination
 
 ```bash
-# Stream all records as JSONL (one per line)
+# Stream every match as JSONL (one record per line)
 sn table list incident --query "active=true" --all
 
-# Collect into a single JSON array
-sn table list incident --query "active=true" --all --array
+# ...or buffer into one JSON array; cap the total with --max-records
+sn table list incident --all --array --max-records 5000
 
-# Cap total records
-sn table list incident --all --max-records 5000
-
-# Process with jq
+# Pipe to jq
 sn table list incident --all | jq -r '.number'
 ```
 
 ### Schema discovery
 
-Discover tables and their structure without prior ServiceNow knowledge:
+Explore an unfamiliar instance:
 
 ```bash
-# Find tables matching a keyword
-sn schema tables --filter incident
-
-# List writable columns for a table
-sn schema columns incident --writable
-
-# Get valid values for a choice field
-sn schema choices incident state
+sn schema tables --filter incident        # find tables by keyword
+sn schema columns incident --writable     # writable columns for a table
+sn schema choices incident state          # valid values for a choice field
 ```
 
 ### Aggregate queries
 
-Run server-side statistics against any table without fetching individual records:
+Server-side statistics, without fetching individual records:
 
 ```bash
-# Count records grouped by state (with human-readable labels)
+# Count records grouped by state, with readable labels
 sn aggregate incident --count --group-by state --display-value true
 
 # Average a field, filtered
 sn aggregate incident --avg-fields reassignment_count --query "active=true"
 
-# Multiple aggregations in one call
-sn aggregate incident \
-  --sum-fields reassignment_count \
-  --min-fields priority \
-  --max-fields priority
+# Several aggregations in one call
+sn aggregate incident --sum-fields reassignment_count --min-fields priority --max-fields priority
 ```
 
 ### Change Management
 
-Full lifecycle management for normal, emergency, and standard change requests:
+Normal, emergency, and standard change requests across their lifecycle:
 
 ```bash
-# List all normal changes
+# List; create (standard changes require --template); update; delete
 sn change list --type normal --query "state=1" --setlimit 10
-
-# Create a normal change
-sn change create --type normal \
-  --field short_description="DB migration" \
-  --field category=software
-
-# Create a standard change from a template
-sn change create --type standard --template <template_sys_id> \
-  --field short_description="Routine patching"
-
-# Update a change
+sn change create --type normal --field short_description="DB migration" --field category=software
+sn change create --type standard --template <template_sys_id> --field short_description="Routine patching"
 sn change update <sys_id> --field state=2
-
-# Get valid next states (useful for workflow automation)
-sn change nextstates <sys_id>
-
-# Delete a change
 sn change delete <sys_id>
+
+# Workflow helpers
+sn change nextstates <sys_id>                          # valid next states
+sn change approvals <sys_id> --field approval="approved"
+sn change risk <sys_id> --data '{"risk_value":"moderate"}'
+sn change schedule <sys_id>
+sn change models                                       # change models
+sn change templates                                    # standard-change templates
 ```
 
 #### Change tasks, CIs, and conflicts
 
 ```bash
-# Task management
+# Tasks
 sn change task list <change_sys_id>
 sn change task create <change_sys_id> --field short_description="Pre-check"
 sn change task update <change_sys_id> <task_sys_id> --field state=2
 sn change task delete <change_sys_id> <task_sys_id>
 
-# CI relationships
-sn change ci list <change_sys_id>
-sn change ci add <change_sys_id> --data '{"cmdb_ci_sys_id": "<ci_id>"}'
-
-# Conflicts
+# CIs and conflicts
+sn change ci add <change_sys_id> --data '{"cmdb_ci_sys_id":"<ci_id>"}'
 sn change conflict get <sys_id>
-sn change conflict add <sys_id> --data '{"...": "..."}'
 sn change conflict remove <sys_id>
-
-# Approval and risk
-sn change approvals <sys_id> --field approval="approved"
-sn change risk <sys_id> --data '{"risk_value": "moderate"}'
-
-# Schedule and models
-sn change schedule <sys_id>
-sn change models                  # list all change models
-sn change templates               # list standard change templates
-sn change templates <sys_id>      # get a specific template
 ```
 
 ### Attachments
 
-Upload, download, and manage file attachments on any ServiceNow record:
+Files on any record:
 
 ```bash
-# List attachments for a table
 sn attachment list --query "table_name=incident"
-
-# Get attachment metadata
 sn attachment get <sys_id>
 
-# Upload a file to a record
-sn attachment upload \
-  --table incident \
-  --record <record_sys_id> \
-  --file ./screenshot.png
+# Upload a file (optionally override its name and content type)
+sn attachment upload --table incident --record <record_sys_id> --file ./screenshot.png
+sn attachment upload --table incident --record <record_sys_id> --file ./data.csv \
+  --file-name "export_2026.csv" --content-type text/csv
 
-# Upload with custom name and content type
-sn attachment upload \
-  --table incident \
-  --record <record_sys_id> \
-  --file ./data.csv \
-  --file-name "export_2026.csv" \
-  --content-type text/csv
-
-# Download attachment content
+# Download to a file, or to stdout for piping
 sn attachment download <sys_id> --output ./downloaded.png
-
-# Download to stdout (pipe to another tool)
 sn attachment download <sys_id> | gzip > backup.gz
 
-# Delete an attachment
 sn attachment delete <sys_id>
 ```
 
 ### CMDB
 
-Query, create, and manage Configuration Items and their relationships:
+CRUD and relationships on Configuration Items of any class:
 
 ```bash
-# List CIs of a specific class
 sn cmdb list cmdb_ci_server --query "operational_status=1" --setlimit 20
+sn cmdb get cmdb_ci_server <sys_id>                                     # includes relations
+sn cmdb create cmdb_ci_server --field name=web-server-01 --field ip_address=10.0.1.50
+sn cmdb update cmdb_ci_server <sys_id> --field operational_status=2     # PATCH
+sn cmdb replace cmdb_ci_server <sys_id> --data @ci.json                 # PUT (full overwrite)
+sn cmdb meta cmdb_ci_server                                             # class schema
 
-# Get a CI with its relations
-sn cmdb get cmdb_ci_server <sys_id>
-
-# Create a CI
-sn cmdb create cmdb_ci_server \
-  --field name=web-server-01 \
-  --field ip_address=10.0.1.50
-
-# Update a CI (PATCH)
-sn cmdb update cmdb_ci_server <sys_id> --field operational_status=2
-
-# Replace a CI (PUT — full overwrite)
-sn cmdb replace cmdb_ci_server <sys_id> --data @ci.json
-
-# Get class metadata (schema for a CMDB class)
-sn cmdb meta cmdb_ci_server
-
-# Manage relations
-sn cmdb relation add cmdb_ci_server <sys_id> \
-  --data '{"type": "<rel_type_id>", "target": "<target_ci_id>"}'
+# Relations
+sn cmdb relation add cmdb_ci_server <sys_id> --data '{"type":"<rel_type_id>","target":"<target_ci_id>"}'
 sn cmdb relation delete cmdb_ci_server <sys_id> <rel_sys_id>
 ```
 
 ### Import Sets
 
-Insert records into staging tables for transform-based imports:
+Insert into staging tables for transform-based imports:
 
 ```bash
-# Insert a single record
-sn import create u_staging_table \
-  --field u_name="Server-01" \
-  --field u_ip="10.0.1.1"
-
-# Bulk insert multiple records
-sn import bulk u_staging_table \
-  --data '[{"u_name":"Server-01"},{"u_name":"Server-02"}]'
-
-# Retrieve an import set record
+sn import create u_staging_table --field u_name="Server-01" --field u_ip="10.0.1.1"
+sn import bulk u_staging_table --data '[{"u_name":"Server-01"},{"u_name":"Server-02"}]'
 sn import get u_staging_table <sys_id>
 ```
 
 ### Service Catalog
 
-Browse catalogs, search items, and place orders:
+Browse catalogs and items, then order directly or through the cart:
 
 ```bash
-# Browse catalogs
+# Browse
 sn catalog list
-sn catalog get <catalog_sys_id>
-
-# Browse categories
 sn catalog categories <catalog_sys_id>
-sn catalog category <category_sys_id>
-
-# Search and view items
 sn catalog items --text "laptop" --catalog <catalog_id>
 sn catalog item <item_sys_id>
-sn catalog item-variables <item_sys_id>   # form fields required to order
+sn catalog item-variables <item_sys_id>       # form fields required to order
 
-# Order immediately (bypasses cart)
-sn catalog order <item_sys_id> --data '{"sysparm_quantity": "1"}'
+# Order immediately (bypasses the cart)
+sn catalog order <item_sys_id> --data '{"sysparm_quantity":"1"}'
 
-# Cart workflow
-sn catalog add-to-cart <item_sys_id> --data '{"sysparm_quantity": "1"}'
-sn catalog cart                           # view current cart
-sn catalog cart-update <cart_item_id> --field quantity=2
-sn catalog cart-remove <cart_item_id>
-sn catalog cart-empty <cart_sys_id>
+# ...or work the cart (cart-update / cart-remove / cart-empty also available)
+sn catalog add-to-cart <item_sys_id> --data '{"sysparm_quantity":"1"}'
+sn catalog cart
 sn catalog checkout
 sn catalog submit-order
 
-# Wishlist
 sn catalog wishlist
 ```
 
 ### Identification & Reconciliation
 
-Create, update, or identify CIs through the reconciliation engine:
+Create, update, or identify CIs through the reconciliation engine. Each call takes an `items` payload:
 
 ```bash
-# Create or update a CI
-sn identify create-update --data '{
-  "items": [{
-    "className": "cmdb_ci_server",
-    "values": {"name": "web-01", "ip_address": "10.0.1.1"}
-  }]
-}'
+# Create or update
+sn identify create-update --data '{"items":[{"className":"cmdb_ci_server","values":{"name":"web-01","ip_address":"10.0.1.1"}}]}'
 
-# Identify a CI without modifying it
-sn identify query --data '{
-  "items": [{
-    "className": "cmdb_ci_server",
-    "values": {"name": "web-01"}
-  }]
-}'
+# Identify only, without modifying anything
+sn identify query --data '{"items":[{"className":"cmdb_ci_server","values":{"name":"web-01"}}]}'
 
-# Enhanced variants with options
-sn identify create-update-enhanced \
-  --data @payload.json \
-  --data-source "discovery" \
-  --options "partial_payload:true,partial_commits:true"
-
+# Enhanced variants add --data-source and --options (partial payload/commit)
+sn identify create-update-enhanced --data @payload.json \
+  --data-source "discovery" --options "partial_payload:true,partial_commits:true"
 sn identify query-enhanced --data @query.json --data-source "discovery"
 ```
 
 ### CICD operations
 
-#### App lifecycle
-
-Install, publish, and roll back scoped applications from the ServiceNow App Repository:
+`app`, `updateset`, and `atf run` are asynchronous — they return a `progress_id` and run in the background. Add `--wait` to block until the operation finishes and emit the final result, and `--wait-timeout <SECS>` to bound that wait (on expiry `sn` exits 3 with a pointer to `sn progress`). Without `--wait`, poll manually with `sn progress <progress_id>`.
 
 ```bash
-sn app install --scope x_myapp --version 1.2.0 --wait
-sn app publish --scope x_myapp --version 1.3.0 --dev-notes "Bug fixes" --wait
+# App Repository lifecycle
+sn app install  --scope x_myapp --version 1.2.0 --wait
+sn app publish  --scope x_myapp --version 1.3.0 --dev-notes "Bug fixes" --wait
 sn app rollback --scope x_myapp --version 1.1.0 --wait
-```
 
-#### Update sets
-
-```bash
-# Create a new Update Set
+# Update sets
 sn updateset create --name "My Changes" --description "Sprint 42 work"
-
-# Retrieve a remote Update Set into this instance
 sn updateset retrieve --update-set-id <id> --auto-preview
-
-# Preview and commit (--wait blocks until each step completes)
 sn updateset preview <remote_update_set_id> --wait
-sn updateset commit <remote_update_set_id> --wait
-
-# Commit several at once
+sn updateset commit  <remote_update_set_id> --wait
 sn updateset commit-multiple --ids id1,id2,id3
-
-# Undo an applied Update Set
 sn updateset back-out --update-set-id <id> --wait
-```
 
-#### ATF testing
-
-Run Automated Test Framework suites and retrieve their results:
-
-```bash
-sn atf run --suite-name "Regression Suite" --wait
-sn atf results <result_id>
-```
-
-#### Polling async progress
-
-`app`, `updateset`, and `atf run` are asynchronous. Pass `--wait` to any of these commands and it will block until the operation completes (or fails), then emit the final progress result — no manual polling needed:
-
-```bash
-sn app install --scope x_myapp --version 1.2.0 --wait
-sn atf run --suite-name "Regression Suite" --wait
-```
-
-Add `--wait-timeout <SECS>` to bound the wait — if the operation is still running when the deadline passes, `sn` exits 3 with a pointer to `sn progress` (by default `--wait` waits indefinitely):
-
-```bash
+# ATF suites
 sn atf run --suite-name "Regression Suite" --wait --wait-timeout 900
-```
+sn atf results <result_id>
 
-To check the status of an already-running operation, use `sn progress` with the `progress_id` from the initial response:
-
-```bash
+# Poll an operation already in flight
 sn progress <progress_id>
 ```
 
 ### Performance Analytics scorecards
 
 ```bash
-# List scorecards (20 per page, sorted by value descending)
+# List scorecards (paged and sorted)
 sn scores list --per-page 20 --sort-by VALUE --sort-dir DESC
 
-# Fetch historical scores for a specific indicator
+# Historical scores for one indicator
 sn scores list --uuid <indicator_id> --include-scores --from 2026-01-01 --to 2026-04-01
 
-# Favorite / unfavorite
 sn scores favorite <uuid>
 sn scores unfavorite <uuid>
 ```
 
 ### Inspect and connect
 
-Quick checks for "is the connection working?" and "who am I authenticated as?":
-
 ```bash
-# Latency + auth + ServiceNow build version (one-shot health check)
+# Latency + auth + ServiceNow build version — one-shot health check (either auth method)
 sn ping
-# {"ok":true,"profile":"prod","instance":"https://acme.service-now.com","username":"admin","latency_ms":134,"build_name":"Vancouver","build_tag":"glide-vancouver-..."}
+# {"ok":true,"profile":"prod","instance":"https://acme.service-now.com","username":"admin","latency_ms":134,"build_name":"Vancouver",...}
 
-# The currently authenticated user (resolved via gs.getUserName(), works regardless of auth method)
+# The authenticated user, resolved via gs.getUserName()
 sn user me
 ```
 
 ### Open a record in the web UI
 
-Found something interesting in CLI output and want to look at it in the form? `sn open` launches the ServiceNow UI at that record:
-
 ```bash
-sn open incident <sys_id>           # opens in default browser
-sn open change_request <sys_id>     # any table works
-sn open incident <sys_id> --print-url   # prints the URL instead of opening
+sn open incident <sys_id>                # any table; opens the form in your default browser
+sn open incident <sys_id> --print-url    # print the URL instead of opening it
 ```
 
 ### Raw REST passthrough
 
-For ServiceNow endpoints that aren't yet modeled as typed commands, `sn raw` is a generic passthrough:
+An escape hatch for endpoints not yet modeled as typed commands — returned exactly as ServiceNow sends it, no envelope unwrapping:
 
 ```bash
-# GET any path, with arbitrary query params
 sn raw GET /api/now/v2/table/incident -q sysparm_limit=5 -q sysparm_query=active=true
-
-# POST with a JSON body
 sn raw POST /api/now/table/incident --data '{"short_description":"From sn raw"}'
-
-# Any method works
 sn raw PATCH /api/now/table/incident/abc123 --field state=2
 sn raw DELETE /api/now/table/incident/abc123
 ```
 
-The response is emitted exactly as ServiceNow returns it (no envelope unwrapping). Use this as the escape hatch when you need an endpoint we haven't wrapped yet.
-
 ### Human-readable table output
 
-Most read commands accept `--output table` for columnar output instead of JSON:
+Most read commands accept `--output table` for columns instead of JSON — for interactive browsing; keep the default JSON for scripts and pipelines (don't pipe it):
 
 ```bash
 sn table list incident --setlimit 5 --output table
-sn change list --type normal --output table --setlimit 10
 sn schema columns incident --writable --output table
 ```
 
-Use this for interactive browsing. For scripts and pipelines, leave the default JSON output (`--output table` should not be piped).
-
 ### Shell completions
 
-Generate a tab-completion script for your shell:
-
 ```bash
-# Bash
-sn completion bash > /usr/local/etc/bash_completion.d/sn
+# zsh — write to a dir on your fpath, then enable compinit
+mkdir -p ~/.zsh/completions
+sn completion zsh > ~/.zsh/completions/_sn
+# add these two lines to ~/.zshrc (once), then restart your shell:
+#   fpath=(~/.zsh/completions $fpath)
+#   autoload -Uz compinit && compinit
 
-# Zsh (somewhere in your $fpath)
-sn completion zsh > "${fpath[1]}/_sn"
+# bash (requires the bash-completion package)
+sn completion bash > ~/.local/share/bash-completion/completions/sn
 
-# Fish
+# fish
 sn completion fish > ~/.config/fish/completions/sn.fish
-
-# PowerShell
-sn completion powershell > $PROFILE.d/sn.ps1
 ```
 
-Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
+Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`. The `${fpath[1]}` shortcut some tools suggest fails when that directory doesn't exist (common on Apple Silicon Homebrew) — the dir-on-fpath recipe above is portable.
 
 ### Agent integration
 
-#### Claude Code plugin
-
-`sn` ships as a Claude Code plugin. Install it so Claude can use `sn` commands automatically:
+`sn` ships as a Claude Code plugin — install it so Claude can run `sn` commands automatically (it pre-approves `Bash(sn *)`):
 
 ```bash
 claude plugin install --dir /path/to/sn
 ```
 
-Or for projects that clone this repo, the skill at `.claude/skills/sn.md` is picked up automatically — invoke with `/sn`.
+In a clone of this repo, the skill at `.claude/skills/sn.md` is picked up automatically — invoke with `/sn`.
 
-The plugin pre-approves `Bash(sn *)` so Claude won't prompt for permission on each command.
-
-#### Introspection
-
-`sn introspect` dumps the full command tree as structured JSON, suitable for auto-generating MCP tool definitions or function-call schemas:
+`sn introspect` dumps the full command tree as JSON — for auto-generating MCP tool definitions or function-call schemas:
 
 ```bash
 sn introspect | jq '.subcommands[] | {name, about}'
@@ -634,47 +435,20 @@ sn introspect | jq '.subcommands[] | {name, about}'
 
 ## Output contract
 
-| Verb | stdout |
-|---|---|
-| `table list` | JSON array of records (JSONL with `--all`) |
-| `table get` / `create` / `update` / `replace` | Single record object |
-| `table delete` | Nothing (empty) |
-| `schema tables` / `columns` / `choices` | JSON array |
-| `aggregate` | Stats object (counts, sums, averages, grouped results) |
-| `app install` / `publish` / `rollback` | Progress object with `progress_id` |
-| `updateset create` | New Update Set record |
-| `updateset retrieve` / `preview` / `commit` / `back-out` | Progress object with `progress_id` |
-| `updateset commit-multiple` | Array of progress objects |
-| `atf run` | Progress object with `progress_id` |
-| `atf results` | Test suite result object |
-| `progress` | Progress status object |
-| `scores list` | JSON array of scorecard records |
-| `scores favorite` / `unfavorite` | Updated scorecard object |
-| `change list` | JSON array of change records |
-| `change get` / `create` / `update` | Single change object |
-| `change delete` | Nothing (empty) |
-| `change nextstates` / `schedule` / `models` / `templates` | JSON object or array |
-| `change task list` / `ci list` | JSON array |
-| `change task get` / `task create` / `task update` | Single task object |
-| `attachment list` | JSON array of attachment metadata |
-| `attachment get` | Single attachment metadata object |
-| `attachment upload` | Created attachment metadata object |
-| `attachment download` | Binary file content (or JSON metadata with `--output`) |
-| `attachment delete` | Nothing (empty) |
-| `cmdb list` | JSON array of CI records |
-| `cmdb get` / `create` / `update` / `replace` | Single CI object with relations |
-| `cmdb meta` | Class metadata object |
-| `import create` | Import result array |
-| `import bulk` | Import result array |
-| `import get` | Single import set record |
-| `catalog list` / `items` | JSON array |
-| `catalog get` / `category` / `item` | Single object |
-| `catalog order` / `checkout` / `submit-order` | Order result object |
-| `identify create-update` / `query` | Reconciliation result object |
+Commands emit JSON on stdout by a few consistent rules:
 
-- `--output raw` preserves ServiceNow's `{"result": ...}` envelope.
-- Pretty-printed when stdout is a TTY; compact when piped. Override with `--pretty` / `--compact`.
-- Errors are always JSON on stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?"}}`.
+- `list` / `schema tables` / `columns` / `choices` → a JSON array (JSONL with `--all`).
+- `get` / `create` / `update` / `replace` → the single record object (`cmdb get` includes relations).
+- `delete` → nothing.
+- `aggregate` → a stats object; `scores` → scorecard records.
+- Async CICD (`app`, `updateset`, `atf run`, `progress`) → a progress object with `progress_id`, `state`, and `percentComplete`.
+- `attachment download` → raw bytes (or metadata JSON when you pass `--output <file>`).
+
+Across every command:
+
+- `--output raw` preserves ServiceNow's `{"result": ...}` envelope; `--output table` renders columns (interactive only).
+- Output is pretty-printed on a TTY, compact when piped — override with `--pretty` / `--compact`.
+- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?"}}`.
 
 ### Exit codes
 
@@ -688,7 +462,7 @@ sn introspect | jq '.subcommands[] | {name, about}'
 
 ## Parameters
 
-Every ServiceNow `sysparm_*` parameter has both a friendly name and a raw alias:
+Every `sysparm_*` parameter has both a friendly name and a raw alias:
 
 | Friendly | Alias | Values |
 |---|---|---|
@@ -707,29 +481,24 @@ Every ServiceNow `sysparm_*` parameter has both a friendly name and a raw alias:
 
 ## Configuration
 
-Credentials are stored in two files (AWS CLI-style split):
+Credentials use a two-file, AWS CLI-style split:
 
 | File | Contains | Location (Linux) |
 |---|---|---|
-| `config.toml` | Instance URLs, default profile | `~/.config/sn/` |
-| `credentials.toml` | Usernames, passwords (chmod 600) | `~/.config/sn/` |
+| `config.toml` | Instance URLs, default profile, non-secret OAuth config | `~/.config/sn/` |
+| `credentials.toml` | Usernames, passwords, secrets, cached tokens (chmod 600) | `~/.config/sn/` |
 
-A profile is the single unit of identity. Create one with `sn init` (add `--profile NAME` for additional instances), then select it per command with `--profile NAME` or set a default with `sn profile use NAME`:
+macOS uses `~/Library/Application Support/sn/` and Windows `%APPDATA%\sn\`.
 
-```bash
-sn init --profile myco --instance myco.service-now.com --username api-user
-sn --profile myco table list incident --setlimit 1
-```
+A **profile** is the single unit of identity — create one with `sn init` (see [Setup](#setup)) and select it with `--profile NAME` or `sn profile use NAME`. Resolution is `--profile` flag > `default_profile` in `config.toml` > a clear error. No env var or global flag can override a profile field — preventing chimera identities and, for OAuth, token leakage to an arbitrary host.
 
-Profile resolution is `--profile` flag > `default_profile` in `config.toml` > a clear error. There are no environment variables or global flags that override an individual profile field — this prevents chimera identities (and, for OAuth profiles, avoids leaking cached tokens to an arbitrary host).
-
-To point `sn` at a different config directory (for testing or sandboxing), set `SN_CONFIG_DIR` — see the environment-variable table below.
+Point `sn` at a different config directory (for testing or sandboxing) with `SN_CONFIG_DIR`.
 
 ### Environment variables
 
 | Env var | Description |
 |---|---|
-| `SN_CONFIG_DIR` | Override the config directory. Points **directly** at the directory containing `config.toml` and `credentials.toml` (no `sn` subdirectory is appended). This is the documented, cross-platform override; when unset, the platform-native location is used. |
+| `SN_CONFIG_DIR` | Override the config directory. Points **directly** at the folder holding `config.toml` and `credentials.toml` (no `sn` subdirectory appended). Cross-platform; when unset, the platform-native location is used. |
 | `SN_PROXY` | HTTP/HTTPS/SOCKS5 proxy URL |
 | `SN_NO_PROXY` | Comma-separated hosts to bypass the proxy |
 | `SN_INSECURE=1` | Disable TLS certificate verification |
@@ -745,34 +514,19 @@ There are deliberately no environment variables for credential values or profile
 
 ## Proxy and TLS
 
-Route traffic through a proxy:
+Route through a proxy or adjust TLS per invocation:
 
 ```bash
-sn --proxy http://proxy.corp:8080 table list incident --setlimit 5
-
-# SOCKS5 proxy
-sn --proxy socks5://proxy:1080 table list incident
-
-# Bypass a configured proxy for one call
-sn --no-proxy table list incident
+sn --proxy http://proxy.corp:8080 table list incident   # also socks5://proxy:1080
+sn --no-proxy table list incident                        # bypass a configured proxy for one call
+sn --insecure table list incident                        # skip cert verification (dev/self-signed certs)
+sn --ca-cert /path/to/ca.pem table list incident         # custom CA certificate
 ```
 
-Disable TLS certificate verification (for dev/test instances with self-signed certs):
-
-```bash
-sn --insecure table list incident
-```
-
-Use a custom CA certificate:
-
-```bash
-sn --ca-cert /path/to/ca.pem table list incident
-sn --proxy-ca-cert /path/to/proxy-ca.pem --proxy http://proxy:8080 table list incident
-```
-
-All proxy/TLS settings can be set per-profile in `config.toml`:
+Any of these can live in a profile — non-secrets in `config.toml`, proxy credentials in `credentials.toml`:
 
 ```toml
+# config.toml
 [profiles.dev]
 instance = "dev.example.com"
 proxy = "http://proxy.corp:8080"
@@ -780,28 +534,21 @@ no_proxy = "localhost,127.0.0.1"
 insecure = false
 ca_cert = "/etc/ssl/custom-ca.pem"
 proxy_ca_cert = "/etc/ssl/proxy-ca.pem"
-```
 
-Proxy credentials go in `credentials.toml` (since they're secrets):
-
-```toml
+# credentials.toml
 [profiles.dev]
-username = "sn-user"
-password = "sn-pass"
 proxy_username = "proxy-user"
 proxy_password = "proxy-pass"
 ```
 
-Environment variables: `SN_PROXY`, `SN_NO_PROXY`, `SN_INSECURE=1`, `SN_CA_CERT`, `SN_PROXY_CA_CERT`.
-
-Precedence: `--proxy` flag > `SN_PROXY` env > profile config (same for all settings).
+Precedence for every proxy/TLS setting: CLI flag > env var (`SN_PROXY`, `SN_INSECURE=1`, …) > profile config.
 
 ## Debugging
 
 ```bash
-sn -d table list incident       # show HTTP method, URL, status
-sn -dd table list incident      # add response headers
-sn -ddd table list incident     # add request/response bodies (auth masked)
+sn -d   table list incident     # HTTP method, URL, status
+sn -dd  table list incident     # + response headers
+sn -ddd table list incident     # + request/response bodies (auth masked)
 sn -v                           # print version (-V also works)
 ```
 
