@@ -1,4 +1,6 @@
-use assert_cmd::Command;
+mod common;
+
+use common::{sn_cmd, write_profiles, ProfileSpec};
 use serde_json::json;
 use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, ResponseTemplate};
@@ -15,23 +17,19 @@ async fn change_list_normal() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "change",
-                "list",
-                "--type",
-                "normal",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "change", "list", "--type", "normal"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -53,17 +51,19 @@ async fn change_create_normal() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
             .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
                 "--compact",
                 "change",
                 "create",
@@ -92,23 +92,19 @@ async fn change_task_list() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "change",
-                "task",
-                "list",
-                "chg001",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "change", "task", "list", "chg001"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -132,17 +128,19 @@ async fn attachment_list_with_query() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
             .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
                 "--compact",
                 "attachment",
                 "list",
@@ -169,22 +167,19 @@ async fn attachment_get_metadata() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "attachment",
-                "get",
-                "att001",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "attachment", "get", "att001"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -207,22 +202,19 @@ async fn cmdb_list_servers() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "cmdb",
-                "list",
-                "cmdb_ci_server",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "cmdb", "list", "cmdb_ci_server"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -243,22 +235,19 @@ async fn cmdb_meta() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "cmdb",
-                "meta",
-                "cmdb_ci_server",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "cmdb", "meta", "cmdb_ci_server"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -281,17 +270,19 @@ async fn import_create_record() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
             .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
                 "--compact",
                 "import",
                 "create",
@@ -319,23 +310,19 @@ async fn import_get_record() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "import",
-                "get",
-                "u_staging_table",
-                "imp001",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "import", "get", "u_staging_table", "imp001"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -361,17 +348,19 @@ async fn import_bulk_wraps_array_into_records() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
             .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
                 "--compact",
                 "import",
                 "bulk",
@@ -400,26 +389,27 @@ async fn import_bulk_accepts_prewrapped_records_object() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "import",
-                "bulk",
-                "u_staging_table",
-                "--data",
-                r#"{"records":[{"u_name":"Server-03"}]}"#,
-            ])
-            .assert()
-            .success();
+        let mut cmd = sn_cmd(tmp.path());
+        cmd.args([
+            "--compact",
+            "import",
+            "bulk",
+            "u_staging_table",
+            "--data",
+            r#"{"records":[{"u_name":"Server-03"}]}"#,
+        ])
+        .assert()
+        .success();
     })
     .await
     .unwrap();
@@ -437,21 +427,19 @@ async fn catalog_list() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "catalog",
-                "list",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "catalog", "list"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -473,23 +461,19 @@ async fn catalog_items_with_text_search() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "catalog",
-                "items",
-                "--text",
-                "laptop",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "catalog", "items", "--text", "laptop"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -510,22 +494,19 @@ async fn catalog_order_item() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "catalog",
-                "order",
-                "item001",
-            ])
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "catalog", "order", "item001"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -548,17 +529,19 @@ async fn identify_create_update() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
             .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
                 "--compact",
                 "identify",
                 "create-update",
@@ -585,17 +568,19 @@ async fn identify_query() {
         })))
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
             .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
                 "--compact",
                 "identify",
                 "query",

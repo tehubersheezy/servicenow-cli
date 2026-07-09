@@ -267,9 +267,6 @@ pub(crate) fn build_profile(global: &GlobalFlags) -> Result<ResolvedProfile> {
     let env_proxy_ca_cert = std::env::var("SN_PROXY_CA_CERT").ok();
     resolve_profile(ProfileResolverInputs {
         cli_profile: global.profile.as_deref(),
-        cli_instance_override: global.instance_override.as_deref(),
-        cli_username: global.username.as_deref(),
-        cli_password: global.password.as_deref(),
         cli_proxy: global.proxy.as_deref(),
         env_proxy: env_proxy.as_deref(),
         cli_no_proxy: global.no_proxy,

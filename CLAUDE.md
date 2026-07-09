@@ -40,7 +40,7 @@ src/
   cli/
     mod.rs          → Cli struct, GlobalFlags, all Subcommand enums + arg structs
     init.rs         → sn init (interactive profile setup — basic or oauth — + credential verification; oauth branch reuses auth::complete_oauth_login)
-    auth.rs         → sn auth test/login/logout/status/refresh (basic verify + OAuth login & token management)
+    auth.rs         → sn auth login/logout/status/refresh (pure OAuth session commands; login runs the flow for an already-configured oauth profile — no config mutation)
     profile.rs      → sn profile list/show/remove/use
     table.rs        → sn table list/get/create/update/replace/delete + shared helpers
     schema.rs       → sn schema tables/columns/choices (undocumented SN endpoints)
@@ -99,7 +99,7 @@ Uses `/api/now/identifyreconcile`. POST-only pattern for CI creation/updates and
 
 1. `main.rs` parses `Cli` via clap derive, sets observability level, destructures `Cli { global, command }`.
 2. Each command handler receives `&GlobalFlags` and its typed args struct.
-3. `build_profile(&GlobalFlags)` resolves which ServiceNow instance + credentials to use (flag > env > config file precedence).
+3. `build_profile(&GlobalFlags)` resolves which ServiceNow instance + credentials to use (a profile is the whole unit of identity: `--profile` > `default_profile`; no per-field argv overrides).
 4. `build_client(&profile, timeout)` creates a reqwest blocking client with basic auth, proxy, and TLS settings.
 5. Query structs (`ListQuery`, etc.) convert friendly flags to `sysparm_*` query pairs.
 6. Responses are unwrapped from `{"result": ...}` by default; `--output raw` preserves the envelope.
@@ -111,7 +111,7 @@ Uses `/api/now/identifyreconcile`. POST-only pattern for CI creation/updates and
 
 ### Profile resolution precedence
 
-`--profile` flag > `default_profile` in config.toml > literal "default" profile. Per-field overrides come from CLI flags only: `--instance-override URL`, `--username USER`, `--password PASSWORD` replace the selected profile's stored values for a single invocation. The `--username` and `--password` flags are hidden from `--help` (intended for tests/automation; both are visible in `ps` output and shell history, so prefer `sn init` for everyday use). There are deliberately no env vars for credential or profile selection — env-driven overrides previously hijacked profile credentials silently and have been removed. Proxy/TLS env vars (`SN_PROXY` etc.) still exist; see the table below.
+A profile is the single unit of identity: commands either manage profiles (`sn init`, `sn profile *`) or use exactly one. Selection is `--profile` flag > `default_profile` in config.toml; if neither resolves, `resolve_profile_name` (in `config.rs`) returns `Error::Config("no profile selected; pass --profile <name> or run \`sn init\`")` (exit 1) — there is no phantom literal-`"default"` fallback. There are **no** per-field argv overrides: the old `--instance-override`, `--username`, and `--password` global flags have been deleted (they grafted argv fragments onto disk state and, on OAuth profiles, `--instance-override` could exfiltrate the refresh token + client secret to an arbitrary host). Change identity by editing the profile via `sn init` or selecting a different one via `--profile`. A profile with an empty/whitespace `instance` is rejected rather than silently yielding a `"https://"` base URL. There are deliberately no env vars for credential values or profile selection. Proxy/TLS env vars (`SN_PROXY` etc.) and the `SN_CONFIG_DIR` config-directory override (see below) still exist.
 
 ### OAuth / SSO authentication
 
@@ -120,7 +120,7 @@ A profile authenticates via one of two methods, selected by `auth = "basic"` (de
 - **Non-secret OAuth config** (client_id, redirect_uri, endpoint overrides, grant, pkce) lives in `config.toml` under `[profiles.<name>.oauth]`. **The client secret and cached tokens** live in `credentials.toml` (`chmod 0600`), mirroring the username/password split.
 - **Two grants:** `authorization_code` (interactive — opens a browser, runs a loopback redirect server per RFC 8252, uses PKCE S256 by default) and `client_credentials` (non-interactive, requires a secret). The loopback `redirect_uri` (default `http://localhost:8400/callback`) **must be registered exactly** in ServiceNow's Application Registry.
 - **Endpoints:** authorization `GET /oauth_auth.do`, token `POST /oauth_token.do` (overridable per profile).
-- **Commands:** `sn auth login` (configure + run the flow + cache tokens; flags: `--client-id`, `--client-secret`, `--redirect-uri`, `--grant`, `--no-pkce`, `--instance`), `sn auth status`, `sn auth refresh`, `sn auth logout`.- **Transparent refresh:** `build_client` (in `cli/table.rs`) calls `oauth::ensure_access_token` for OAuth profiles before every request — it returns a cached token, refreshes a stale one via the refresh token (or mints a fresh one for client_credentials), and persists any new tokens. All command handlers get this for free with no call-site changes. The `Client` itself is auth-agnostic: a single `Auth` enum (`Basic`/`Bearer`/`None`) is applied in `send()`.
+- **Commands:** `sn auth login` (a pure session command with no flags — it resolves the selected profile, requires `auth = "oauth"` with an `[oauth]` block, runs the flow using the stored grant, and caches tokens; a basic profile errors with "does not use oauth; run \`sn init\`"), `sn auth status`, `sn auth refresh`, `sn auth logout`. All four emit their success JSON to **stdout**. OAuth profiles are configured (client_id, secret, grant, etc.) via `sn init --auth oauth`, not via login flags. `sn auth test` no longer exists — use `sn ping` (auth + latency + instance version). **Transparent refresh:** `build_client` (in `cli/table.rs`) calls `oauth::ensure_access_token` for OAuth profiles before every request — it returns a cached token, refreshes a stale one via the refresh token (or mints a fresh one for client_credentials), and persists any new tokens. All command handlers get this for free with no call-site changes. The `Client` itself is auth-agnostic: a single `Auth` enum (`Basic`/`Bearer`/`None`) is applied in `send()`.
 
 ### Proxy and TLS
 
@@ -139,12 +139,12 @@ Proxy authentication is stored in `credentials.toml` per-profile via `proxy_user
 
 ### Config file locations
 
-Resolved via `directories::ProjectDirs::from("", "", "sn")`:
+Resolved by `config::config_dir()`. If `SN_CONFIG_DIR` is set to a non-empty value it is used as-is — the documented, cross-platform override that points **directly** at the directory holding `config.toml`/`credentials.toml` (no `sn` subdir is appended). Otherwise `directories::ProjectDirs::from("", "", "sn")` gives the platform-native location:
 - Linux: `~/.config/sn/{config.toml, credentials.toml}`
 - macOS: `~/Library/Application Support/sn/...`
 - Windows: `%APPDATA%\sn\...`
 
-`credentials.toml` is `chmod 0600` on Unix. The `XDG_CONFIG_HOME` override only works on Linux (the `directories` crate uses platform-native paths on macOS/Windows), which is why `tests/init.rs` is `#[cfg(target_os = "linux")]`.
+`credentials.toml` is `chmod 0600` on Unix. `SN_CONFIG_DIR` is the config-isolation mechanism for tests on every platform (superseding the old Linux-only `XDG_CONFIG_HOME` hack), so config-dependent integration tests are no longer `#[cfg(target_os = "linux")]`-gated. Set `SN_CONFIG_DIR` directly at a temp dir containing the seeded config files (never a `/sn` subdir).
 
 ### Pagination (--all)
 

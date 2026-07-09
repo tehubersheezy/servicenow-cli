@@ -1,6 +1,6 @@
 mod common;
 
-use assert_cmd::Command;
+use common::{sn_cmd, write_profiles, ProfileSpec};
 use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, ResponseTemplate};
@@ -19,16 +19,19 @@ async fn create_with_fields() {
         )
         .mount(&server)
         .await;
-    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
+    let config_dir = tmp.path().to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let mut cmd = sn_cmd(&config_dir);
         cmd.args([
-            "--instance-override",
-            &server_uri,
-            "--username",
-            "u",
-            "--password",
-            "p",
             "--compact",
             "table",
             "create",
@@ -44,32 +47,31 @@ async fn create_with_fields() {
     })
     .await
     .unwrap();
+    drop(tmp);
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn data_and_field_together_is_usage_error() {
-    let server_uri = "http://127.0.0.1:1".to_string();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: "http://127.0.0.1:1",
+            username: "u",
+            password: "p",
+        }],
+    );
+    let config_dir = tmp.path().to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let mut cmd = sn_cmd(&config_dir);
         let _ = cmd
             .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "table",
-                "create",
-                "incident",
-                "--data",
-                "{}",
-                "--field",
-                "x=1",
+                "table", "create", "incident", "--data", "{}", "--field", "x=1",
             ])
             .assert();
         // clap returns exit code 2 for ArgConflict; just check it's nonzero
     })
     .await
     .unwrap();
+    drop(tmp);
 }

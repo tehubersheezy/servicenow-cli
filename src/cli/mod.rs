@@ -29,7 +29,7 @@ pub use attachment::{
     AttachmentDeleteArgs, AttachmentDownloadArgs, AttachmentGetArgs, AttachmentListArgs,
     AttachmentSub, AttachmentUploadArgs,
 };
-pub use auth::{AuthSub, LoginArgs};
+pub use auth::AuthSub;
 pub use catalog::{
     CatalogCartEmptyArgs, CatalogCartItemArgs, CatalogCartUpdateArgs, CatalogCategoriesArgs,
     CatalogCategoryArgs, CatalogGetArgs, CatalogItemArgs, CatalogItemsArgs, CatalogListArgs,
@@ -94,20 +94,6 @@ pub struct GlobalFlags {
     /// Profile name (overrides default_profile).
     #[arg(long, global = true)]
     pub profile: Option<String>,
-
-    /// Override the profile's instance URL for this invocation.
-    #[arg(long, global = true, value_name = "URL")]
-    pub instance_override: Option<String>,
-
-    /// Override the profile's username for this invocation. Hidden; intended for
-    /// non-interactive automation and tests. Prefer `sn init` + `--profile`.
-    #[arg(long, global = true, value_name = "USER", hide = true)]
-    pub username: Option<String>,
-
-    /// Override the profile's password for this invocation. Hidden; visible in
-    /// `ps` output and shell history. Prefer `sn init` + `--profile`.
-    #[arg(long, global = true, value_name = "PASSWORD", hide = true)]
-    pub password: Option<String>,
 
     /// Output mode. `default` (unwrapped result) or `raw` (full SN envelope).
     #[arg(long, global = true, value_enum, default_value_t = OutputMode::Default)]

@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.7.0 (2026-07-08)
+
+A coherence pass on authentication and profile handling. A profile is now the
+single unit of identity: commands either **manage** profiles (`sn init`,
+`sn profile *`) or **use** exactly one (`--profile` > `default_profile`). Nothing
+mixes stored profile state with per-invocation argv fragments anymore.
+
+### Breaking changes
+
+- **Removed the `--instance-override`, `--username`, and `--password` global
+  flags.** They grafted argv fragments onto a stored profile's identity, producing
+  chimeras — half from disk, half from the command line. On an OAuth profile,
+  `--instance-override` redirected the token endpoint, sending the refresh token
+  and client secret to an arbitrary host. Change identity by editing the profile
+  (`sn init`) or selecting another (`--profile`).
+- **Removed the phantom `"default"` profile fallback.** With no `--profile` and no
+  `default_profile`, `sn` used to invent a profile named `"default"` that nobody
+  created, surfacing errors about a phantom. It now fails fast: `no profile
+  selected; pass --profile <name> or run \`sn init\``.
+- **`sn auth login` is now a pure session command with no flags.** It previously
+  doubled as a second, partial `sn init` — writing `client_id`/`grant`/
+  `redirect_uri`, force-converting a profile to OAuth, and able to persist an empty
+  instance while minting tokens against an `--instance-override` host. It now
+  resolves the selected profile, requires `auth = "oauth"` with an `[oauth]` block
+  (a basic profile errors with `does not use oauth; run \`sn init\``), runs the flow
+  with the stored grant, and caches tokens. Configure OAuth via `sn init --auth
+  oauth`.
+- **Removed `sn auth test`.** Use `sn ping` — it verifies auth and adds latency and
+  the ServiceNow build version.
+- **Empty/whitespace `instance` is rejected** instead of silently producing a
+  scheme-only `https://` base URL.
+
+### Added
+
+- **`SN_CONFIG_DIR`** — points directly at the directory holding `config.toml` and
+  `credentials.toml` (no `sn` subdirectory appended), overriding the platform-native
+  location on every OS. This is the cross-platform config-isolation mechanism,
+  superseding the Linux-only `XDG_CONFIG_HOME` hack; config-dependent integration
+  tests are no longer `#[cfg(target_os = "linux")]`-gated.
+- **Richer `sn profile list` / `sn profile show`.** `list` reports each profile's
+  `auth` method and a `default` marker; `show` surfaces the auth method and, for
+  OAuth profiles, the client_id, grant, redirect_uri, pkce, and token state
+  (`loggedIn`/`hasRefreshToken`/`expiresAt`) with all secret material redacted.
+
+### Changed
+
+- **`sn auth login` / `logout` / `refresh` now emit success JSON to stdout**
+  (joining `status`), honoring the machine contract; all four also honor
+  `--output`/`--pretty`/`--compact`.
+- **Re-running `sn init` over an existing profile is non-destructive** — it merges
+  onto the stored profile, clears only the secrets of the auth method being switched
+  away from, and preserves `proxy_username`/`proxy_password`.
+
+### Migration
+
+| Old | New |
+|---|---|
+| `sn --instance-override URL --username U --password P table list …` | `sn init` a profile once, then `sn --profile NAME table list …` |
+| `sn auth login --client-id … --grant … --instance …` | `sn init --auth oauth …`, then `sn auth login` |
+| `sn auth test` | `sn ping` |
+| relying on the implicit `"default"` profile | `sn profile use NAME` (sets `default_profile`) or pass `--profile` |
+| `XDG_CONFIG_HOME` (Linux-only) for config isolation | `SN_CONFIG_DIR` (all platforms) |
+
 ## 0.6.1 (2026-07-04)
 
 ### Fixes

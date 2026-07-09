@@ -54,13 +54,12 @@ fn run(cli: Cli) -> Result<()> {
     match command {
         Command::Init(args) => sn::cli::init::run(&global, args),
         Command::Auth { sub } => match sub {
-            AuthSub::Test => sn::cli::auth::test(&global),
-            AuthSub::Login(args) => sn::cli::auth::login(&global, args),
+            AuthSub::Login => sn::cli::auth::login(&global),
             AuthSub::Logout => sn::cli::auth::logout(&global),
             AuthSub::Status => sn::cli::auth::status(&global),
             AuthSub::Refresh => sn::cli::auth::refresh(&global),
         },
-        Command::Profile { sub } => sn::cli::profile::run(sub),
+        Command::Profile { sub } => sn::cli::profile::run(&global, sub),
         Command::Introspect => sn::cli::introspect::run(),
         Command::Table { sub } => match sub {
             TableSub::List(args) => sn::cli::table::list(&global, args),

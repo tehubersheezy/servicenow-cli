@@ -1,6 +1,5 @@
 mod common;
 
-use assert_cmd::Command;
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, ResponseTemplate};
@@ -19,21 +18,17 @@ async fn schema_tables_filter() {
         .await;
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "schema",
-                "tables",
-                "--filter",
-                "incident",
-            ])
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let out = common::sn_cmd(tmp.path())
+            .args(["--compact", "schema", "tables", "--filter", "incident"])
             .assert()
             .success();
         let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -57,21 +52,17 @@ async fn schema_columns_writable_filter() {
         .mount(&server).await;
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "schema",
-                "columns",
-                "incident",
-                "--writable",
-            ])
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let out = common::sn_cmd(tmp.path())
+            .args(["--compact", "schema", "columns", "incident", "--writable"])
             .assert()
             .success();
         let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -94,21 +85,17 @@ async fn schema_choices_for_field() {
         .mount(&server).await;
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let out = Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "--compact",
-                "schema",
-                "choices",
-                "incident",
-                "state",
-            ])
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let out = common::sn_cmd(tmp.path())
+            .args(["--compact", "schema", "choices", "incident", "state"])
             .assert()
             .success();
         let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -132,20 +119,17 @@ async fn schema_choices_missing_field_is_usage_error() {
         .await;
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        Command::cargo_bin("sn")
-            .unwrap()
-            .args([
-                "--instance-override",
-                &server_uri,
-                "--username",
-                "u",
-                "--password",
-                "p",
-                "schema",
-                "choices",
-                "incident",
-                "bogus_field",
-            ])
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        common::sn_cmd(tmp.path())
+            .args(["schema", "choices", "incident", "bogus_field"])
             .assert()
             .code(1);
     })

@@ -34,7 +34,7 @@ This is the part you must internalize before issuing any command.
 | `schema tables` | JSON array of table metadata |
 | `schema columns` | JSON array of column metadata |
 | `schema choices` | JSON array of choice values |
-| `auth test` | `{"ok": true, "user": "...", "instance": "..."}` |
+| `ping` | `{"ok": true, "profile": "...", "instance": "...", "username": "...", "latency_ms": ..., "build_name": "...", "build_tag": "..."}` |
 | `aggregate` | Stats object with count/sum/avg/min/max and optional groupby results |
 | `app install` / `publish` / `rollback` | Progress object with `status_label` and `links.progress.id` |
 | `updateset create` | New Update Set record object |
@@ -130,9 +130,9 @@ Verbose logging on stderr (see `-v`) is debug-only; never required to parse it.
 ## Setup (one-time per instance)
 
 ```bash
-sn init                           # interactive: prompts for instance, username, password
+sn init                           # interactive: prompts for instance, auth method, credentials
 sn init --profile prod            # add a second profile named "prod"
-sn auth test                      # verify credentials against /api/now/table/sys_user?sysparm_limit=1
+sn ping                           # verify auth + latency + build version against the instance
 ```
 
 `sn init` writes credentials to `~/.config/sn/credentials.toml` (chmod 600
@@ -141,45 +141,50 @@ Non-secret profile config lives in `~/.config/sn/config.toml`. v1 uses
 plaintext TOML with file permissions as the access boundary; OS keychain
 storage is on the roadmap but not shipped.
 
-Sample `auth test` output:
+Set `SN_CONFIG_DIR` to relocate the config directory (cross-platform). It
+points **directly** at the directory holding `config.toml` and
+`credentials.toml` — no `sn` subdirectory is appended. This is the supported
+way to sandbox `sn` for CI or ephemeral agent sessions: point it at a
+throwaway directory, run `sn init` there, and the invocation reads and writes
+only that directory.
+
+```bash
+SN_CONFIG_DIR=/tmp/sn-sandbox sn init --profile ci --instance dev12345 ...
+SN_CONFIG_DIR=/tmp/sn-sandbox sn --profile ci table list incident --limit 1
+```
+
+Sample `sn ping` output:
 
 ```json
 {
   "ok": true,
+  "profile": "default",
   "instance": "https://dev12345.service-now.com",
   "username": "api.user",
-  "user_sys_id": "a1b2c3d4e5f6",
-  "profile": "default"
+  "latency_ms": 142,
+  "build_name": "Zurich",
+  "build_tag": "glide-zurich-06-27-2025"
 }
 ```
 
 **Multi-profile selection** (in precedence order, highest first):
 1. `--profile <name>` flag
 2. `default_profile` in `config.toml`
-3. Literal `default` profile
+
+If neither is set, the CLI errors (`no profile selected; pass --profile
+<name> or run \`sn init\``, exit 1) — there is no implicit fallback profile.
 
 ```bash
 sn --profile prod table list incident --limit 5
 ```
 
-**Per-invocation CLI overrides** (bypass profile entirely; useful for CI or
-ephemeral agent sessions):
-
-```bash
-sn --instance-override https://dev12345.service-now.com \
-   --username api.user \
-   --password 's3cr3t' \
-   table list incident --limit 1
-```
-
-Precedence for credential fields: CLI flag > profile file. If
-`--instance-override` is set but username/password are not, the CLI falls
-back to the active profile for the missing pieces. The `--username` and
-`--password` flags are hidden from `--help` (visible in `ps` output and
-shell history); prefer `sn init` + `--profile` for everyday use. There are
-deliberately no env vars for credentials — the previous `SN_INSTANCE` /
-`SN_USERNAME` / `SN_PASSWORD` overrides silently hijacked stored profile
-credentials and have been removed.
+A profile is the single unit of identity: it carries the instance URL and
+credentials together. There is no way to graft a one-off instance URL,
+username, or password onto a command — configure a profile with `sn init`
+(add as many as you need with `--profile <name>`) and select it with
+`--profile`. There are deliberately no env vars for credentials or profile
+selection; only the config *directory* can be relocated (see `SN_CONFIG_DIR`
+below).
 
 **Proxy and TLS overrides** (useful when the agent runs behind a corporate proxy):
 
@@ -1330,7 +1335,7 @@ case $? in
     echo "network failure — check connectivity, then retry manually" >&2
     ;;
   4)
-    echo "auth failed — re-run 'sn init' or pass --username/--password" >&2
+    echo "auth failed — re-run 'sn init' to fix the profile's credentials" >&2
     exit 1
     ;;
 esac
@@ -1438,7 +1443,7 @@ sn introspect | jq '.commands[] | {name, summary}'
 {"name": "schema tables",  "summary": "List tables on the instance"}
 {"name": "schema columns", "summary": "List columns for a table"}
 {"name": "schema choices", "summary": "List choice values for a choice column"}
-{"name": "auth test",      "summary": "Verify credentials"}
+{"name": "ping",           "summary": "Health check the configured instance (auth + latency + build version)"}
 {"name": "introspect",     "summary": "Emit command metadata"}
 ```
 
@@ -1505,7 +1510,7 @@ Things that bite agents repeatedly:
 
 ```
 sn init [--profile NAME]
-sn auth test [--profile NAME]
+sn ping [--profile NAME]
 
 sn schema tables  [--filter SUBSTR]
 sn schema columns TABLE [--writable] [--mandatory] [--filter SUBSTR]
@@ -1642,9 +1647,6 @@ sn introspect
 
 Global flags (any command):
   --profile NAME          select credential profile
-  --instance-override URL override instance URL for this invocation
-  --username USER         override profile's username (hidden; for tests/CI)
-  --password PASSWORD     override profile's password (hidden; for tests/CI)
   --proxy URL             HTTP/HTTPS/SOCKS5 proxy
   --no-proxy              bypass configured proxy
   --insecure              disable TLS cert verification
@@ -1653,8 +1655,10 @@ Global flags (any command):
   --timeout SECS          request timeout
   -v / -vv / -vvv         verbose logging on stderr
 
-Environment variables (proxy/TLS only — credential and profile env vars
-were removed; use --profile or the per-field CLI flags above):
+Environment variables (config-dir + proxy/TLS only — there are no env vars
+for credential values or profile selection; use --profile or run sn init):
+  SN_CONFIG_DIR      config directory holding config.toml/credentials.toml
+                     (used as-is; no 'sn' subdir appended)
   SN_PROXY           proxy URL
   SN_NO_PROXY        comma-separated bypass hosts
   SN_INSECURE        set to 1 to skip TLS verification

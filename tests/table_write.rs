@@ -1,6 +1,5 @@
 mod common;
 
-use assert_cmd::Command;
 use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, ResponseTemplate};
@@ -19,14 +18,17 @@ async fn update_sends_patch_with_only_named_fields() {
         .await;
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = common::sn_cmd(tmp.path());
         cmd.args([
-            "--instance-override",
-            &server_uri,
-            "--username",
-            "u",
-            "--password",
-            "p",
             "--compact",
             "table",
             "update",
@@ -65,14 +67,17 @@ async fn update_accepts_data_at_file_with_multiline_body() {
         )
         .unwrap();
         let data_arg = format!("@{}", body_path.to_str().unwrap());
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = common::sn_cmd(tmp.path());
         cmd.args([
-            "--instance-override",
-            &server_uri,
-            "--username",
-            "u",
-            "--password",
-            "p",
             "--compact",
             "table",
             "update",
@@ -107,14 +112,17 @@ async fn update_accepts_field_at_file_for_multiline_value() {
         let value_path = dir.path().join("notes.txt");
         std::fs::write(&value_path, "first line\nsecond line").unwrap();
         let field_arg = format!("work_notes=@{}", value_path.to_str().unwrap());
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = common::sn_cmd(tmp.path());
         cmd.args([
-            "--instance-override",
-            &server_uri,
-            "--username",
-            "u",
-            "--password",
-            "p",
             "--compact",
             "table",
             "update",
@@ -142,14 +150,17 @@ async fn replace_sends_put_with_full_body() {
         .await;
     let server_uri = server.uri();
     tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::cargo_bin("sn").unwrap();
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        let mut cmd = common::sn_cmd(tmp.path());
         cmd.args([
-            "--instance-override",
-            &server_uri,
-            "--username",
-            "u",
-            "--password",
-            "p",
             "--compact",
             "table",
             "replace",

@@ -1,9 +1,8 @@
 //! Tests for `oauth::ensure_access_token` — the chokepoint that transparently
-//! refreshes a stale token and persists the result. Gated to Linux because they
-//! write to the on-disk credentials file, and only the `directories` crate's
-//! Linux backend honors the `XDG_CONFIG_HOME` override that isolates them from
-//! the developer's real config (mirrors tests/init.rs).
-#![cfg(target_os = "linux")]
+//! refreshes a stale token and persists the result. They write to the on-disk
+//! credentials file, so each test points `SN_CONFIG_DIR` at a private TempDir
+//! root to isolate itself from the developer's real config. The env var is
+//! process-global, hence `#[serial]`.
 
 mod common;
 
@@ -17,7 +16,7 @@ use wiremock::{Mock, ResponseTemplate};
 #[serial]
 async fn ensure_access_token_refreshes_expired_and_persists() {
     let tmp = tempfile::tempdir().unwrap();
-    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+    std::env::set_var("SN_CONFIG_DIR", tmp.path());
 
     let server = wiremock::MockServer::start().await;
     Mock::given(method("POST"))
@@ -55,22 +54,22 @@ async fn ensure_access_token_refreshes_expired_and_persists() {
         .unwrap();
     assert_eq!(token, "NEW_AT");
 
-    // The refreshed token must be persisted under the temp XDG dir so the next
-    // invocation reuses it.
+    // The refreshed token must be persisted under the temp config dir (at its
+    // root — SN_CONFIG_DIR has no /sn subdir) so the next invocation reuses it.
     let creds =
         sn::config::load_credentials_from(&sn::config::credentials_path().unwrap()).unwrap();
     let saved = creds.profiles["ref-test"].oauth_tokens.as_ref().unwrap();
     assert_eq!(saved.access_token, "NEW_AT");
     assert_eq!(saved.refresh_token.as_deref(), Some("NEW_RT"));
 
-    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::remove_var("SN_CONFIG_DIR");
 }
 
 #[tokio::test(flavor = "current_thread")]
 #[serial]
 async fn ensure_access_token_returns_cached_when_valid() {
     let tmp = tempfile::tempdir().unwrap();
-    std::env::set_var("XDG_CONFIG_HOME", tmp.path());
+    std::env::set_var("SN_CONFIG_DIR", tmp.path());
 
     // No mock and an unroutable instance: if the code attempted a refresh it
     // would fail. Returning the cached token proves it short-circuited.
@@ -96,5 +95,5 @@ async fn ensure_access_token_returns_cached_when_valid() {
         .unwrap();
     assert_eq!(token, "CACHED_AT");
 
-    std::env::remove_var("XDG_CONFIG_HOME");
+    std::env::remove_var("SN_CONFIG_DIR");
 }

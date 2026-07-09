@@ -81,26 +81,45 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
         },
     };
 
-    // Proxy/TLS settings from global flags are persisted with the profile so
-    // subsequent invocations pick them up automatically.
-    let proxy = if global.no_proxy {
-        None
-    } else {
-        global.proxy.clone()
-    };
-    let insecure = global.insecure;
-    let ca_cert = global.ca_cert.clone();
-    let proxy_ca_cert = global.proxy_ca_cert.clone();
+    // Re-running `sn init` over an existing profile is non-destructive: start
+    // from the stored config/credentials and overwrite only what this run
+    // configures. Fields init cannot set (proxy_username/proxy_password,
+    // OAuth endpoint overrides) survive untouched.
+    let cfg_path = config_path()?;
+    let cred_path = credentials_path()?;
+    let mut config = load_config_from(&cfg_path)?;
+    let mut creds = load_credentials_from(&cred_path)?;
 
-    let mut pc = ProfileConfig {
-        instance: instance.clone(),
-        proxy: proxy.clone(),
-        insecure,
-        ca_cert: ca_cert.clone(),
-        proxy_ca_cert: proxy_ca_cert.clone(),
-        ..Default::default()
-    };
-    let mut cred = ProfileCredentials::default();
+    let mut pc: ProfileConfig = config
+        .profiles
+        .get(&profile_name)
+        .cloned()
+        .unwrap_or_default();
+    let mut cred: ProfileCredentials = creds
+        .profiles
+        .get(&profile_name)
+        .cloned()
+        .unwrap_or_default();
+
+    pc.instance = instance.clone();
+
+    // Proxy/TLS settings from global flags are persisted with the profile so
+    // subsequent invocations pick them up automatically. Flags that were not
+    // passed leave the stored values alone.
+    if global.no_proxy {
+        pc.proxy = None;
+    } else if let Some(proxy) = &global.proxy {
+        pc.proxy = Some(proxy.clone());
+    }
+    if global.insecure {
+        pc.insecure = true;
+    }
+    if let Some(ca_cert) = &global.ca_cert {
+        pc.ca_cert = Some(ca_cert.clone());
+    }
+    if let Some(proxy_ca_cert) = &global.proxy_ca_cert {
+        pc.proxy_ca_cert = Some(proxy_ca_cert.clone());
+    }
     // For the OAuth branch, the grant chosen below drives the post-save flow.
     let mut oauth_grant = OAuthGrant::default();
 
@@ -120,6 +139,12 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
                     "username and password are required for basic auth".into(),
                 ));
             }
+            // Switching an OAuth profile to basic: drop the OAuth config and
+            // its secrets so the abandoned method can't leak or confuse.
+            pc.auth = AuthMethod::Basic;
+            pc.oauth = None;
+            cred.client_secret = None;
+            cred.oauth_tokens = None;
             cred.username = username;
             cred.password = password;
         }
@@ -169,23 +194,24 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
                 })
             };
 
+            // Preserve endpoint overrides init cannot configure; overwrite
+            // everything the flow above collected. Switching a basic profile
+            // to oauth clears the now-unused password.
+            let existing_oauth = pc.oauth.take();
             pc.auth = AuthMethod::Oauth;
             pc.oauth = Some(OAuthConfig {
                 client_id,
                 redirect_uri,
-                auth_path: None,
-                token_path: None,
+                auth_path: existing_oauth.as_ref().and_then(|o| o.auth_path.clone()),
+                token_path: existing_oauth.as_ref().and_then(|o| o.token_path.clone()),
                 grant: oauth_grant,
                 pkce: !args.no_pkce,
             });
+            cred.password = String::new();
             cred.client_secret = secret;
         }
     }
 
-    let cfg_path = config_path()?;
-    let cred_path = credentials_path()?;
-    let mut config = load_config_from(&cfg_path)?;
-    let mut creds = load_credentials_from(&cred_path)?;
     if config.default_profile.is_none() {
         config.default_profile = Some(profile_name.clone());
     }
