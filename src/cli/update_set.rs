@@ -21,8 +21,9 @@ pub enum UpdateSetSub {
 
 #[derive(clap::Args, Debug)]
 pub struct UpdateSetCreateArgs {
-    /// Name for the new Update Set (required).
-    #[arg(long, required = true)]
+    /// Name for the new Update Set (required). Maps to the API's
+    /// `update_set_name` query parameter.
+    #[arg(long, alias = "update-set-name", required = true)]
     pub name: String,
     /// Optional description.
     #[arg(long)]
@@ -40,12 +41,12 @@ pub struct UpdateSetRetrieveArgs {
     /// sys_id of the Update Set to retrieve (required).
     #[arg(long, required = true)]
     pub update_set_id: String,
-    /// sys_id of the source record.
+    /// sys_id of the source's Remote Instance record (sys_update_set_source).
     #[arg(long)]
-    pub source_id: Option<String>,
-    /// Instance ID of the source ServiceNow instance.
+    pub update_source_id: Option<String>,
+    /// Instance ID of the source's Remote Instance (sys_update_set_source).
     #[arg(long)]
-    pub source_instance_id: Option<String>,
+    pub update_source_instance_id: Option<String>,
     /// Automatically preview after retrieval.
     #[arg(long)]
     pub auto_preview: bool,
@@ -105,7 +106,7 @@ pub struct UpdateSetBackOutArgs {
 pub fn create(global: &GlobalFlags, args: UpdateSetCreateArgs) -> Result<()> {
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
-    let mut query: Vec<(String, String)> = vec![("name".into(), args.name)];
+    let mut query: Vec<(String, String)> = vec![("update_set_name".into(), args.name)];
     if let Some(v) = args.description {
         query.push(("description".into(), v));
     }
@@ -128,11 +129,11 @@ pub fn retrieve(global: &GlobalFlags, args: UpdateSetRetrieveArgs) -> Result<()>
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let mut query: Vec<(String, String)> = vec![("update_set_id".into(), args.update_set_id)];
-    if let Some(v) = args.source_id {
-        query.push(("source_id".into(), v));
+    if let Some(v) = args.update_source_id {
+        query.push(("update_source_id".into(), v));
     }
-    if let Some(v) = args.source_instance_id {
-        query.push(("source_instance_id".into(), v));
+    if let Some(v) = args.update_source_instance_id {
+        query.push(("update_source_instance_id".into(), v));
     }
     if args.auto_preview {
         query.push(("auto_preview".into(), "true".into()));

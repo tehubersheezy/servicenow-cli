@@ -1,7 +1,6 @@
-use crate::cli::table::{build_client, build_profile, format_from_flags};
+use crate::cli::table::{build_client, build_profile, write_response};
 use crate::cli::GlobalFlags;
 use crate::error::Result;
-use crate::output::emit_value;
 use serde_json::{json, Value};
 use std::time::Instant;
 
@@ -41,8 +40,7 @@ pub fn run(global: &GlobalFlags) -> Result<()> {
         "build_tag": build_tag,
     });
 
-    emit_value(std::io::stdout().lock(), &out, format_from_flags(global))
-        .map_err(crate::output::map_stdout_err)
+    write_response(global, &out)
 }
 
 fn extract_build(v: &Value) -> (Value, Value) {

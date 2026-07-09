@@ -158,30 +158,24 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
             }
             oauth_grant = args.grant.unwrap_or_default();
 
-            // Secret directly follows the client_id it belongs to: required for
-            // client_credentials, optional (public/PKCE) for authorization_code.
-            let secret = match &args.client_secret {
-                Some(s) => Some(s.clone()),
-                None => {
-                    let label = if matches!(oauth_grant, OAuthGrant::ClientCredentials) {
-                        "OAuth client_secret: "
-                    } else {
-                        "OAuth client_secret (blank for public/PKCE client): "
-                    };
-                    let s = rpassword::prompt_password(label)
+            // authorization_code registers a PUBLIC client (PKCE, no secret), so
+            // init never prompts for a secret on that path — pass
+            // --client-secret explicitly only for a confidential client.
+            // client_credentials is inherently confidential and must have one.
+            let secret = match (&args.client_secret, oauth_grant) {
+                (Some(s), _) => Some(s.clone()),
+                (None, OAuthGrant::ClientCredentials) => {
+                    let s = rpassword::prompt_password("OAuth client_secret: ")
                         .map_err(|e| Error::Usage(format!("read secret: {e}")))?;
                     if s.is_empty() {
-                        None
-                    } else {
-                        Some(s)
+                        return Err(Error::Usage(
+                            "client_credentials grant requires a client secret".into(),
+                        ));
                     }
+                    Some(s)
                 }
+                (None, OAuthGrant::AuthorizationCode) => None,
             };
-            if matches!(oauth_grant, OAuthGrant::ClientCredentials) && secret.is_none() {
-                return Err(Error::Usage(
-                    "client_credentials grant requires a client secret".into(),
-                ));
-            }
 
             // The loopback redirect only exists in the browser flow; don't ask
             // for one under client_credentials.

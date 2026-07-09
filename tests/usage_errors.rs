@@ -49,30 +49,37 @@ fn help_exits_0() {
 }
 
 #[test]
-fn version_flag_is_capital_v() {
-    let out = Command::cargo_bin("sn")
-        .unwrap()
-        .args(["-V"])
-        .assert()
-        .success();
-    let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
-    assert!(stdout.starts_with("sn "), "expected version, got: {stdout}");
+fn lowercase_v_prints_version() {
+    // `-v` is the primary version flag; `-V` is kept as a backward-compat alias.
+    for flag in ["-v", "-V", "--version"] {
+        let out = Command::cargo_bin("sn")
+            .unwrap()
+            .args([flag])
+            .assert()
+            .success();
+        let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        assert!(
+            stdout.starts_with("sn "),
+            "{flag} expected version, got: {stdout}"
+        );
+    }
 }
 
 #[test]
-fn lowercase_v_is_verbose_not_version() {
-    // `sn -v ping` must attempt the command (failing on missing config with a
-    // JSON envelope), not print the version and exit 0.
+fn short_d_is_verbose_not_version() {
+    // The verbosity ladder lives on `-d`/`-dd`/`-ddd`: `sn -d ping` must attempt
+    // the command (failing on missing config with a JSON envelope), not print a
+    // version and exit 0.
     let out = Command::cargo_bin("sn")
         .unwrap()
         .env("SN_CONFIG_DIR", "/nonexistent-sn-test-dir")
-        .args(["-v", "ping"])
+        .args(["-d", "ping"])
         .assert()
         .code(1);
     let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
     assert!(
         !stdout.contains("sn 0."),
-        "-v printed the version instead of running the command"
+        "-d printed the version instead of running the command"
     );
     stderr_envelope(&out);
 }

@@ -119,10 +119,12 @@ sn profile use prod                  # set as default
 When a user's password lives in an external IdP, basic auth and the OAuth password grant can't work. Authenticate with OAuth instead — configure the profile with `sn init --auth oauth`, then run the flow with `sn auth login`:
 
 ```bash
-# Configure an OAuth profile (authorization-code + PKCE is the default)
+# Configure an OAuth profile. Authorization-code + PKCE is the default: a
+# PUBLIC client, so no client secret is needed or prompted for.
 sn init --profile sso --auth oauth --instance acme.service-now.com --client-id <id>
 
-# Non-interactive, server-to-server (requires a client secret)
+# Non-interactive, server-to-server. client_credentials is a CONFIDENTIAL
+# client and requires a secret (prompted if --client-secret is omitted).
 sn init --profile svc --auth oauth --instance acme.service-now.com \
   --grant client_credentials --client-id <id> --client-secret <secret>
 
@@ -130,7 +132,7 @@ sn init --profile svc --auth oauth --instance acme.service-now.com \
 sn --profile sso auth login
 ```
 
-One-time admin setup on the instance (if no registry entry exists yet): **System OAuth → Application Registry → New → "Create an OAuth API endpoint for external clients"**, set the redirect URL to `http://localhost:8400/callback`, and copy the generated client ID (and secret, for confidential clients).
+One-time admin setup on the instance (if no registry entry exists yet): **System OAuth → Application Registry → New → "Create an OAuth API endpoint for external clients"**, set the redirect URL to `http://localhost:8400/callback`, and copy the generated client ID. For the default authorization-code flow, enable the **Public Client** / **PKCE required** option so no secret is needed; only `client_credentials` requires copying the generated secret.
 After login, every command refreshes tokens transparently — no extra steps. Manage the session with:
 
 ```bash
@@ -797,9 +799,10 @@ Precedence: `--proxy` flag > `SN_PROXY` env > profile config (same for all setti
 ## Debugging
 
 ```bash
-sn -v table list incident       # show HTTP method, URL, status
-sn -vv table list incident      # add response headers
-sn -vvv table list incident     # add request/response bodies (auth masked)
+sn -d table list incident       # show HTTP method, URL, status
+sn -dd table list incident      # add response headers
+sn -ddd table list incident     # add request/response bodies (auth masked)
+sn -v                           # print version (-V also works)
 ```
 
 ## License

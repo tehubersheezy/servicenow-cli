@@ -100,7 +100,7 @@ Every `sysparm_*` has a friendly name and raw alias (e.g. `--query` / `--sysparm
 - `--input-display-value` — set fields by display value on writes
 - `--timeout SECS` — per-request HTTP timeout (default 30)
 - `--pretty` / `--compact` — force JSON formatting (default: pretty on TTY, compact when piped)
-- `-v` / `-vv` / `-vvv` — requests / +headers / +bodies logged to stderr (auth always masked); `-V` = version
+- `-d` / `-dd` / `-ddd` — requests / +headers / +bodies logged to stderr (auth always masked); `-v` (or `-V`) = version
 
 ## Proxy and TLS
 

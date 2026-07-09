@@ -125,7 +125,7 @@ case $? in
 esac
 ```
 
-Verbose logging on stderr (see `-v`) is debug-only; never required to parse it.
+Verbose logging on stderr (see `-d`) is debug-only; never required to parse it.
 
 ## Setup (one-time per instance)
 
@@ -615,7 +615,7 @@ whichever name you remember; both work in this table.
 | `--suppress-auto-sys-field` | `sysparm_suppress_auto_sys_field=true` | create, update, replace | Skip auto-generation of system fields |
 | `--no-count` | `sysparm_no_count=true` | list | Skip the count query (faster for large tables) |
 | `--yes` / `-y` | (CLI only) | delete | Skip confirmation |
-| `-v` / `-vv` / `-vvv` | (CLI only) | all | Debug logging to stderr |
+| `-d` / `-dd` / `-ddd` | (CLI only) | all | Debug logging to stderr |
 
 ## Pagination patterns
 
@@ -1389,18 +1389,18 @@ authenticated but not allowed to do that."
 | Flag | What it adds to stderr |
 |---|---|
 | (none) | Nothing — stderr silent on success |
-| `-v` | HTTP method, URL, status code, elapsed time per request |
-| `-vv` | Response headers |
-| `-vvv` | Request and response bodies (pretty-printed; Authorization always masked) |
+| `-d` | HTTP method, URL, status code, elapsed time per request |
+| `-dd` | Response headers |
+| `-ddd` | Request and response bodies (pretty-printed; Authorization always masked) |
 
 ```bash
-sn -vv table get incident a1b2c3d4e5f6 2>/tmp/trace.log
+sn -dd table get incident a1b2c3d4e5f6 2>/tmp/trace.log
 ```
 
 Rules of thumb for agents:
 - Never parse stderr in verbose mode — stdout is still the only contract.
-- `-vvv` is safe to log: auth headers are masked to `Authorization: Basic ***`.
-- Turn on `-v` when you get an exit 2 or 3 and need to see the URL that
+- `-ddd` is safe to log: auth headers are masked to `Authorization: Basic ***`.
+- Turn on `-d` when you get an exit 2 or 3 and need to see the URL that
   was built (common cause of 404s is a sysparm typo producing a weird URL).
 
 ## Claude Code plugin
@@ -1498,7 +1498,7 @@ Things that bite agents repeatedly:
   (exit 3) there is no ServiceNow response; `sn_error` will be null or
   absent. Always check `.error.message` first.
 - **Treating stderr verbose output as structured.** Only stderr JSON
-  error objects are structured. `-v`/`-vv`/`-vvv` output is free-form
+  error objects are structured. `-d`/`-dd`/`-ddd` output is free-form
   debug text and may change between versions.
 - **Paginating by hand when `--all` exists.** Don't compute offsets
   yourself; use `--all` with `--max-records` for safety.
@@ -1653,7 +1653,8 @@ Global flags (any command):
   --ca-cert PATH          custom CA certificate
   --proxy-ca-cert PATH    custom proxy CA certificate
   --timeout SECS          request timeout
-  -v / -vv / -vvv         verbose logging on stderr
+  -d / -dd / -ddd         verbose logging on stderr
+  -v, -V                  print version
 
 Environment variables (config-dir + proxy/TLS only — there are no env vars
 for credential values or profile selection; use --profile or run sn init):

@@ -89,10 +89,14 @@ async fn app_install_posts_with_scope_query_param() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn update_set_create_posts_with_name_param() {
+    // The CLI flag is `--name`, but the API's query parameter is
+    // `update_set_name` (Required, per the CICD Update Set API docs). This mock
+    // only matches the correct wire name, so it guards against a regression to
+    // the ignored-`name` param.
     let server = wiremock::MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/sn_cicd/update_set/create"))
-        .and(query_param("name", "My Update Set"))
+        .and(query_param("update_set_name", "My Update Set"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "result": {"sys_id": "us001", "name": "My Update Set"}
         })))
@@ -123,6 +127,60 @@ async fn update_set_create_posts_with_name_param() {
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
         let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
         assert_eq!(v["sys_id"], "us001");
+    })
+    .await
+    .unwrap();
+}
+
+// ── update-set retrieve ──────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "current_thread")]
+async fn update_set_retrieve_uses_update_source_param_names() {
+    // The source selectors map to the API's `update_source_id` /
+    // `update_source_instance_id` query parameters (per the CICD Update Set API
+    // docs), NOT the shorter `source_id` / `source_instance_id`. ServiceNow
+    // silently ignores unknown query params, so this mock — which matches only
+    // the correct names — is the guard against that silent-no-op regression.
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/sn_cicd/update_set/retrieve"))
+        .and(query_param("update_set_id", "us_remote_1"))
+        .and(query_param("update_source_id", "src_rec_1"))
+        .and(query_param("update_source_instance_id", "src_inst_1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "result": {"links": {}, "status": "0", "status_label": "Pending"}
+        })))
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server_uri,
+            username: "u",
+            password: "p",
+        }],
+    );
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args([
+                "--compact",
+                "updateset",
+                "retrieve",
+                "--update-set-id",
+                "us_remote_1",
+                "--update-source-id",
+                "src_rec_1",
+                "--update-source-instance-id",
+                "src_inst_1",
+            ])
+            .assert()
+            .success();
+        let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(v["status_label"], "Pending");
     })
     .await
     .unwrap();

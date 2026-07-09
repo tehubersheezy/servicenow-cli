@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.1 (2026-07-08)
+
+### Fixes
+
+- **`updateset create` sent the wrong query parameter.** It posted `name=…`, but
+  the CICD Update Set API's required parameter is `update_set_name` (verified
+  against the official docs on the australia/zurich/yokohama families). ServiceNow
+  ignores unknown query params, so the required name never arrived. The `--name`
+  flag is unchanged (with `--update-set-name` as an alias); only the wire parameter
+  was corrected.
+- **`updateset retrieve` ignored its source selectors.** The flags sent
+  `source_id` / `source_instance_id`, but the API expects `update_source_id` /
+  `update_source_instance_id` — so the selectors were silently dropped and retrieve
+  always fell back to ServiceNow's own source resolution. Flags renamed to
+  `--update-source-id` / `--update-source-instance-id` and the wire parameters
+  corrected. (These flags never functioned before, so nothing that worked breaks.)
+- **`sn ping` now honors `--output table`.** It emitted JSON regardless of the
+  output mode; its final emission routes through `write_response` like every other
+  command, so `--output table`/`--pretty`/`--compact` all apply.
+
+### Changed
+
+- **`-v` prints the version** (with `-V` kept as an alias); the verbose logging
+  ladder moves to **`-d` / `-dd` / `-ddd`** (long form `--verbose`). This reverses
+  the 0.6.1 `-v`-is-verbose choice in favor of the more common version-on-`-v`
+  convention.
+- **`sn init --auth oauth` registers a public PKCE client by default** and no longer
+  prompts for a client secret on the interactive authorization-code flow. Pass
+  `--client-secret` explicitly for a confidential authorization-code client;
+  `client_credentials` still requires one.
+
 ## 0.7.0 (2026-07-08)
 
 A coherence pass on authentication and profile handling. A profile is now the

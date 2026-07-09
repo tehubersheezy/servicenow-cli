@@ -1,0 +1,824 @@
+- generic [active] [ref=f420e1]:
+  - link "Skip to main content" [ref=f420e2] [cursor=pointer]:
+    - /url: "#content"
+  - banner [ref=f420e3]:
+    - generic [ref=f420e4]:
+      - link "Drugs.com - Go to homepage" [ref=f420e6] [cursor=pointer]:
+        - /url: //www.drugs.com/
+        - img "Drugs.com - Go to homepage" [ref=f420e7]
+      - search [ref=f420e8]:
+        - generic [ref=f420e9]:
+          - generic [ref=f420e10]:
+            - generic [ref=f420e11]: Search Drugs.com
+            - textbox "Search Drugs.com" [ref=f420e12]:
+              - /placeholder: Search
+          - generic [ref=f420e13]:
+            - button "All" [ref=f420e14] [cursor=pointer]:
+              - generic [ref=f420e15]: All
+              - img [ref=f420e16]
+            - generic:
+              - generic [ref=f420e18]: Select the section you want to search in
+              - combobox "Select the section you want to search in" [ref=f420e19]:
+                - option "All" [selected]
+                - option "Consumer"
+                - option "Professional"
+                - option "Pill ID"
+                - option "Interactions"
+                - option "News and alerts"
+                - option "Care notes"
+                - option "Natural products"
+          - button "Search" [ref=f420e20] [cursor=pointer]:
+            - generic [ref=f420e21]: Search
+            - img [ref=f420e22]
+        - navigation [ref=f420e24]:
+          - text: "Browse medications:"
+          - list [ref=f420e25]:
+            - listitem [ref=f420e26]:
+              - link "a" [ref=f420e27] [cursor=pointer]:
+                - /url: /alpha/a.html
+            - listitem [ref=f420e28]:
+              - link "b" [ref=f420e29] [cursor=pointer]:
+                - /url: /alpha/b.html
+            - listitem [ref=f420e30]:
+              - link "c" [ref=f420e31] [cursor=pointer]:
+                - /url: /alpha/c.html
+            - listitem [ref=f420e32]:
+              - link "d" [ref=f420e33] [cursor=pointer]:
+                - /url: /alpha/d.html
+            - listitem [ref=f420e34]:
+              - link "e" [ref=f420e35] [cursor=pointer]:
+                - /url: /alpha/e.html
+            - listitem [ref=f420e36]:
+              - link "f" [ref=f420e37] [cursor=pointer]:
+                - /url: /alpha/f.html
+            - listitem [ref=f420e38]:
+              - link "g" [ref=f420e39] [cursor=pointer]:
+                - /url: /alpha/g.html
+            - listitem [ref=f420e40]:
+              - link "h" [ref=f420e41] [cursor=pointer]:
+                - /url: /alpha/h.html
+            - listitem [ref=f420e42]:
+              - link "i" [ref=f420e43] [cursor=pointer]:
+                - /url: /alpha/i.html
+            - listitem [ref=f420e44]:
+              - link "j" [ref=f420e45] [cursor=pointer]:
+                - /url: /alpha/j.html
+            - listitem [ref=f420e46]:
+              - link "k" [ref=f420e47] [cursor=pointer]:
+                - /url: /alpha/k.html
+            - listitem [ref=f420e48]:
+              - link "l" [ref=f420e49] [cursor=pointer]:
+                - /url: /alpha/l.html
+            - listitem [ref=f420e50]:
+              - link "m" [ref=f420e51] [cursor=pointer]:
+                - /url: /alpha/m.html
+            - listitem [ref=f420e52]:
+              - link "n" [ref=f420e53] [cursor=pointer]:
+                - /url: /alpha/n.html
+            - listitem [ref=f420e54]:
+              - link "o" [ref=f420e55] [cursor=pointer]:
+                - /url: /alpha/o.html
+            - listitem [ref=f420e56]:
+              - link "p" [ref=f420e57] [cursor=pointer]:
+                - /url: /alpha/p.html
+            - listitem [ref=f420e58]:
+              - link "q" [ref=f420e59] [cursor=pointer]:
+                - /url: /alpha/q.html
+            - listitem [ref=f420e60]:
+              - link "r" [ref=f420e61] [cursor=pointer]:
+                - /url: /alpha/r.html
+            - listitem [ref=f420e62]:
+              - link "s" [ref=f420e63] [cursor=pointer]:
+                - /url: /alpha/s.html
+            - listitem [ref=f420e64]:
+              - link "t" [ref=f420e65] [cursor=pointer]:
+                - /url: /alpha/t.html
+            - listitem [ref=f420e66]:
+              - link "u" [ref=f420e67] [cursor=pointer]:
+                - /url: /alpha/u.html
+            - listitem [ref=f420e68]:
+              - link "v" [ref=f420e69] [cursor=pointer]:
+                - /url: /alpha/v.html
+            - listitem [ref=f420e70]:
+              - link "w" [ref=f420e71] [cursor=pointer]:
+                - /url: /alpha/w.html
+            - listitem [ref=f420e72]:
+              - link "x" [ref=f420e73] [cursor=pointer]:
+                - /url: /alpha/x.html
+            - listitem [ref=f420e74]:
+              - link "y" [ref=f420e75] [cursor=pointer]:
+                - /url: /alpha/y.html
+            - listitem [ref=f420e76]:
+              - link "z" [ref=f420e77] [cursor=pointer]:
+                - /url: /alpha/z.html
+            - listitem [ref=f420e78]:
+              - link "0-9" [ref=f420e79] [cursor=pointer]:
+                - /url: /alpha/0-9.html
+          - link "Advanced Search" [ref=f420e80] [cursor=pointer]:
+            - /url: /search_advanced.html
+      - navigation "Account navigation" [ref=f420e81]:
+        - link "Register" [ref=f420e82] [cursor=pointer]:
+          - /url: /account/register/
+        - link "Sign in" [ref=f420e83] [cursor=pointer]:
+          - /url: /account/login/
+    - navigation "Main navigation" [ref=f420e85]:
+      - list [ref=f420e86]:
+        - listitem [ref=f420e87]:
+          - link "Drugs A-Z" [ref=f420e88] [cursor=pointer]:
+            - /url: /drug_information.html
+        - listitem [ref=f420e89]:
+          - link "Pill Identifier" [ref=f420e90] [cursor=pointer]:
+            - /url: /pill_identification.html
+        - listitem [ref=f420e91]:
+          - link "Drug Interaction Checker" [ref=f420e92] [cursor=pointer]:
+            - /url: /drug_interactions.html
+        - listitem [ref=f420e93]:
+          - link "Compare Drugs" [ref=f420e94] [cursor=pointer]:
+            - /url: /compare/
+        - listitem [ref=f420e95]:
+          - link "News" [ref=f420e96] [cursor=pointer]:
+            - /url: /news.html
+        - listitem [ref=f420e97]:
+          - link "Pro Edition" [ref=f420e98] [cursor=pointer]:
+            - /url: /professionals.html
+        - listitem [ref=f420e99]:
+          - link "More Resources …" [ref=f420e100] [cursor=pointer]:
+            - /url: /sitemap.html
+            - text: More
+            - generic [ref=f420e101]: Resources
+            - text: …
+        - listitem [ref=f420e102]:
+          - link "Help & Support" [ref=f420e103] [cursor=pointer]:
+            - /url: /support/
+  - generic [ref=f420e105]:
+    - text: Advertisement
+    - iframe [ref=f420e624]:
+      - generic [active]:
+        - generic [ref=f433e1]:
+          - generic [ref=f433e2]:
+            - generic:
+              - img [ref=f433e6] [cursor=pointer]
+              - button [ref=f433e10] [cursor=pointer]:
+                - img [ref=f433e11]
+          - insertion [ref=f433e19]:
+            - iframe [ref=f433e21]:
+              - iframe [ref=f440e4]:
+                - banner [ref=f441e2]:
+                  - paragraph [ref=f441e3]:
+                    - generic [ref=f441e4]: The deal you deserve is here
+                  - generic [ref=f441e5]:
+                    - img "Galaxy AI" [ref=f441e7]
+                    - paragraph [ref=f441e8]:
+                      - generic [ref=f441e9]: Learn how to get the
+                      - generic [ref=f441e10]:
+                        - text: new Samsung Galaxy S26+
+                        - generic [ref=f441e11]:
+                          - text: for
+                          - superscript [ref=f441e12]: $
+                          - text: "0"
+                      - generic [ref=f441e13]: with eligible trade‑in
+                    - paragraph [ref=f441e15]: Req. elig. plan. Terms and restrictions apply. Subject to change.
+                  - img "Samsung S26+" [ref=f441e16]
+                  - img [ref=f441e17]
+        - iframe
+  - main [ref=f420e107]:
+    - generic [ref=f420e108]:
+      - generic [ref=f420e109]:
+        - navigation "Breadcrumbs" [ref=f420e110]:
+          - list [ref=f420e111]:
+            - listitem [ref=f420e112]:
+              - link "Home" [ref=f420e113] [cursor=pointer]:
+                - /url: /
+            - listitem [ref=f420e114]:
+              - link "Dayvigo" [ref=f420e115] [cursor=pointer]:
+                - /url: /dayvigo.html
+            - listitem [ref=f420e116]:
+              - generic [ref=f420e117]: Side Effects
+        - generic [ref=f420e118]:
+          - button "Print page" [ref=f420e119] [cursor=pointer]:
+            - img [ref=f420e120]
+            - generic [ref=f420e122]: Print page
+          - button "My Meds" [ref=f420e123] [cursor=pointer]:
+            - img [ref=f420e124]
+            - text: My Meds
+      - heading "Dayvigo Side Effects" [level=1] [ref=f420e126]
+      - paragraph [ref=f420e127]: "Generic name: lemborexant"
+      - paragraph [ref=f420e128]:
+        - generic [ref=f420e129]:
+          - text: Medically reviewed by
+          - link "Philip Thornton, DipPharm" [ref=f420e130] [cursor=pointer]:
+            - /url: /support/editor/9/philip-thornton-dippharm.html
+          - text: . Last updated on Oct 13, 2025.
+      - navigation "In page navigation" [ref=f420e131]:
+        - list [ref=f420e132]:
+          - listitem [ref=f420e133]:
+            - link "Serious side effects" [ref=f420e134] [cursor=pointer]:
+              - /url: "#serious-side-effects"
+          - listitem [ref=f420e135]:
+            - link "Other side effects" [ref=f420e136] [cursor=pointer]:
+              - /url: "#other-side-effects"
+          - listitem [ref=f420e137]:
+            - link "Professional info" [ref=f420e138] [cursor=pointer]:
+              - /url: "#professional-info"
+          - listitem [ref=f420e139]:
+            - link "FAQ" [ref=f420e140] [cursor=pointer]:
+              - /url: "#faq"
+      - paragraph [ref=f420e141]:
+        - text: "Note: This document provides detailed information about"
+        - strong [ref=f420e142]: Dayvigo
+        - text: Side Effects associated with lemborexant. Some dosage forms listed on this page may not apply specifically to the brand name
+        - strong [ref=f420e143]: Dayvigo
+        - text: .
+      - paragraph [ref=f420e144]:
+        - text: Applies to
+        - link "lemborexant" [ref=f420e145] [cursor=pointer]:
+          - /url: /mtm/lemborexant.html
+        - text: ": oral tablet."
+      - heading "Precautions" [level=2] [ref=f420e146]
+      - paragraph [ref=f420e147]: It is very important that your doctor check your progress at regular visits to make sure this medicine is working properly and to check for unwanted effects.
+      - paragraph [ref=f420e148]:
+        - text: If you think you need to take lemborexant (the active ingredient contained in
+        - link "Dayvigo" [ref=f420e149] [cursor=pointer]:
+          - /url: /dayvigo.html
+        - text: ) for more than 7 to 10 days, be sure to discuss it with your doctor.
+        - link "Insomnia" [ref=f420e150] [cursor=pointer]:
+          - /url: /cg/insomnia.html
+        - text: that lasts longer than this may be a sign of another medical problem.
+      - paragraph [ref=f420e151]:
+        - text: This medicine will add to the effects of alcohol and other CNS depressants (medicines that make you drowsy or less
+        - link "alert" [ref=f420e152] [cursor=pointer]:
+          - /url: /mtm/alert.html
+        - text: ). Some examples of CNS depressants are
+        - link "antihistamines" [ref=f420e153] [cursor=pointer]:
+          - /url: /drug-class/antihistamines.html
+        - text: or medicine for hay
+        - link "fever" [ref=f420e154] [cursor=pointer]:
+          - /url: /health-guide/fever.html
+        - text: ", other"
+        - link "allergies" [ref=f420e155] [cursor=pointer]:
+          - /url: /cg/allergies.html
+        - text: ", or colds, sedatives, tranquilizers, or sleeping medicine, prescription pain medicine or"
+        - link "narcotics" [ref=f420e156] [cursor=pointer]:
+          - /url: /drug-class/narcotic-analgesics.html
+        - text: ", medicine for seizures or"
+        - link "barbiturates" [ref=f420e157] [cursor=pointer]:
+          - /url: /drug-class/barbiturates.html
+        - text: ","
+        - link "muscle relaxants" [ref=f420e158] [cursor=pointer]:
+          - /url: /drug-class/muscle-relaxants.html
+        - text: ", or anesthetics, including some dental anesthetics. Check with your doctor before taking any of the above while you are using this medicine."
+      - paragraph [ref=f420e159]: This medicine may cause some people, especially older persons, to become drowsy, dizzy, lightheaded, clumsy or unsteady, or less alert than they are normally, which may lead to falls, fractures, or other injuries. Even though lemborexant is taken at bedtime, it may cause some people to feel drowsy or less alert on arising. Do not drive or do anything else that could be dangerous until you know how this medicine affects you.
+      - paragraph [ref=f420e160]:
+        - text: If you develop any unusual and strange thoughts or behavior while you are using lemborexant, be sure to discuss it with your doctor. Some changes that have occurred in people using this medicine are like those seen in people who drink alcohol and then act in a manner that is not normal. Other changes may be more unusual and extreme, such as confusion, worsening of
+        - link "depression" [ref=f420e161] [cursor=pointer]:
+          - /url: /cg/depression.html
+        - text: ", hallucinations (seeing, hearing, or feeling things that are not there), suicidal thoughts, and unusual excitement, nervousness, or irritability."
+      - generic [ref=f420e163]: Advertisement
+      - paragraph [ref=f420e164]: This medicine may cause you to do things while you are still asleep that you may not remember the next morning. You could drive a car, sleepwalk, have sex, make phone calls, or prepare and eat food while you are asleep or not fully awake. Tell your doctor right away if any of these things occur.
+      - paragraph [ref=f420e165]: This medicine may cause sleep paralysis (temporary inability to move or talk for up to several minutes while you are going to sleep or wake up) or have cataplexy-like symptoms (temporary weakness in your legs). Tell your doctor right away if you have these symptoms while you are using this medicine.
+      - paragraph [ref=f420e166]:
+        - text: Do not take other medicines unless they have been discussed with your doctor. This includes prescription or nonprescription (over-the-counter [OTC]) medicines and herbal (eg,
+        - link "St. John's wort" [ref=f420e167] [cursor=pointer]:
+          - /url: /mtm/st-john-s-wort.html
+        - text: ) or vitamin supplements.
+      - heading "Serious side effects of Dayvigo" [level=2] [ref=f420e168]
+      - paragraph [ref=f420e169]: Along with its needed effects, lemborexant may cause some unwanted effects. Although not all of these side effects may occur, if they do occur they may need medical attention.
+      - paragraph [ref=f420e170]: "Check with your doctor immediately if any of the following side effects occur while taking lemborexant:"
+      - group [ref=f420e171]:
+        - generic "More common side effects" [ref=f420e172] [cursor=pointer]:
+          - heading "More common side effects" [level=3] [ref=f420e173]:
+            - text: More common side effects
+            - img [ref=f420e174]
+        - list [ref=f420e177]:
+          - listitem [ref=f420e178]: sleepiness or unusual drowsiness
+          - listitem [ref=f420e179]: unusual drowsiness, dullness, tiredness, weakness, or feeling of sluggishness
+          - listitem [ref=f420e180]: unusual tiredness or weakness
+      - group [ref=f420e181]:
+        - generic "Less common side effects" [ref=f420e182] [cursor=pointer]:
+          - heading "Less common side effects" [level=3] [ref=f420e183]:
+            - text: Less common side effects
+            - img [ref=f420e184]
+        - list [ref=f420e187]:
+          - listitem [ref=f420e188]: temporary inability to move or talk while you are going to sleep or waking up
+      - group [ref=f420e189]:
+        - generic "Rare side effects" [ref=f420e190] [cursor=pointer]:
+          - heading "Rare side effects" [level=3] [ref=f420e191]:
+            - text: Rare side effects
+            - img [ref=f420e192]
+        - list [ref=f420e195]:
+          - listitem [ref=f420e196]: changes in behavior
+          - listitem [ref=f420e197]: discouragement
+          - listitem [ref=f420e198]: feeling sad or empty
+          - listitem [ref=f420e199]: irritability
+          - listitem [ref=f420e200]: lack of appetite
+          - listitem [ref=f420e201]: loss of interest or pleasure
+          - listitem [ref=f420e202]: seeing, hearing, or feeling things that are not there
+          - listitem [ref=f420e203]: thoughts of killing oneself
+          - listitem [ref=f420e204]: trouble concentrating
+      - generic [ref=f420e206]: Advertisement
+      - heading "See also:" [level=2] [ref=f420e207]
+      - region "Medication carousel" [ref=f420e208]:
+        - generic [ref=f420e210]:
+          - generic [ref=f420e211]:
+            - generic [ref=f420e212]:
+              - heading "Ativan" [level=3] [ref=f420e213]:
+                - link "Ativan" [ref=f420e214] [cursor=pointer]:
+                  - /url: /ativan.html
+              - paragraph [ref=f420e215]: Ativan is a benzodiazepine used to treat anxiety disorders or anxiety associated with depression ...
+            - generic [ref=f420e216]:
+              - text: Reviews & ratings
+              - generic [ref=f420e217]:
+                - generic [ref=f420e218]: 8.0 / 10
+                - 'img "Rating: 8.0 out of 10" [ref=f420e219]'
+                - link "490 Reviews" [ref=f420e221] [cursor=pointer]:
+                  - /url: /comments/lorazepam/ativan.html
+            - link "View more" [ref=f420e223] [cursor=pointer]:
+              - /url: /ativan.html
+          - generic [ref=f420e224]:
+            - generic [ref=f420e225]:
+              - heading "Benadryl" [level=3] [ref=f420e226]:
+                - link "Benadryl" [ref=f420e227] [cursor=pointer]:
+                  - /url: /benadryl.html
+              - paragraph [ref=f420e228]: Benadryl is an antihistamine and is used to treat sneezing, runny nose, itching and other ...
+            - generic [ref=f420e229]:
+              - text: Reviews & ratings
+              - generic [ref=f420e230]:
+                - generic [ref=f420e231]: 6.9 / 10
+                - 'img "Rating: 6.9 out of 10" [ref=f420e232]'
+                - link "82 Reviews" [ref=f420e234] [cursor=pointer]:
+                  - /url: /comments/diphenhydramine/benadryl.html
+            - link "View more" [ref=f420e236] [cursor=pointer]:
+              - /url: /benadryl.html
+          - generic [ref=f420e237]:
+            - generic [ref=f420e238]: Featured
+            - generic [ref=f420e239]:
+              - heading "Mounjaro" [level=3] [ref=f420e240]:
+                - link "Mounjaro" [ref=f420e241] [cursor=pointer]:
+                  - /url: /mounjaro.html
+              - paragraph [ref=f420e242]: Mounjaro is used for type 2 diabetes to help lower blood sugar levels. Mounjaro has also been shown ...
+            - generic [ref=f420e243]:
+              - text: Reviews & ratings
+              - generic [ref=f420e244]:
+                - generic [ref=f420e245]: 8.4 / 10
+                - 'img "Rating: 8.4 out of 10" [ref=f420e246]'
+                - link "2,023 Reviews" [ref=f420e248] [cursor=pointer]:
+                  - /url: /comments/tirzepatide/mounjaro.html
+            - link "View more" [ref=f420e250] [cursor=pointer]:
+              - /url: /mounjaro.html
+          - generic [ref=f420e251]:
+            - generic [ref=f420e252]:
+              - heading "Ambien" [level=3] [ref=f420e253]:
+                - link "Ambien" [ref=f420e254] [cursor=pointer]:
+                  - /url: /ambien.html
+              - paragraph [ref=f420e255]: Ambien (zolpidem) is a prescription sedative used to treat insomnia, helping you fall asleep and ...
+            - generic [ref=f420e256]:
+              - text: Reviews & ratings
+              - generic [ref=f420e257]:
+                - generic [ref=f420e258]: 7.0 / 10
+                - 'img "Rating: 7.0 out of 10" [ref=f420e259]'
+                - link "563 Reviews" [ref=f420e261] [cursor=pointer]:
+                  - /url: /comments/zolpidem/ambien.html
+            - link "View more" [ref=f420e263] [cursor=pointer]:
+              - /url: /ambien.html
+          - generic [ref=f420e264]:
+            - generic [ref=f420e265]:
+              - heading "Ramelteon" [level=3] [ref=f420e266]:
+                - link "Ramelteon" [ref=f420e267] [cursor=pointer]:
+                  - /url: /mtm/ramelteon.html
+              - paragraph [ref=f420e268]: Ramelteon is used for insomnia
+            - generic [ref=f420e269]:
+              - text: Reviews & ratings
+              - generic [ref=f420e270]:
+                - generic [ref=f420e271]: 4.3 / 10
+                - 'img "Rating: 4.3 out of 10" [ref=f420e272]'
+                - link "163 Reviews" [ref=f420e274] [cursor=pointer]:
+                  - /url: /comments/ramelteon/
+            - link "View more" [ref=f420e276] [cursor=pointer]:
+              - /url: /mtm/ramelteon.html
+          - generic [ref=f420e277]:
+            - generic [ref=f420e278]:
+              - heading "Eszopiclone" [level=3] [ref=f420e279]:
+                - link "Eszopiclone" [ref=f420e280] [cursor=pointer]:
+                  - /url: /eszopiclone.html
+              - paragraph [ref=f420e281]: Eszopiclone (brand name Lunesta) is a sedative and is used to treat insomnia. Eszopiclone's effects ...
+            - generic [ref=f420e282]:
+              - text: Reviews & ratings
+              - generic [ref=f420e283]:
+                - generic [ref=f420e284]: 5.7 / 10
+                - 'img "Rating: 5.7 out of 10" [ref=f420e285]'
+                - link "452 Reviews" [ref=f420e287] [cursor=pointer]:
+                  - /url: /comments/eszopiclone/
+            - link "View more" [ref=f420e289] [cursor=pointer]:
+              - /url: /eszopiclone.html
+          - generic [ref=f420e290]:
+            - generic [ref=f420e291]:
+              - heading "Temazepam" [level=3] [ref=f420e292]:
+                - link "Temazepam" [ref=f420e293] [cursor=pointer]:
+                  - /url: /temazepam.html
+              - paragraph [ref=f420e294]: Temazepam is used to treat insomnia (trouble sleeping). Learn about side effects, interactions and ...
+            - generic [ref=f420e295]:
+              - text: Reviews & ratings
+              - generic [ref=f420e296]:
+                - generic [ref=f420e297]: 6.5 / 10
+                - 'img "Rating: 6.5 out of 10" [ref=f420e298]'
+                - link "456 Reviews" [ref=f420e300] [cursor=pointer]:
+                  - /url: /comments/temazepam/
+            - link "View more" [ref=f420e302] [cursor=pointer]:
+              - /url: /temazepam.html
+          - generic [ref=f420e303]:
+            - generic [ref=f420e304]:
+              - heading "Doxepin" [level=3] [ref=f420e305]:
+                - link "Doxepin" [ref=f420e306] [cursor=pointer]:
+                  - /url: /doxepin.html
+              - paragraph [ref=f420e307]: Doxepin is used for anxiety, depression, insomnia, irritable bowel syndrome, major depressive ...
+            - generic [ref=f420e308]:
+              - text: Reviews & ratings
+              - generic [ref=f420e309]:
+                - generic [ref=f420e310]: 6.2 / 10
+                - 'img "Rating: 6.2 out of 10" [ref=f420e311]'
+                - link "439 Reviews" [ref=f420e313] [cursor=pointer]:
+                  - /url: /comments/doxepin/
+            - link "View more" [ref=f420e315] [cursor=pointer]:
+              - /url: /doxepin.html
+          - generic [ref=f420e316]:
+            - generic [ref=f420e317]:
+              - heading "Diphenhydramine" [level=3] [ref=f420e318]:
+                - link "Diphenhydramine" [ref=f420e319] [cursor=pointer]:
+                  - /url: /diphenhydramine.html
+              - paragraph [ref=f420e320]: Diphenhydramine is an antihistamine used to treat sneezing, runny nose, itching, hives and other ...
+            - generic [ref=f420e321]:
+              - text: Reviews & ratings
+              - generic [ref=f420e322]:
+                - generic [ref=f420e323]: 5.4 / 10
+                - 'img "Rating: 5.4 out of 10" [ref=f420e324]'
+                - link "563 Reviews" [ref=f420e326] [cursor=pointer]:
+                  - /url: /comments/diphenhydramine/
+            - link "View more" [ref=f420e328] [cursor=pointer]:
+              - /url: /diphenhydramine.html
+          - generic [ref=f420e329]:
+            - generic [ref=f420e330]:
+              - heading "Zolpidem" [level=3] [ref=f420e331]:
+                - link "Zolpidem" [ref=f420e332] [cursor=pointer]:
+                  - /url: /zolpidem.html
+              - paragraph [ref=f420e333]: Zolpidem is a sedative-hypnotic medicine used for the short-term treatment of insomnia (trouble ...
+            - generic [ref=f420e334]:
+              - text: Reviews & ratings
+              - generic [ref=f420e335]:
+                - generic [ref=f420e336]: 6.9 / 10
+                - 'img "Rating: 6.9 out of 10" [ref=f420e337]'
+                - link "1,070 Reviews" [ref=f420e339] [cursor=pointer]:
+                  - /url: /comments/zolpidem/
+            - link "View more" [ref=f420e341] [cursor=pointer]:
+              - /url: /zolpidem.html
+        - button "Scroll right" [ref=f420e342] [cursor=pointer]:
+          - img [ref=f420e344]
+      - heading "Other side effects of Dayvigo" [level=2] [ref=f420e346]
+      - paragraph [ref=f420e347]: Some side effects of lemborexant may occur that usually do not need medical attention. These side effects may go away during treatment as your body adjusts to the medicine. Also, your health care professional may be able to tell you about ways to prevent or reduce some of these side effects.
+      - paragraph [ref=f420e348]: "Check with your health care professional if any of the following side effects continue or are bothersome or if you have any questions about them:"
+      - group [ref=f420e349]:
+        - generic "More common side effects" [ref=f420e350] [cursor=pointer]:
+          - heading "More common side effects" [level=3] [ref=f420e351]:
+            - text: More common side effects
+            - img [ref=f420e352]
+        - list [ref=f420e355]:
+          - listitem [ref=f420e356]:
+            - link "headache" [ref=f420e357] [cursor=pointer]:
+              - /url: /cg/tension-headache.html
+      - paragraph
+      - generic [ref=f420e358]:
+        - img [ref=f420e359]
+        - generic [ref=f420e361]:
+          - link "Managing side effects" [ref=f420e362] [cursor=pointer]:
+            - /url: /article/drug-side-effects.html
+          - text: (general information)
+      - heading "For healthcare professionals" [level=2] [ref=f420e363]
+      - paragraph [ref=f420e364]: "Applies to lemborexant: oral tablet."
+      - heading "General adverse events" [level=3] [ref=f420e365]
+      - paragraph [ref=f420e366]:
+        - text: The most commonly reported side effects included somnolence,
+        - link "fatigue" [ref=f420e367] [cursor=pointer]:
+          - /url: /cg/fatigue.html
+        - text: ", headache, abnormal dreams and/or nightmares."
+        - superscript [ref=f420e368]:
+          - text: "["
+          - link "Ref" [ref=f420e369] [cursor=pointer]:
+            - /url: "#refs"
+          - text: "]"
+      - generic [ref=f420e371]: Advertisement
+      - heading "Nervous system" [level=3] [ref=f420e372]
+      - list [ref=f420e373]:
+        - listitem [ref=f420e374]:
+          - strong [ref=f420e375]: Very common
+          - text: "(10% or more): Somnolence (up to 10.5%)"
+        - listitem [ref=f420e376]:
+          - strong [ref=f420e377]: Common
+          - text: "(1% to 10%): Headache, sleep paralysis"
+        - listitem [ref=f420e378]:
+          - strong [ref=f420e379]: Frequency not reported
+          - text: ": Cataplexy-like symptoms,"
+          - link "lethargy" [ref=f420e380] [cursor=pointer]:
+            - /url: /cg/fatigue.html
+          - superscript [ref=f420e381]:
+            - text: "["
+            - link "Ref" [ref=f420e382] [cursor=pointer]:
+              - /url: "#refs"
+            - text: "]"
+      - heading "Psychiatric" [level=3] [ref=f420e383]
+      - list [ref=f420e384]:
+        - listitem [ref=f420e385]:
+          - strong [ref=f420e386]: Common
+          - text: "(1% to 10%): Abnormal dreams, nightmare"
+        - listitem [ref=f420e387]:
+          - strong [ref=f420e388]: Frequency not reported
+          - text: ": Complex sleep behavior, hypnagogic hallucinations, suicidal ideation, worsening of depression"
+          - superscript [ref=f420e389]:
+            - text: "["
+            - link "Ref" [ref=f420e390] [cursor=pointer]:
+              - /url: "#refs"
+            - text: "]"
+      - heading "Other" [level=3] [ref=f420e391]
+      - list [ref=f420e392]:
+        - listitem [ref=f420e393]:
+          - strong [ref=f420e394]: Common
+          - text: "(1% to 10%): Fatigue"
+        - listitem [ref=f420e395]:
+          - strong [ref=f420e396]: Frequency not reported
+          - text: ": Sluggishness"
+          - superscript [ref=f420e397]:
+            - text: "["
+            - link "Ref" [ref=f420e398] [cursor=pointer]:
+              - /url: "#refs"
+            - text: "]"
+      - generic [ref=f420e399]:
+        - heading "References" [level=4] [ref=f420e400]
+        - paragraph [ref=f420e401]: 1. Cerner Multum, Inc. "Australian Product Information."
+        - paragraph [ref=f420e402]: 2. (2020) "Product Information. Dayvigo (lemborexant)." Eisai Inc
+      - generic [ref=f420e404]:
+        - heading "Does Dayvigo interact with my other drugs?" [level=3] [ref=f420e405]
+        - paragraph [ref=f420e406]:
+          - text: Enter medications to view a detailed interaction report using our
+          - link "Drug Interaction Checker" [ref=f420e407] [cursor=pointer]:
+            - /url: /drug_interactions.html
+          - text: .
+        - search [ref=f420e408]:
+          - generic [ref=f420e409]:
+            - generic [ref=f420e410]:
+              - generic [ref=f420e411]: Drug name
+              - textbox "Drug name" [disabled] [ref=f420e412]: Dayvigo
+            - generic [ref=f420e413]: +
+            - generic [ref=f420e414]:
+              - generic [ref=f420e415]:
+                - generic [ref=f420e416]: Add a drug to check interactions
+                - textbox "Add a drug to check interactions" [ref=f420e417]:
+                  - /placeholder: Enter a drug name
+              - button "Add" [ref=f420e418] [cursor=pointer]
+      - heading "Frequently asked questions" [level=2] [ref=f420e419]
+      - list [ref=f420e420]:
+        - listitem [ref=f420e421]:
+          - link "Is Dayvigo addictive?" [ref=f420e422] [cursor=pointer]:
+            - /url: /medical-answers/dayvigo-addictive-3572222/
+        - listitem [ref=f420e423]:
+          - link "What are the strongest sleeping pills?" [ref=f420e424] [cursor=pointer]:
+            - /url: /medical-answers/what-strongest-sleeping-pills-3578510/
+      - generic [ref=f420e425]:
+        - heading "More about Dayvigo (lemborexant)" [level=2] [ref=f420e426]
+        - list [ref=f420e427]:
+          - listitem [ref=f420e428]:
+            - link "Check interactions" [ref=f420e429] [cursor=pointer]:
+              - /url: /drug-interactions/lemborexant,dayvigo.html
+          - listitem [ref=f420e430]:
+            - link "Compare alternatives" [ref=f420e431] [cursor=pointer]:
+              - /url: /compare/dayvigo
+          - listitem [ref=f420e432]:
+            - link "Pricing & coupons" [ref=f420e433] [cursor=pointer]:
+              - /url: /price-guide/dayvigo
+          - listitem [ref=f420e434]:
+            - link "Reviews (315)" [ref=f420e435] [cursor=pointer]:
+              - /url: /comments/lemborexant/dayvigo-for-insomnia.html
+          - listitem [ref=f420e436]:
+            - link "Drug images" [ref=f420e437] [cursor=pointer]:
+              - /url: /image/dayvigo-images.html
+          - listitem [ref=f420e438]:
+            - link "Dosage information" [ref=f420e439] [cursor=pointer]:
+              - /url: /dosage/dayvigo.html
+          - listitem [ref=f420e440]:
+            - link "During pregnancy" [ref=f420e441] [cursor=pointer]:
+              - /url: /pregnancy/lemborexant.html
+          - listitem [ref=f420e442]:
+            - link "FDA approval history" [ref=f420e443] [cursor=pointer]:
+              - /url: /history/dayvigo.html
+          - listitem [ref=f420e444]:
+            - 'link "Drug class: miscellaneous anxiolytics, sedatives and hypnotics" [ref=f420e445] [cursor=pointer]':
+              - /url: /drug-class/miscellaneous-anxiolytics-sedatives-and-hypnotics.html
+          - listitem [ref=f420e446]:
+            - link "Breastfeeding" [ref=f420e447] [cursor=pointer]:
+              - /url: /breastfeeding/lemborexant.html
+          - listitem [ref=f420e448]:
+            - link "En español" [ref=f420e449] [cursor=pointer]:
+              - /url: /mtm_esp/dayvigo.html
+        - generic [ref=f420e451]: Advertisement
+        - heading "Patient resources" [level=3] [ref=f420e452]
+        - list [ref=f420e453]:
+          - listitem [ref=f420e454]:
+            - link "Dayvigo drug information" [ref=f420e455] [cursor=pointer]:
+              - /url: /dayvigo.html
+        - heading "Professional resources" [level=3] [ref=f420e456]
+        - list [ref=f420e457]:
+          - listitem [ref=f420e458]:
+            - link "Dayvigo prescribing information" [ref=f420e459] [cursor=pointer]:
+              - /url: /pro/dayvigo.html
+          - listitem [ref=f420e460]:
+            - link "Lemborexant (AHFS Monograph)" [ref=f420e461] [cursor=pointer]:
+              - /url: /monograph/lemborexant.html
+        - heading "Related treatment guides" [level=3] [ref=f420e462]
+        - list [ref=f420e463]:
+          - listitem [ref=f420e464]:
+            - link "Insomnia" [ref=f420e465] [cursor=pointer]:
+              - /url: /health-guide/insomnia.html
+      - heading "Further information" [level=2] [ref=f420e466]
+      - paragraph [ref=f420e467]:
+        - strong [ref=f420e468]: Dayvigo
+        - text: side effects can vary depending on the individual. Always consult your healthcare provider to ensure the information displayed on this page applies to your personal circumstances.
+      - paragraph [ref=f420e469]:
+        - text: "Note: Medication side effects may be underreported. If you are experiencing side effects that are not listed, submit a report to the FDA by following"
+        - link "this guide" [ref=f420e470] [cursor=pointer]:
+          - /url: /fda-consumer/your-guide-to-reporting-problems-to-fda-71.html
+        - text: .
+      - paragraph [ref=f420e471]:
+        - link "Medical Disclaimer" [ref=f420e472] [cursor=pointer]:
+          - /url: /support/disclaimer.html
+    - generic [ref=f420e473]:
+      - generic [ref=f420e474]:
+        - generic [ref=f420e475]: Drug Status
+        - generic [ref=f420e476]:
+          - generic [ref=f420e478]:
+            - text: Availability
+            - generic [ref=f420e479]: Prescription only
+            - generic: Rx
+          - generic [ref=f420e481]:
+            - link "Pregnancy & Lactation" [ref=f420e482] [cursor=pointer]:
+              - /url: /pregnancy/lemborexant.html
+            - generic [ref=f420e483]: Risk data available
+            - generic:
+              - img
+          - group [ref=f420e484]:
+            - generic "CSA Schedule* Some potential for abuse 4" [ref=f420e485] [cursor=pointer]:
+              - text: CSA Schedule*
+              - generic [ref=f420e486]: Some potential for abuse
+              - generic: "4"
+              - img [ref=f420e487]
+          - group [ref=f420e489]:
+            - generic "Approval History Drug history at FDA" [ref=f420e490] [cursor=pointer]:
+              - text: Approval History
+              - generic [ref=f420e491]: Drug history at FDA
+              - generic:
+                - img
+              - img [ref=f420e492]
+          - group [ref=f420e494]:
+            - generic "Ingredients Active & Inactive" [ref=f420e495] [cursor=pointer]:
+              - text: Ingredients
+              - generic [ref=f420e496]: Active & Inactive
+              - generic:
+                - img
+              - img [ref=f420e497]
+      - generic [ref=f420e500]:
+        - generic [ref=f420e501]: User Reviews & Ratings
+        - generic [ref=f420e502]:
+          - generic [ref=f420e503]: 5.3 / 10
+          - 'img "Rating: 5.3 out of 10" [ref=f420e504]'
+          - link "315 Reviews" [ref=f420e506] [cursor=pointer]:
+            - /url: /comments/lemborexant/dayvigo.html
+      - generic [ref=f420e507]:
+        - generic [ref=f420e508]: Images
+        - generic [ref=f420e509]:
+          - link "Dayvigo 5 mg (LEM 5)" [ref=f420e510] [cursor=pointer]:
+            - /url: /imprints/lem-5-30000.html
+            - figure "Dayvigo 5 mg (LEM 5)" [ref=f420e511]:
+              - img "Pill LEM 5 is Dayvigo 5 mg" [ref=f420e512]
+              - generic [ref=f420e513]: Dayvigo 5 mg (LEM 5)
+          - navigation "Browse pill images" [ref=f420e514]:
+            - button "Dayvigo 5 mg (LEM 5)" [ref=f420e515] [cursor=pointer]:
+              - img "Dayvigo 5 mg (LEM 5)" [ref=f420e516]
+            - button "Dayvigo 10 mg (LEM 10)" [ref=f420e517] [cursor=pointer]:
+              - img "Dayvigo 10 mg (LEM 10)" [ref=f420e518]
+            - link "View all images" [ref=f420e519] [cursor=pointer]:
+              - /url: /image/dayvigo-images.html
+      - generic [ref=f420e522]: Advertisement
+      - generic [ref=f420e525]: Advertisement
+      - generic [ref=f420e627]: Advertisement
+      - generic [ref=f420e630]: Advertisement
+  - contentinfo [ref=f420e526]:
+    - generic [ref=f420e527]:
+      - generic [ref=f420e528]:
+        - generic [ref=f420e529]:
+          - generic [ref=f420e530]: Drugs.com Mobile App
+          - paragraph [ref=f420e531]: Access drug & treatment information, identify pills, check interactions and set up personal medication records.
+          - generic [ref=f420e532]:
+            - link "Download the Medication Guide app on iTunes" [ref=f420e533] [cursor=pointer]:
+              - /url: //apps.apple.com/us/app/drugs-com-medication-guide/id599471042?platform=iphone
+              - generic [ref=f420e534]: Download the Medication Guide app on iTunes
+              - img [ref=f420e535]
+            - link "Download the Medication Guide app on the Google Play store" [ref=f420e536] [cursor=pointer]:
+              - /url: //play.google.com/store/apps/details?id=com.drugscom.app
+              - generic [ref=f420e537]: Download the Medication Guide app on the Google Play store
+              - img [ref=f420e538]
+        - img "Drugs.com mobile app" [ref=f420e541]
+      - navigation "Informational and social site links" [ref=f420e542]:
+        - link "Drugs.com" [ref=f420e544] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f420e545]: Drugs.com
+          - img [ref=f420e546]
+        - generic [ref=f420e547]:
+          - generic [ref=f420e548]: About
+          - list [ref=f420e549]:
+            - listitem [ref=f420e550]:
+              - link "About Drugs.com" [ref=f420e551] [cursor=pointer]:
+                - /url: /support/about.html
+            - listitem [ref=f420e552]:
+              - link "Advertising policy" [ref=f420e553] [cursor=pointer]:
+                - /url: /support/advertising.html
+            - listitem [ref=f420e554]:
+              - link "Attribution & citations" [ref=f420e555] [cursor=pointer]:
+                - /url: /support/citations.html
+            - listitem [ref=f420e556]:
+              - link "Drugs.com Podcast" [ref=f420e557] [cursor=pointer]:
+                - /url: //podcasts.drugs.com/
+        - generic [ref=f420e558]:
+          - generic [ref=f420e559]: Terms & privacy
+          - list [ref=f420e560]:
+            - listitem [ref=f420e561]:
+              - link "Terms of use" [ref=f420e562] [cursor=pointer]:
+                - /url: /support/terms.html
+            - listitem [ref=f420e563]:
+              - link "Editorial policy" [ref=f420e564] [cursor=pointer]:
+                - /url: /support/editorial-policy.html
+            - listitem [ref=f420e565]:
+              - link "Privacy policy" [ref=f420e566] [cursor=pointer]:
+                - /url: /support/privacy.html
+        - generic [ref=f420e567]:
+          - generic [ref=f420e568]: Support
+          - list [ref=f420e569]:
+            - listitem [ref=f420e570]:
+              - link "Help center" [ref=f420e571] [cursor=pointer]:
+                - /url: /support/
+            - listitem [ref=f420e572]:
+              - link "Sitemap" [ref=f420e573] [cursor=pointer]:
+                - /url: /sitemap.html
+            - listitem [ref=f420e574]:
+              - link "Contact us" [ref=f420e575] [cursor=pointer]:
+                - /url: /support/contact.html
+            - listitem [ref=f420e576]:
+              - link "Accessibility" [ref=f420e577] [cursor=pointer]:
+                - /url: /support/accessibility.html
+        - generic [ref=f420e578]:
+          - list [ref=f420e579]:
+            - listitem [ref=f420e580]:
+              - link "Subscribe to Drugs.com newsletters" [ref=f420e581] [cursor=pointer]:
+                - /url: /newsletters/
+                - generic [ref=f420e582]: Subscribe to Drugs.com newsletters
+                - img [ref=f420e583]
+            - listitem [ref=f420e585]:
+              - link "Follow Drugs.com on Facebook" [ref=f420e586] [cursor=pointer]:
+                - /url: //www.facebook.com/Drugscom
+                - generic [ref=f420e587]: Follow Drugs.com on Facebook
+                - img [ref=f420e588]
+            - listitem [ref=f420e590]:
+              - link "Follow Drugs.com on X (Twitter)" [ref=f420e591] [cursor=pointer]:
+                - /url: //x.com/drugscom
+                - generic [ref=f420e592]: Follow Drugs.com on X (Twitter)
+                - img [ref=f420e593]
+            - listitem [ref=f420e595]:
+              - link "Follow Drugs.com on Instagram" [ref=f420e596] [cursor=pointer]:
+                - /url: //www.instagram.com/drugs.com_official/
+                - generic [ref=f420e597]: Follow Drugs.com on Instagram
+                - img [ref=f420e598]
+            - listitem [ref=f420e600]:
+              - link "Follow Drugs.com on YouTube" [ref=f420e601] [cursor=pointer]:
+                - /url: //www.youtube.com/user/drugscom
+                - generic [ref=f420e602]: Follow Drugs.com on YouTube
+                - img [ref=f420e603]
+            - listitem [ref=f420e605]:
+              - link "Follow Drugs.com on Pinterest" [ref=f420e606] [cursor=pointer]:
+                - /url: //www.pinterest.com/drugscom/
+                - generic [ref=f420e607]: Follow Drugs.com on Pinterest
+                - img [ref=f420e608]
+          - paragraph [ref=f420e610]:
+            - link "Subscribe to our newsletter" [ref=f420e611] [cursor=pointer]:
+              - /url: /newsletters/
+            - text: for the latest medication news, new drug approvals and FDA alerts.
+      - generic [ref=f420e612]:
+        - strong [ref=f420e613]: Drugs.com
+        - text: provides accurate and independent information on more than 24,000 prescription drugs, over-the-counter medicines and natural products. This material is provided for educational purposes only and is not intended for medical advice, diagnosis or treatment. Data sources include Micromedex (updated Jul 5, 2026), Cerner Multum™ (updated Jul 5, 2026), ASHP (updated Jun 10, 2026) and others.
+      - generic [ref=f420e614]:
+        - generic [ref=f420e615]:
+          - link "Certified by TRUSTe" [ref=f420e616] [cursor=pointer]:
+            - /url: //privacy.truste.com/privacy-seal/validation?rid=d18cba4a-afc4-4863-af81-8262bb120271
+            - img "Certified by TRUSTe" [ref=f420e617]
+          - img "Verified by TAG" [ref=f420e618]
+          - link "This website is certified by AACI. Click to verify." [ref=f420e619] [cursor=pointer]:
+            - /url: //aacihealthcare.com/certificates/c173-2022-trust-us/
+            - img "This website is certified by AACI. Click to verify." [ref=f420e620]
+          - link "AdChoices - Ad privacy information" [ref=f420e621] [cursor=pointer]:
+            - /url: /support/privacy/advertising.html
+            - img "AdChoices - Ad privacy information" [ref=f420e622]
+        - generic [ref=f420e623]: Copyright © 2000-2026 Drugs.com. All rights reserved.
