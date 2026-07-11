@@ -4,3 +4,6 @@ Cargo.lock.old
 /dist/
 .DS_Store
 /.claude/worktrees/
+
+# Playwright MCP session debris
+.playwright-mcp/
