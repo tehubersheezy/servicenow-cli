@@ -1,5 +1,5 @@
 use crate::body::{build_body, BodyInput};
-use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, confirm_delete, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::Result;
 use clap::Subcommand;
@@ -109,6 +109,9 @@ pub struct CmdbRelationDeleteArgs {
     pub sys_id: String,
     /// sys_id of the relation to delete.
     pub rel_sys_id: String,
+    /// Skip confirmation prompt (required for non-interactive use).
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 pub fn list(global: &GlobalFlags, args: CmdbListArgs) -> Result<()> {
@@ -225,6 +228,13 @@ fn relation_add(global: &GlobalFlags, args: CmdbRelationAddArgs) -> Result<()> {
 }
 
 fn relation_delete(global: &GlobalFlags, args: CmdbRelationDeleteArgs) -> Result<()> {
+    confirm_delete(
+        args.yes,
+        &format!(
+            "relation {} on {}/{}",
+            args.rel_sys_id, args.class, args.sys_id
+        ),
+    )?;
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let path = format!(

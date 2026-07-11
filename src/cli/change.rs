@@ -1,5 +1,5 @@
 use crate::body::{build_body, BodyInput};
-use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, confirm_delete, unwrap_or_raw};
 use crate::cli::{DisplayValueArg, GlobalFlags};
 use crate::error::{Error, Result};
 use clap::{Subcommand, ValueEnum};
@@ -132,6 +132,9 @@ pub struct ChangeDeleteArgs {
     pub sys_id: String,
     #[arg(long, value_enum)]
     pub r#type: Option<ChangeType>,
+    /// Skip confirmation prompt (required for non-interactive use).
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -222,6 +225,9 @@ pub struct ChangeTaskUpdateArgs {
 pub struct ChangeTaskDeleteArgs {
     pub change_sys_id: String,
     pub task_sys_id: String,
+    /// Skip confirmation prompt (required for non-interactive use).
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -385,6 +391,7 @@ pub fn update(global: &GlobalFlags, args: ChangeUpdateArgs) -> Result<()> {
 }
 
 pub fn delete(global: &GlobalFlags, args: ChangeDeleteArgs) -> Result<()> {
+    confirm_delete(args.yes, &format!("change {}", args.sys_id))?;
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let path = format!("{}/{}", base_path(args.r#type), args.sys_id);
@@ -542,6 +549,10 @@ fn task_update(global: &GlobalFlags, args: ChangeTaskUpdateArgs) -> Result<()> {
 }
 
 fn task_delete(global: &GlobalFlags, args: ChangeTaskDeleteArgs) -> Result<()> {
+    confirm_delete(
+        args.yes,
+        &format!("task {} on change {}", args.task_sys_id, args.change_sys_id),
+    )?;
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let path = format!(

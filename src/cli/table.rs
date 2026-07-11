@@ -477,22 +477,33 @@ fn write_op(
     crate::cli::table::write_response(global, &out)
 }
 
-pub fn delete(global: &GlobalFlags, args: TableDeleteArgs) -> Result<()> {
-    if !args.yes {
-        if !std::io::stdin().is_terminal() {
-            return Err(Error::Usage(
-                "delete requires --yes when stdin is not a terminal".into(),
-            ));
-        }
-        eprint!("Delete {}/{}? [y/N]: ", args.table, args.sys_id);
-        let mut s = String::new();
-        std::io::stdin()
-            .read_line(&mut s)
-            .map_err(|e| Error::Usage(format!("read stdin: {e}")))?;
-        if !matches!(s.trim(), "y" | "Y" | "yes" | "YES") {
-            return Err(Error::Usage("aborted".into()));
-        }
+/// Gate a destructive operation behind a confirmation, shared by every `delete`
+/// command. With `--yes` it is a no-op; otherwise it refuses to proceed on a
+/// non-interactive stdin (exit 1) and, on a TTY, prompts `Delete {what}? [y/N]:`
+/// and aborts unless the answer is affirmative. `what` names the target, e.g.
+/// `incident/abc123`, `attachment abc123`, or `relation r1 on cmdb_ci_server/x`.
+pub(crate) fn confirm_delete(yes: bool, what: &str) -> Result<()> {
+    if yes {
+        return Ok(());
     }
+    if !std::io::stdin().is_terminal() {
+        return Err(Error::Usage(
+            "delete requires --yes when stdin is not a terminal".into(),
+        ));
+    }
+    eprint!("Delete {what}? [y/N]: ");
+    let mut s = String::new();
+    std::io::stdin()
+        .read_line(&mut s)
+        .map_err(|e| Error::Usage(format!("read stdin: {e}")))?;
+    if !matches!(s.trim(), "y" | "Y" | "yes" | "YES") {
+        return Err(Error::Usage("aborted".into()));
+    }
+    Ok(())
+}
+
+pub fn delete(global: &GlobalFlags, args: TableDeleteArgs) -> Result<()> {
+    confirm_delete(args.yes, &format!("{}/{}", args.table, args.sys_id))?;
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let q = DeleteQuery {

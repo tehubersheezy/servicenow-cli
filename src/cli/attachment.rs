@@ -1,4 +1,4 @@
-use crate::cli::table::{build_client, build_profile, unwrap_or_raw};
+use crate::cli::table::{build_client, build_profile, confirm_delete, unwrap_or_raw};
 use crate::cli::GlobalFlags;
 use crate::error::{Error, Result};
 use clap::Subcommand;
@@ -67,6 +67,9 @@ pub struct AttachmentDownloadArgs {
 #[derive(clap::Args, Debug)]
 pub struct AttachmentDeleteArgs {
     pub sys_id: String,
+    /// Skip confirmation prompt (required for non-interactive use).
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 pub fn list(global: &GlobalFlags, args: AttachmentListArgs) -> Result<()> {
@@ -146,6 +149,7 @@ pub fn download(global: &GlobalFlags, args: AttachmentDownloadArgs) -> Result<()
 }
 
 pub fn delete(global: &GlobalFlags, args: AttachmentDeleteArgs) -> Result<()> {
+    confirm_delete(args.yes, &format!("attachment {}", args.sys_id))?;
     let profile = build_profile(global)?;
     let client = build_client(&profile, global.timeout)?;
     let path = format!("/api/now/attachment/{}", args.sys_id);
