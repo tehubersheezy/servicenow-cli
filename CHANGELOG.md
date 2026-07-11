@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.8.0 (2026-07-11)
+
+An adversarial review of the docs — checked against the compiled CLI, ServiceNow's
+official API docs, the published release assets, and a live instance — drove this
+release: every documented claim is now either verified true or fixed, plus two
+classes of code defects the review surfaced.
+
+### Breaking changes
+
+- **Every destructive `delete` now requires confirmation.** `change delete`,
+  `change task delete`, `attachment delete`, and `cmdb relation delete` gain the
+  guard `table delete` already had: a `[y/N]` prompt on a TTY, and a required
+  `--yes`/`-y` when stdin is not a terminal (exit 1 with a usage error instead of
+  deleting silently). Scripts calling these commands must add `--yes`.
+
+### Added
+
+- **Single-letter short flags** on the highest-traffic parameters: `-q`
+  (`--query`), `-f` (`--fields`), `-D` (`--data`), `-F` (`--field`). Capitals
+  mirror curl's `-d`/`-F` mnemonics; lowercase `-d` is the verbosity ladder and
+  `-f` belongs to `--fields`.
+- **`.claude-plugin/marketplace.json`** — the repo is now its own Claude Code
+  plugin marketplace, so the documented install flow works as written:
+  `claude plugin marketplace add tehubersheezy/servicenow-cli`, then
+  `claude plugin install sn`.
+
+### Fixed
+
+- **Verbose logging no longer leaks secrets.** `-ddd` printed OAuth
+  token-endpoint responses — live access and refresh tokens — in cleartext;
+  token values are now masked to `****` (metadata like `token_type` /
+  `expires_in` stays readable). `-dd` masked only `Authorization`; it now also
+  masks `Set-Cookie` session tokens, and the mask label is generic rather than
+  the incorrect `Basic ****` for Bearer auth.
+- **Docs no longer claim PUT blanks omitted fields.** `replace` was documented
+  as "full overwrite — omitted fields are blanked"; ServiceNow actually applies
+  PUT as a partial update (verified against a live instance and the official
+  Table API docs). The docs now say so and explain how to clear a field
+  explicitly.
+- **The `cmdb relation add` example payload was unusable** — bare
+  `type`/`target` keys; the API requires them wrapped in
+  `outbound_relations`/`inbound_relations`. Fixed in the README, agent guide,
+  and both skills.
+- **The documented Claude-plugin install command didn't exist**
+  (`claude plugin install --dir`); replaced with the real marketplace flow.
+- Documentation gaps closed: the stderr envelope's `sn_error` field, the global
+  `--timeout`, the Parameters table's missing rows
+  (`--suppress-pagination-header`, `--query-category`) and per-command
+  `--setlimit` defaults, the `attachment download` `--output` file-path
+  double-meaning, and the TOC's missing Shell completions entry.
+
 ## 0.7.1 (2026-07-08)
 
 ### Fixes
