@@ -9,11 +9,17 @@ name: output-mask-probe
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "manifest = pretty-json lines; body = announcement body lines; bodyline = chars of one body line"
+        default: "manifest"
+      line:
+        description: "bodyline mode: which body line to char-bisect"
+        default: "0"
       start:
-        description: "first line (0-based) of the pretty-printed manifest"
+        description: "first unit (0-based)"
         default: "0"
       step:
-        description: "lines per output slice"
+        description: "units per output slice"
         default: "22"
 
 jobs:
@@ -21,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MODE: ${{ inputs.mode }}
+      LINE: ${{ inputs.line }}
       START: ${{ inputs.start }}
       STEP: ${{ inputs.step }}
     outputs:
@@ -54,13 +62,24 @@ jobs:
           gh release download v0.8.0 --repo "$GITHUB_REPOSITORY" --pattern dist-manifest.json
           python3 - <<'PY'
           import json, os
-          lines = json.dumps(json.load(open("dist-manifest.json")), indent=1).splitlines()
+          m = json.load(open("dist-manifest.json"))
+          mode = os.environ["MODE"]
           start, step = int(os.environ["START"]), int(os.environ["STEP"])
+          if mode == "manifest":
+              units = json.dumps(m, indent=1).splitlines()
+          elif mode == "body":
+              units = m["announcement_github_body"].splitlines()
+          else:  # bodyline: characters of one body line, 50%-overlapping windows
+              text = m["announcement_github_body"].splitlines()[int(os.environ["LINE"])]
+              units = None
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               for i in range(24):
                   lo = start + i * step
-                  chunk = "\n".join(lines[lo:lo + step])
-                  f.write(f"o{i:02d}<<PROBE_EOF\nlines {lo}-{lo+step-1}\n{chunk}\nPROBE_EOF\n")
+                  if units is None:
+                      chunk = text[lo:lo + 2 * step]  # overlap so no substring is split
+                  else:
+                      chunk = "\n".join(units[lo:lo + step])
+                  f.write(f"o{i:02d}<<PROBE_EOF\nunits {lo}..{lo+step-1}\n{chunk}\nPROBE_EOF\n")
           PY
   consume:
     needs: probe
