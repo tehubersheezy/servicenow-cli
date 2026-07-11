@@ -32,7 +32,8 @@ classes of code defects the review surfaced.
   token-endpoint responses — live access and refresh tokens — in cleartext;
   token values are now masked (metadata like `token_type` / `expires_in` stays
   readable). `-dd` masked only `Authorization`; it now also masks `Set-Cookie`
-  session tokens, and the mask label no longer claims `Basic` for Bearer tokens.
+  session tokens, and the mask label no longer misstates the auth scheme on
+  OAuth profiles.
 - **Docs no longer claim PUT blanks omitted fields.** `replace` was documented
   as "full overwrite — omitted fields are blanked"; ServiceNow actually applies
   PUT as a partial update (verified against a live instance and the official
