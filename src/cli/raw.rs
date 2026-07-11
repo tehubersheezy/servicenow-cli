@@ -15,10 +15,10 @@ pub struct RawArgs {
     #[arg(long = "query", short = 'q')]
     pub query: Vec<String>,
     /// Request body source: inline JSON, @file (path), or @- (stdin). Required for POST/PUT/PATCH if --field is not given.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file for value from file. Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 

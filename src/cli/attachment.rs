@@ -21,7 +21,7 @@ pub enum AttachmentSub {
 
 #[derive(clap::Args, Debug)]
 pub struct AttachmentListArgs {
-    #[arg(long, alias = "sysparm-query")]
+    #[arg(long, short = 'q', alias = "sysparm-query")]
     pub query: Option<String>,
     #[arg(long, alias = "sysparm-limit", alias = "limit", default_value_t = 100)]
     pub setlimit: u32,

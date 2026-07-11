@@ -20,10 +20,10 @@ pub struct ImportCreateArgs {
     /// Staging table name.
     pub staging_table: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -32,7 +32,7 @@ pub struct ImportBulkArgs {
     /// Staging table name.
     pub staging_table: String,
     /// JSON array of records (or `{"records": [...]}`), @file, or @- for stdin.
-    #[arg(long, required = true)]
+    #[arg(long, short = 'D', required = true)]
     pub data: String,
 }
 

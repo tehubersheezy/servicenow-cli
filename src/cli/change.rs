@@ -58,9 +58,9 @@ pub struct ChangeListArgs {
     /// Filter by change type.
     #[arg(long, value_enum)]
     pub r#type: Option<ChangeType>,
-    #[arg(long, alias = "sysparm-query")]
+    #[arg(long, short = 'q', alias = "sysparm-query")]
     pub query: Option<String>,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-limit", alias = "limit", default_value_t = 1000)]
     pub setlimit: u32,
@@ -80,7 +80,7 @@ pub struct ChangeGetArgs {
     /// Get a specific change type (uses type-specific endpoint).
     #[arg(long, value_enum)]
     pub r#type: Option<ChangeType>,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-display-value", value_enum)]
     pub display_value: Option<DisplayValueArg>,
@@ -99,12 +99,12 @@ pub struct ChangeCreateArgs {
     #[arg(long)]
     pub template: Option<String>,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-display-value", value_enum)]
     pub display_value: Option<DisplayValueArg>,
@@ -116,12 +116,12 @@ pub struct ChangeUpdateArgs {
     #[arg(long, value_enum)]
     pub r#type: Option<ChangeType>,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-display-value", value_enum)]
     pub display_value: Option<DisplayValueArg>,
@@ -148,10 +148,10 @@ pub struct ChangeOptionalIdArg {
 pub struct ChangeApprovalsArgs {
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -159,10 +159,10 @@ pub struct ChangeApprovalsArgs {
 pub struct ChangeRiskArgs {
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -183,7 +183,7 @@ pub enum ChangeTaskSub {
 #[derive(clap::Args, Debug)]
 pub struct ChangeTaskListArgs {
     pub change_sys_id: String,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-limit", alias = "limit", default_value_t = 100)]
     pub setlimit: u32,
@@ -199,10 +199,10 @@ pub struct ChangeTaskGetArgs {
 pub struct ChangeTaskCreateArgs {
     pub change_sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -211,10 +211,10 @@ pub struct ChangeTaskUpdateArgs {
     pub change_sys_id: String,
     pub task_sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -236,10 +236,10 @@ pub enum ChangeCiSub {
 pub struct ChangeCiAddArgs {
     pub change_sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -257,10 +257,10 @@ pub enum ChangeConflictSub {
 pub struct ChangeConflictAddArgs {
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 

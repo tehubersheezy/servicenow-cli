@@ -29,7 +29,7 @@ pub enum CmdbSub {
 pub struct CmdbListArgs {
     /// CMDB class name (e.g. `cmdb_ci_server`).
     pub class: String,
-    #[arg(long, alias = "sysparm-query")]
+    #[arg(long, short = 'q', alias = "sysparm-query")]
     pub query: Option<String>,
     #[arg(long, alias = "sysparm-limit", alias = "limit", default_value_t = 1000)]
     pub setlimit: u32,
@@ -47,10 +47,10 @@ pub struct CmdbGetArgs {
 pub struct CmdbCreateArgs {
     pub class: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -59,10 +59,10 @@ pub struct CmdbUpdateArgs {
     pub class: String,
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -71,10 +71,10 @@ pub struct CmdbReplaceArgs {
     pub class: String,
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 
@@ -96,10 +96,10 @@ pub struct CmdbRelationAddArgs {
     pub class: String,
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }
 

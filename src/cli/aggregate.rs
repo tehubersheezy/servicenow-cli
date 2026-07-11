@@ -9,7 +9,7 @@ pub struct AggregateArgs {
     /// Table name (e.g. `incident`).
     pub table: String,
     /// Encoded query filter.
-    #[arg(long, alias = "sysparm-query")]
+    #[arg(long, short = 'q', alias = "sysparm-query")]
     pub query: Option<String>,
     /// Comma-separated fields to average.
     #[arg(long, alias = "sysparm-avg-fields")]

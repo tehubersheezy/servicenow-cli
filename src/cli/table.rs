@@ -53,10 +53,10 @@ pub struct TableListArgs {
     /// Table name (e.g. `incident`).
     pub table: String,
     /// Encoded query, e.g. `active=true^priority=1`.
-    #[arg(long, alias = "sysparm-query")]
+    #[arg(long, short = 'q', alias = "sysparm-query")]
     pub query: Option<String>,
     /// Comma-separated fields to return.
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     /// Maximum records returned (default 1000). Maps to sysparm_limit.
     #[arg(
@@ -106,7 +106,7 @@ pub struct TableListArgs {
 pub struct TableGetArgs {
     pub table: String,
     pub sys_id: String,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-display-value", value_enum)]
     pub display_value: Option<DisplayValueArg>,
@@ -122,12 +122,12 @@ pub struct TableGetArgs {
 pub struct TableCreateArgs {
     pub table: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-display-value", value_enum)]
     pub display_value: Option<DisplayValueArg>,
@@ -146,12 +146,12 @@ pub struct TableUpdateArgs {
     pub table: String,
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-display-value", value_enum)]
     pub display_value: Option<DisplayValueArg>,
@@ -172,12 +172,12 @@ pub struct TableReplaceArgs {
     pub table: String,
     pub sys_id: String,
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
-    #[arg(long, conflicts_with = "field")]
+    #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
     /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
-    #[arg(long = "field", conflicts_with = "data")]
+    #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
-    #[arg(long, alias = "sysparm-fields")]
+    #[arg(long, short = 'f', alias = "sysparm-fields")]
     pub fields: Option<String>,
     #[arg(long, alias = "sysparm-display-value", value_enum)]
     pub display_value: Option<DisplayValueArg>,
