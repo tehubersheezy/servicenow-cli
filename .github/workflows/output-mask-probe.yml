@@ -10,8 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "manifest = pretty-json lines; body = announcement body lines; bodyline = chars of one body line"
+        description: "manifest = pretty-json lines; body = announcement body lines; bodyline = chars of one body line; candidates = test exact strings"
         default: "manifest"
+      candidates:
+        description: "candidates mode: JSON array of strings to test"
+        default: "[]"
       line:
         description: "bodyline mode: which body line to char-bisect"
         default: "0"
@@ -29,6 +32,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       MODE: ${{ inputs.mode }}
       LINE: ${{ inputs.line }}
+      CANDIDATES: ${{ inputs.candidates }}
       START: ${{ inputs.start }}
       STEP: ${{ inputs.step }}
     outputs:
@@ -69,6 +73,8 @@ jobs:
               units = json.dumps(m, indent=1).splitlines()
           elif mode == "body":
               units = m["announcement_github_body"].splitlines()
+          elif mode == "candidates":  # one candidate string per output, step=1
+              units = json.loads(os.environ["CANDIDATES"])
           else:  # bodyline: characters of one body line, 50%-overlapping windows
               text = m["announcement_github_body"].splitlines()[int(os.environ["LINE"])]
               units = None
