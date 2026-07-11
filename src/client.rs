@@ -193,13 +193,29 @@ fn normalize_base_url(instance: &str) -> String {
 }
 
 fn parse_response(resp: Response) -> Result<Value> {
+    parse_response_inner(resp, false)
+}
+
+/// Like [`parse_response`] but redacts OAuth secrets from the `-ddd` body log.
+/// Used only by the token endpoint (`post_form`), whose responses carry
+/// `access_token`/`refresh_token`/`id_token` in cleartext. The returned `Value`
+/// is still fully parsed — only what hits stderr is masked.
+fn parse_response_redacted(resp: Response) -> Result<Value> {
+    parse_response_inner(resp, true)
+}
+
+fn parse_response_inner(resp: Response, redact_secrets: bool) -> Result<Value> {
     let status = resp.status();
     let tx = transaction_id(&resp);
     log_response_headers(resp.headers());
     let text = resp
         .text()
         .map_err(|e| Error::Transport(format!("read body: {e}")))?;
-    log_body("<", &text);
+    if redact_secrets {
+        log_body("<", &redact_token_json(&text));
+    } else {
+        log_body("<", &text);
+    }
     if status.is_success() {
         if text.is_empty() {
             return Ok(Value::Null);
@@ -208,6 +224,29 @@ fn parse_response(resp: Response) -> Result<Value> {
             .map_err(|e| Error::Transport(format!("parse response: {e}")));
     }
     Err(from_http_text(status, tx, &text))
+}
+
+/// OAuth token-response keys whose values are secrets and must never be logged.
+const SENSITIVE_TOKEN_KEYS: [&str; 3] = ["access_token", "refresh_token", "id_token"];
+
+/// Redact secret values from an OAuth token-endpoint JSON body so it is safe to
+/// print at `-ddd`. Replaces the values of `access_token`/`refresh_token`/
+/// `id_token` with `"****"` while leaving non-secret keys (`token_type`,
+/// `expires_in`, `scope`, `error`, `error_description`, …) readable for
+/// debugging. Any body that is not the flat JSON object OAuth mandates collapses
+/// to a placeholder — a malformed/HTML response can't smuggle a token to stderr.
+fn redact_token_json(body: &str) -> String {
+    match serde_json::from_str::<Value>(body) {
+        Ok(Value::Object(mut map)) => {
+            for key in SENSITIVE_TOKEN_KEYS {
+                if let Some(v) = map.get_mut(key) {
+                    *v = Value::String("****".to_string());
+                }
+            }
+            Value::Object(map).to_string()
+        }
+        _ => "<token response: redacted>".to_string(),
+    }
 }
 
 impl Client {
@@ -312,7 +351,9 @@ impl Client {
         let names: Vec<&str> = form.iter().map(|(k, _)| k.as_str()).collect();
         log_body(">", &format!("<form: {}>", names.join(", ")));
         let req = self.http.request(Method::POST, &url).form(form);
-        parse_response(self.send(req, "POST", &url)?)
+        // Redact the response body: it carries access/refresh/id tokens that the
+        // plain `parse_response` would print verbatim at -ddd.
+        parse_response_redacted(self.send(req, "POST", &url)?)
     }
 
     pub fn download_file(&self, path: &str) -> Result<(Vec<u8>, Option<String>)> {
@@ -527,5 +568,44 @@ fn truncate_body(s: &str, max_chars: usize) -> String {
         let mut out: String = s.chars().take(max_chars).collect();
         out.push('…');
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_token_json;
+
+    #[test]
+    fn token_secrets_are_masked_but_metadata_stays_readable() {
+        let body = r#"{"access_token":"AT_SECRET","refresh_token":"RT_SECRET","id_token":"ID_SECRET","token_type":"Bearer","expires_in":1800,"scope":"useraccount"}"#;
+        let out = redact_token_json(body);
+
+        // No secret value survives.
+        assert!(!out.contains("AT_SECRET"), "access_token leaked: {out}");
+        assert!(!out.contains("RT_SECRET"), "refresh_token leaked: {out}");
+        assert!(!out.contains("ID_SECRET"), "id_token leaked: {out}");
+        assert!(out.contains("****"), "expected mask marker: {out}");
+
+        // Non-secret metadata remains legible for debugging.
+        assert!(out.contains("\"token_type\":\"Bearer\""), "{out}");
+        assert!(out.contains("\"expires_in\":1800"), "{out}");
+        assert!(out.contains("\"scope\":\"useraccount\""), "{out}");
+    }
+
+    #[test]
+    fn error_response_passes_through_without_masking() {
+        // Token-endpoint errors carry no secret and are useful verbatim.
+        let body = r#"{"error":"invalid_grant","error_description":"code expired"}"#;
+        let out = redact_token_json(body);
+        assert!(out.contains("invalid_grant"), "{out}");
+        assert!(out.contains("code expired"), "{out}");
+    }
+
+    #[test]
+    fn non_object_body_collapses_to_placeholder() {
+        // An HTML error page (or any non-object) must not reach the log verbatim.
+        let out = redact_token_json("<html>access_token=leaked</html>");
+        assert_eq!(out, "<token response: redacted>");
+        assert!(!out.contains("leaked"));
     }
 }
