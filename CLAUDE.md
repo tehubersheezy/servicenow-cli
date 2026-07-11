@@ -36,7 +36,7 @@ src/
   oauth.rs          → OAuth 2.0 for SSO: PKCE, loopback redirect server, token exchange (authorization_code/refresh/client_credentials), ensure_access_token()
   query.rs          → ListQuery/GetQuery/WriteQuery/DeleteQuery → Vec<(String,String)>
   body.rs           → --data / --field parsing into serde_json::Value
-  observability.rs  → global AtomicU8 verbosity, log helpers (set_level called in main; log_request/response not yet wired into client)
+  observability.rs  → global AtomicU8 verbosity, log helpers (set_level called in main; log_request/response/body wired into client.rs)
   cli/
     mod.rs          → Cli struct, GlobalFlags, all Subcommand enums + arg structs
     init.rs         → sn init (interactive profile setup — basic or oauth — + verification; oauth branch reuses auth::complete_oauth_login)
@@ -142,13 +142,13 @@ Resolved by `config::config_dir()`. A non-empty `SN_CONFIG_DIR` is used as-is �
 ## Conventions
 
 - Every `sysparm_*` parameter has a friendly flag (e.g. `--query`) and a raw alias (`--sysparm-query`) mapping to the same field, via clap's `alias` attribute in `cli/mod.rs`.
-- `update` = PATCH (partial), `replace` = PUT (full overwrite) — separate verbs prevent accidental field-wipe.
+- `update` = PATCH, `replace` = PUT — different HTTP methods, but ServiceNow treats both as partial updates (PUT does not blank omitted fields); clear a field by setting it explicitly.
 - Shared `pub(crate)` helpers live in `cli/table.rs`: `build_profile`, `build_client`, `bool_opt`, `format_from_flags`, `unwrap_or_raw`, `write_response`.
 - Every command's final emission goes through `cli::table::write_response(global, &value)`, which routes to `output::emit_value` (JSON, default/raw) or `output_table::write_table` (`--output table`). `unwrap_or_raw` treats `Table` like `Default` (envelope unwrapped, then rendered).
 
 ## Claude Code plugin
 
-This repo is also a Claude Code plugin (`.claude-plugin/plugin.json` + `skills/sn/SKILL.md`). The plugin skill mirrors `.claude/skills/sn.md` but adds `allowed-tools: Bash(sn *)` for auto-approved CLI access — keep the two files in sync. `.claude/skills/sn.md` is for in-repo use (`/sn`); `skills/sn/SKILL.md` is for external distribution.
+This repo is also a Claude Code plugin and its own marketplace (`.claude-plugin/plugin.json` + `marketplace.json` + `skills/sn/SKILL.md`). The plugin skill mirrors `.claude/skills/sn.md` but adds `allowed-tools: Bash(sn *)` for auto-approved CLI access — keep the two files in sync. `.claude/skills/sn.md` is for in-repo use (`/sn`); `skills/sn/SKILL.md` is for external distribution.
 
 ## CI/CD
 

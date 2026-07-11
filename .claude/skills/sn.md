@@ -49,7 +49,7 @@ Flags (global unless noted; every `sysparm_*` has a friendly name + raw `--syspa
 - `--setlimit N` (list; default 1000; aliases `--limit`, `--page-size`) — max records
 - `--input-display-value` (writes) — set fields by display value
 - `--timeout SECS` (default 30) · `--pretty`/`--compact` (default: pretty on TTY, compact when piped)
-- `-d`/`-dd`/`-ddd` — log requests / +headers / +bodies to stderr (auth masked); `-v`/`-V` = version
+- `-d`/`-dd`/`-ddd` — log requests / +headers / +bodies to stderr (auth headers, cookies, and OAuth tokens masked); `-v`/`-V` = version
 - `--data` and `--field` are mutually exclusive on writes (exit 1)
 
 ## Discovery flow (when you don't know the schema)
@@ -70,7 +70,7 @@ sn table get incident <sys_id> --display-value all     # human-readable choice/r
 sn table create incident --field short_description="x" --field urgency=2
 sn table create incident --data @body.json             # or --data '{"key":"val"}'
 sn table update incident <sys_id> --field state=6      # PATCH (partial)
-sn table replace incident <sys_id> --data @full.json   # PUT (full overwrite — wipes omitted fields)
+sn table replace incident <sys_id> --data @full.json   # PUT (SN still partial-updates — omitted fields keep values)
 sn table delete incident <sys_id> --yes                # --yes required on non-TTY, else clean JSON error exit 1
 ```
 
@@ -115,7 +115,7 @@ sn change get <sys_id> --type normal
 sn change create --type normal --field short_description="DB migration"
 sn change create --type standard --template <template_id>   # standard requires --template
 sn change update <sys_id> --field state=2
-sn change delete <sys_id>                                   # deletes immediately — no --yes guard
+sn change delete <sys_id> --yes                             # --yes required on non-TTY (like table delete)
 sn change nextstates <sys_id>                               # valid state transitions
 sn change approvals <sys_id> --field approval="approved"
 sn change risk <sys_id> --data '{"risk_value":"moderate"}'
@@ -136,7 +136,7 @@ sn attachment list --query "table_name=incident"
 sn attachment get <sys_id>
 sn attachment upload --table incident --record <record_id> --file ./report.pdf
 sn attachment download <sys_id> --output ./file.pdf    # --output is the FILE PATH here (stdout without it)
-sn attachment delete <sys_id>
+sn attachment delete <sys_id> --yes
 ```
 
 ## CMDB
@@ -146,10 +146,10 @@ sn cmdb list cmdb_ci_server --query "operational_status=1"
 sn cmdb get cmdb_ci_server <sys_id>
 sn cmdb create cmdb_ci_server --field name=web-01 --field ip_address=10.0.1.1
 sn cmdb update cmdb_ci_server <sys_id> --field operational_status=2
-sn cmdb replace cmdb_ci_server <sys_id> --data @ci.json     # PUT full overwrite
+sn cmdb replace cmdb_ci_server <sys_id> --data @ci.json     # PUT (also a partial update)
 sn cmdb meta cmdb_ci_server
-sn cmdb relation add cmdb_ci_server <sys_id> --data '{"type":"<rel_type>","target":"<ci>"}'
-sn cmdb relation delete cmdb_ci_server <sys_id> <rel_sys_id>
+sn cmdb relation add cmdb_ci_server <sys_id> --data '{"outbound_relations":[{"type":"<cmdb_rel_type_sys_id>","target":"<target_ci_sys_id>"}]}'
+sn cmdb relation delete cmdb_ci_server <sys_id> <rel_sys_id> --yes
 ```
 
 ## Import Sets

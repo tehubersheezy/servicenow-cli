@@ -1,0 +1,13 @@
+{
+  "name": "sn",
+  "owner": {
+    "name": "Abey Ahmad"
+  },
+  "plugins": [
+    {
+      "name": "sn",
+      "source": "./",
+      "description": "ServiceNow CLI wrapper — table CRUD, change management, CMDB, attachments, service catalog, import sets, CI reconciliation, CICD, aggregates, and schema discovery"
+    }
+  ]
+}

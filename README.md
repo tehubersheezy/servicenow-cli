@@ -41,6 +41,7 @@ sn ping                                       # auth + latency health check
   - [Open a record in the web UI](#open-a-record-in-the-web-ui)
   - [Raw REST passthrough](#raw-rest-passthrough)
   - [Human-readable table output](#human-readable-table-output)
+  - [Shell completions](#shell-completions)
   - [Agent integration](#agent-integration)
 - [Output contract](#output-contract)
   - [Exit codes](#exit-codes)
@@ -140,10 +141,10 @@ sn table get incident <sys_id> --display-value all
 
 ### Writing records
 
-`create`, `update`, and `replace` take either `--data` or `--field` (mutually exclusive):
+`create`, `update`, and `replace` take either `--data` (`-D`) or `--field` (`-F`), mutually exclusive:
 
-- `--data '<json>'` — inline JSON object (`@file.json` reads a file, `@-` reads stdin)
-- `--field key=value` — repeatable key/value pairs (`key=@file` reads the value from a file)
+- `--data` / `-D '<json>'` — inline JSON object (`@file.json` reads a file, `@-` reads stdin)
+- `--field` / `-F key=value` — repeatable key/value pairs (`key=@file` reads the value from a file)
 
 ```bash
 # Key/value pairs, or inline JSON, or piped from another tool
@@ -151,7 +152,8 @@ sn table create incident --field short_description="Disk full on prod-db-01" --f
 sn table create incident --data '{"short_description":"Server down","priority":"1"}'
 echo '{"short_description":"from pipe"}' | sn table create incident --data @-
 
-# update = PATCH (changes only the fields you name); replace = PUT (omitted fields are blanked)
+# update = PATCH, replace = PUT — separate verbs, but ServiceNow treats both as partial updates:
+# PUT does not blank omitted fields. To clear one, set it explicitly (e.g. --field description="").
 sn table update incident <sys_id> --field state=2
 sn table replace incident <sys_id> --data @full-record.json
 
@@ -207,7 +209,7 @@ sn change list --type normal --query "state=1" --setlimit 10
 sn change create --type normal --field short_description="DB migration" --field category=software
 sn change create --type standard --template <template_sys_id> --field short_description="Routine patching"
 sn change update <sys_id> --field state=2
-sn change delete <sys_id>
+sn change delete <sys_id> --yes
 
 # Workflow helpers
 sn change nextstates <sys_id>                          # valid next states
@@ -225,7 +227,7 @@ sn change templates                                    # standard-change templat
 sn change task list <change_sys_id>
 sn change task create <change_sys_id> --field short_description="Pre-check"
 sn change task update <change_sys_id> <task_sys_id> --field state=2
-sn change task delete <change_sys_id> <task_sys_id>
+sn change task delete <change_sys_id> <task_sys_id> --yes
 
 # CIs and conflicts
 sn change ci add <change_sys_id> --data '{"cmdb_ci_sys_id":"<ci_id>"}'
@@ -250,7 +252,7 @@ sn attachment upload --table incident --record <record_sys_id> --file ./data.csv
 sn attachment download <sys_id> --output ./downloaded.png
 sn attachment download <sys_id> | gzip > backup.gz
 
-sn attachment delete <sys_id>
+sn attachment delete <sys_id> --yes
 ```
 
 ### CMDB
@@ -262,12 +264,12 @@ sn cmdb list cmdb_ci_server --query "operational_status=1" --setlimit 20
 sn cmdb get cmdb_ci_server <sys_id>                                     # includes relations
 sn cmdb create cmdb_ci_server --field name=web-server-01 --field ip_address=10.0.1.50
 sn cmdb update cmdb_ci_server <sys_id> --field operational_status=2     # PATCH
-sn cmdb replace cmdb_ci_server <sys_id> --data @ci.json                 # PUT (full overwrite)
+sn cmdb replace cmdb_ci_server <sys_id> --data @ci.json                 # PUT
 sn cmdb meta cmdb_ci_server                                             # class schema
 
 # Relations
-sn cmdb relation add cmdb_ci_server <sys_id> --data '{"type":"<rel_type_id>","target":"<target_ci_id>"}'
-sn cmdb relation delete cmdb_ci_server <sys_id> <rel_sys_id>
+sn cmdb relation add cmdb_ci_server <sys_id> --data '{"outbound_relations":[{"type":"<cmdb_rel_type_sys_id>","target":"<target_ci_sys_id>"}]}'
+sn cmdb relation delete cmdb_ci_server <sys_id> <rel_sys_id> --yes
 ```
 
 ### Import Sets
@@ -419,10 +421,11 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`. The `${fpath[1]
 
 ### Agent integration
 
-`sn` ships as a Claude Code plugin — install it so Claude can run `sn` commands automatically (it pre-approves `Bash(sn *)`):
+`sn` ships as a Claude Code plugin (plugin name `sn`, in `.claude-plugin/`) that pre-approves `Bash(sn *)` so Claude runs `sn` commands without per-call prompts. This repo is its own marketplace:
 
 ```bash
-claude plugin install --dir /path/to/sn
+claude plugin marketplace add tehubersheezy/servicenow-cli   # or a local clone path
+claude plugin install sn
 ```
 
 In a clone of this repo, the skill at `.claude/skills/sn.md` is picked up automatically — invoke with `/sn`.
@@ -442,13 +445,14 @@ Commands emit JSON on stdout by a few consistent rules:
 - `delete` → nothing.
 - `aggregate` → a stats object; `scores` → scorecard records.
 - Async CICD (`app`, `updateset`, `atf run`, `progress`) → a progress object with `progress_id`, `state`, and `percentComplete`.
-- `attachment download` → raw bytes (or metadata JSON when you pass `--output <file>`).
+- `attachment download` → raw bytes (or metadata JSON when you pass `--output <file>` — here `--output` is a destination file path, not the global output-mode flag).
 
 Across every command:
 
 - `--output raw` preserves ServiceNow's `{"result": ...}` envelope; `--output table` renders columns (interactive only).
 - Output is pretty-printed on a TTY, compact when piped — override with `--pretty` / `--compact`.
-- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?"}}`.
+- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?", "sn_error?"}}` — `sn_error` carries ServiceNow's raw error object.
+- `--timeout <SECS>` bounds every request (default 30s).
 
 ### Exit codes
 
@@ -462,22 +466,24 @@ Across every command:
 
 ## Parameters
 
-Every `sysparm_*` parameter has both a friendly name and a raw alias:
+Every `sysparm_*` parameter has both a friendly name and a raw alias; `--query` and `--fields` also have short flags:
 
-| Friendly | Alias | Values |
-|---|---|---|
-| `--query` | `--sysparm-query` | Encoded query string |
-| `--fields` | `--sysparm-fields` | Comma-separated field list |
-| `--setlimit` | `--limit`, `--sysparm-limit`, `--page-size` | Max records returned (default 1000) |
-| `--offset` | `--sysparm-offset` | Starting offset |
-| `--display-value` | `--sysparm-display-value` | `true`, `false`, `all` |
-| `--exclude-reference-link` | `--sysparm-exclude-reference-link` | Boolean |
-| `--view` | `--sysparm-view` | Named UI view |
-| `--input-display-value` | `--sysparm-input-display-value` | Boolean (writes) |
-| `--suppress-auto-sys-field` | `--sysparm-suppress-auto-sys-field` | Boolean (writes) |
-| `--query-no-domain` | `--sysparm-query-no-domain` | Boolean |
-| `--no-count` | `--sysparm-no-count` | Boolean |
-| `--output` | (CLI only) | `default` (unwrapped JSON), `raw` (full envelope), or `table` (columnar — interactive only) |
+| Friendly | Short | Alias | Values |
+|---|---|---|---|
+| `--query` | `-q` | `--sysparm-query` | Encoded query string |
+| `--fields` | `-f` | `--sysparm-fields` | Comma-separated field list |
+| `--setlimit` |  | `--limit`, `--sysparm-limit`, `--page-size` | Max records returned (default 1000 for table list; 100 for attachment list) |
+| `--offset` |  | `--sysparm-offset` | Starting offset |
+| `--display-value` |  | `--sysparm-display-value` | `true`, `false`, `all` |
+| `--exclude-reference-link` |  | `--sysparm-exclude-reference-link` | Boolean |
+| `--view` |  | `--sysparm-view` | Named UI view |
+| `--input-display-value` |  | `--sysparm-input-display-value` | Boolean (writes) |
+| `--suppress-auto-sys-field` |  | `--sysparm-suppress-auto-sys-field` | Boolean (writes) |
+| `--suppress-pagination-header` |  | `--sysparm-suppress-pagination-header` | Boolean |
+| `--query-category` |  | `--sysparm-query-category` | Index-selection hint (string) |
+| `--query-no-domain` |  | `--sysparm-query-no-domain` | Boolean |
+| `--no-count` |  | `--sysparm-no-count` | Boolean |
+| `--output` |  | (CLI only) | `default` (unwrapped JSON), `raw` (full envelope), or `table` (columnar — interactive only) |
 
 ## Configuration
 
@@ -490,7 +496,7 @@ Credentials use a two-file, AWS CLI-style split:
 
 macOS uses `~/Library/Application Support/sn/` and Windows `%APPDATA%\sn\`.
 
-A **profile** is the single unit of identity — create one with `sn init` (see [Setup](#setup)) and select it with `--profile NAME` or `sn profile use NAME`. Resolution is `--profile` flag > `default_profile` in `config.toml` > a clear error. No env var or global flag can override a profile field — preventing chimera identities and, for OAuth, token leakage to an arbitrary host.
+A **profile** is the single unit of identity. Create one with `sn init`, select it with `--profile NAME` or `sn profile use NAME`; resolution is `--profile` > `default_profile` > a clear error. No env var or flag overrides an individual profile field.
 
 Point `sn` at a different config directory (for testing or sandboxing) with `SN_CONFIG_DIR`.
 
@@ -548,7 +554,7 @@ Precedence for every proxy/TLS setting: CLI flag > env var (`SN_PROXY`, `SN_INSE
 ```bash
 sn -d   table list incident     # HTTP method, URL, status
 sn -dd  table list incident     # + response headers
-sn -ddd table list incident     # + request/response bodies (auth masked)
+sn -ddd table list incident     # + request/response bodies (auth headers, cookies, OAuth tokens masked)
 sn -v                           # print version (-V also works)
 ```
 

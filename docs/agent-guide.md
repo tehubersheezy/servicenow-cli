@@ -86,7 +86,7 @@ esac
 |---|---|
 | `-d` | method, URL, status, elapsed per request |
 | `-dd` | + response headers |
-| `-ddd` | + request/response bodies (Authorization masked to `Basic ***`) |
+| `-ddd` | + request/response bodies (Authorization/Set-Cookie headers and OAuth token values masked to `****`) |
 
 Turn on `-d` after an exit 2/3 to see the exact URL built — a sysparm typo
 producing a malformed path is a common 404 cause. Verbose text is free-form and
@@ -289,16 +289,19 @@ untouched. Almost always what you want:
 sn table update incident c7d8e9f0a1b2 --field state=2 --field work_notes="Investigating"
 ```
 
-**`replace` = PUT** — overwrites the whole record; any field you omit resets to
-its dictionary default (often empty). Use only after reading the record,
-modifying the full payload, and writing it all back:
+**`replace` = PUT** — despite PUT's REST convention, ServiceNow still applies
+it as a partial update: omitted fields keep their values, nothing is blanked.
+To clear a field, send it explicitly empty (`--field description=""`). Prefer
+`update`; `replace` exists for API fidelity:
 
 ```bash
 sn table replace incident c7d8e9f0a1b2 --data @full.json
 ```
 
-**`delete`** returns exit 0 with empty stdout. Always pass `--yes` in
-non-interactive contexts, or it blocks forever on the stdin confirmation prompt:
+**`delete`** returns exit 0 with empty stdout. Non-interactive runs must pass
+`--yes` — without it, a non-TTY invocation exits 1 with a usage error (a TTY
+gets a `[y/N]` prompt). The same guard covers `change delete`, `change task
+delete`, `attachment delete`, and `cmdb relation delete`:
 
 ```bash
 sn table delete incident c7d8e9f0a1b2 --yes
@@ -370,7 +373,7 @@ sn change get chg001 --type normal
 sn change create --type normal --field short_description="DB migration" --field category=software
 sn change create --type standard --template <template_sys_id>
 sn change update chg001 --field state=2
-sn change delete chg001
+sn change delete chg001 --yes
 ```
 
 **Workflow** — call `nextstates` before changing state to avoid
@@ -391,7 +394,7 @@ sn change templates       # browse standard-change templates
 sn change task list <change_sys_id>
 sn change task create <change_sys_id> --field short_description="Pre-check"
 sn change task update <change_sys_id> <task_sys_id> --field state=2
-sn change task delete <change_sys_id> <task_sys_id>
+sn change task delete <change_sys_id> <task_sys_id> --yes
 sn change ci list <change_sys_id>
 sn change ci add <change_sys_id> --data '{"cmdb_ci_sys_id":"<ci_id>"}'
 sn change conflict get <sys_id>          # also: conflict add / conflict remove
@@ -409,7 +412,7 @@ sn attachment get att001
 sn attachment upload --table incident --record <record_sys_id> --file ./report.pdf
 sn attachment download att001 --output ./downloaded.png    # {"path":"./downloaded.png","size":245760}
 sn attachment download att001 > file.bin                   # or raw bytes to stdout
-sn attachment delete att001
+sn attachment delete att001 --yes
 ```
 
 ## CMDB
@@ -422,10 +425,10 @@ is always the first positional arg.
 sn cmdb list cmdb_ci_server --query "operational_status=1" --setlimit 10
 sn cmdb get cmdb_ci_server ci001                        # includes relations
 sn cmdb create cmdb_ci_server --field name=web-server-02 --field ip_address=10.0.1.51
-sn cmdb update cmdb_ci_server ci001 --field operational_status=2   # PATCH; replace = PUT full overwrite
+sn cmdb update cmdb_ci_server ci001 --field operational_status=2   # PATCH; replace = PUT (also a partial update)
 sn cmdb meta cmdb_ci_server                             # class schema
-sn cmdb relation add cmdb_ci_server ci001 --data '{"type":"<rel_type_sys_id>","target":"<target_ci_sys_id>"}'
-sn cmdb relation delete cmdb_ci_server ci001 <rel_sys_id>
+sn cmdb relation add cmdb_ci_server ci001 --data '{"outbound_relations":[{"type":"<cmdb_rel_type_sys_id>","target":"<target_ci_sys_id>"}]}'
+sn cmdb relation delete cmdb_ci_server ci001 <rel_sys_id> --yes
 ```
 
 ## Import Sets
@@ -603,11 +606,13 @@ sn introspect | jq '.commands[] | {name, summary}'
 
 - **Reading for humans without `--display-value true`** → you report `state=2`
   instead of `In Progress`. For writes, always use raw values.
-- **`replace` (PUT) when you meant `update` (PATCH)** → `replace` wipes every
-  field you omit. Default to `update`.
+- **Expecting `replace` (PUT) to clear omitted fields** → it doesn't; ServiceNow
+  applies PUT as a partial update. Clear a field explicitly (`--field x=""`).
 - **Mixing `--data` and `--field`** → exit 1. Pick one.
 - **`--query` on `get`** → `get` takes a sys_id only; use `list --limit 1 --query "..."`.
-- **Missing `--yes` on `delete`** in CI/agent contexts → hangs on the stdin prompt.
+- **Missing `--yes` on `delete`** in CI/agent contexts → immediate exit 1 usage
+  error (non-TTY never prompts). Applies to every `delete` subcommand (`table`,
+  `change`, `change task`, `attachment`, `cmdb relation`).
 - **Sending a display value as raw** → `--field state="In Progress"` without
   `--input-display-value` fails; send `state=2`.
 - **Paginating by hand** → use `--all` (with `--max-records` as a guard rail);
@@ -621,8 +626,10 @@ sn introspect | jq '.commands[] | {name, summary}'
 
 `sn` ships as a Claude Code plugin that pre-approves `Bash(sn *)` (no per-call
 permission prompts). Repos that clone it load the local skill at
-`.claude/skills/sn.md` automatically (invoke with `/sn`). For cross-project use:
-`claude plugin install --dir /path/to/sn`.
+`.claude/skills/sn.md` automatically (invoke with `/sn`). To install it as a
+plugin elsewhere, add this repo as a marketplace (`claude plugin marketplace
+add tehubersheezy/servicenow-cli`, or a local clone path), then
+`claude plugin install sn`.
 
 ## Quick reference
 
@@ -642,23 +649,23 @@ sn table list TABLE [shared list flags] [--view N] [--query-category C] [--query
 sn table get  TABLE SYS_ID [--fields CSV] [--display-value ...] [--view N]
 sn table create  TABLE (--data JSON|@FILE|@- | --field K=V ...) [--fields CSV] [--display-value ...] [--input-display-value]
 sn table update  TABLE SYS_ID (--data ...|--field K=V ...) [same write flags]
-sn table replace TABLE SYS_ID (--data ...|--field K=V ...) [same write flags]      # PUT — full overwrite
+sn table replace TABLE SYS_ID (--data ...|--field K=V ...) [same write flags]      # PUT — SN still partial-updates
 sn table delete  TABLE SYS_ID [--yes] [--query-no-domain]
 
 sn change list [--type normal|emergency|standard] [shared list flags]
-sn change get|update|delete SYS_ID [--type ...]     sn change create [--type ...] [--template ID] (--data|--field)
+sn change get|update|delete SYS_ID [--type ...] [--yes]     sn change create [--type ...] [--template ID] (--data|--field)
 sn change nextstates|schedule SYS_ID                sn change approvals|risk SYS_ID (--data|--field)
 sn change models|templates [SYS_ID]
-sn change task list|get|create|update|delete CHANGE_SYS_ID [TASK_SYS_ID] (--data|--field)
+sn change task list|get|create|update|delete CHANGE_SYS_ID [TASK_SYS_ID] (--data|--field) [--yes]
 sn change ci list|add CHANGE_SYS_ID (--data|--field)    sn change conflict get|add|remove SYS_ID
 
-sn attachment list [--query EQ] [--setlimit N]      sn attachment get|delete SYS_ID
+sn attachment list [--query EQ] [--setlimit N]      sn attachment get|delete SYS_ID [--yes]
 sn attachment upload --table T --record SYS_ID --file PATH [--file-name N] [--content-type MIME]
 sn attachment download SYS_ID [--output PATH]
 
 sn cmdb list CLASS [--query EQ] [--setlimit N]       sn cmdb get CLASS SYS_ID      sn cmdb meta CLASS
 sn cmdb create|update|replace CLASS [SYS_ID] (--data|--field)
-sn cmdb relation add CLASS SYS_ID (--data|--field)   sn cmdb relation delete CLASS SYS_ID REL_SYS_ID
+sn cmdb relation add CLASS SYS_ID (--data|--field)   sn cmdb relation delete CLASS SYS_ID REL_SYS_ID [--yes]
 
 sn import create STAGING_TABLE (--data|--field)     sn import bulk STAGING_TABLE --data JSON|@FILE|@-
 sn import get STAGING_TABLE SYS_ID
