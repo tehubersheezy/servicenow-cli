@@ -32,8 +32,10 @@ Non-obvious shapes worth knowing:
 | Command | stdout |
 |---|---|
 | `table delete`, `change delete`, `attachment delete` | empty (exit code signals success) |
-| `attachment download` | raw bytes, or `{"path","size"}` with `--output <file>` |
-| `aggregate` | `{"stats":{count,sum,avg,min,max,groupby_fields}}` |
+| `profile use`, `profile remove` | empty (exit code signals success) |
+| `init` | empty stdout — it reports to a **human on stderr**. Use `profile add` if you need JSON. |
+| `attachment download` | raw bytes, or `{"path","size"}` with `--out <file>` |
+| `aggregate` | `{"stats":{...}}` — but with `--group-by`, an **array** of `{groupby_fields,stats}` |
 | `app` / `updateset` / `atf run` | progress object with `status_label` + `links.progress.id` |
 | `progress` | `{status_label, percent_complete, status_message}` |
 | `ping` | `{ok, profile, instance, username, latency_ms, build_name, build_tag}` |
@@ -76,7 +78,7 @@ case $? in
   2) [ "$(jq -r '.error.status_code' /tmp/sn.err)" = 404 ] && exit 0   # not found — nothing to do
      jq -r '.error.message' /tmp/sn.err >&2; exit 1 ;;
   3) echo "transport failure — check connectivity" >&2; exit 1 ;;
-  4) echo "auth failed — re-run 'sn init'" >&2; exit 1 ;;
+  4) echo "auth failed — OAuth: 'sn auth login'; basic: re-add the profile" >&2; exit 1 ;;
 esac
 ```
 
@@ -95,22 +97,64 @@ may change between versions; only the stderr error object is structured.
 ## Setup & profiles
 
 ```bash
-sn init                    # interactive: prompts for instance, auth method, credentials
-sn init --profile prod     # add a second profile
+sn init                    # interactive wizard: prompts, then claims default_profile
+sn profile add prod ...    # scriptable: adds a profile, leaves default_profile alone
+sn profile list            # also: show <name> / use <name> / remove <name>
 sn ping                    # verify auth + latency + build version (the health check)
 ```
 
-`sn init` writes secrets to `credentials.toml` (chmod 600 on Unix; the per-user
-`%APPDATA%` ACL on Windows) and non-secret config to `config.toml`, under
-`~/.config/sn/` (Linux), `~/Library/Application Support/sn/` (macOS), or
-`%APPDATA%\sn\` (Windows). `SN_CONFIG_DIR` relocates that directory (used as-is —
-no `sn` subdir appended); it's the supported way to sandbox `sn` for CI or
-ephemeral sessions:
+**`sn profile add` is the one to reach for.** It is the agent-safe half of the pair:
+it emits JSON on stdout, and it **never prompts when stdin is not a terminal** — a
+missing field is exit 1 naming the flag, not a blocked read. `sn init` is a human
+wizard that also takes over `default_profile`, which is rarely what you want when
+adding an instance to an existing setup.
 
 ```bash
-SN_CONFIG_DIR=/tmp/sn-sandbox sn init --profile ci --instance dev12345 ...
+sn profile add ci --instance dev12345 --username svc --password-stdin < secret.txt
+# → {"auth":"basic","default":false,"instance":"dev12345.service-now.com","next":"sn profile use ci",
+#    "ok":true,"profile":"ci","user":"svc","verified":true}
+```
+
+Keys come back sorted. `"next"` appears only when it has something to tell you — here, that no
+default profile is selected yet, so this one needs `sn profile use ci` or an explicit `--profile ci`.
+
+Pipe secrets in rather than passing `--password` / `--client-secret`, which any
+process can read out of `ps` and which land in shell history.
+
+`add` always checks the credentials against the instance, and **a profile that
+fails the check is not written at all** — you never inherit a half-configured
+identity that breaks somewhere confusing later. Its contract:
+
+| situation | exit | effect |
+|---|---|---|
+| ok | 0 | profile written, `"verified":true` |
+| profile already exists | 1 | nothing written — pass `--force` |
+| required flag missing (no TTY) | 1 | nothing written — message names the flag |
+| credentials rejected | 4 | **nothing written** |
+| `--no-verify` | 0 | written unverified, no network call |
+
+`--set-default` also makes it the default; otherwise use `sn profile use <name>`,
+or pass `--profile <name>` per command. When no default profile exists, `add` says
+so in a `"next"` field.
+
+Secrets go to `credentials.toml` (chmod 600 on Unix; the per-user `%APPDATA%` ACL
+on Windows) and non-secret config to `config.toml`, under `~/.config/sn/` (Linux),
+`~/Library/Application Support/sn/` (macOS), or `%APPDATA%\sn\` (Windows).
+`SN_CONFIG_DIR` relocates that directory (used as-is — no `sn` subdir appended);
+it's the supported way to sandbox `sn` for CI or ephemeral sessions:
+
+```bash
+SN_CONFIG_DIR=/tmp/sn-sandbox sn profile add ci --instance dev12345 \
+  --username svc --password-stdin < secret.txt
 SN_CONFIG_DIR=/tmp/sn-sandbox sn --profile ci table list incident --limit 1
 ```
+
+**OAuth.** `sn profile add --auth oauth --grant client_credentials` works headlessly
+(the token is minted and verified). The default `authorization_code` grant needs a
+browser, so there is nothing an agent can verify: `add` refuses on a non-TTY rather
+than save an untested profile. Register it with `--no-verify` and have a human run
+`sn auth login --profile <name>`. Session state is `sn auth status` / `refresh` /
+`logout`; tokens then refresh transparently on every command.
 
 **Profile selection** (highest precedence first): `--profile <name>` →
 `default_profile` in `config.toml` → error (`no profile selected`, exit 1). There
@@ -123,7 +167,7 @@ sn --profile prod table list incident --limit 5
 A profile is the single unit of identity — instance URL + credentials together.
 There is no way to graft a one-off instance/username/password onto a command,
 and there are no env vars for credentials or profile selection: configure a
-profile with `sn init`. Only proxy/TLS and the config *directory* are
+profile with `sn profile add` (or `sn init`). Only proxy/TLS and the config *directory* are
 env-overridable (precedence: CLI flag > env var > per-profile config field):
 
 | CLI flag | Env var | Effect |
@@ -146,19 +190,33 @@ When you don't know a table's schema, discover it before writing.
 sn schema tables --filter incident        # fuzzy match name or label
 ```
 ```json
-[{"name":"incident","label":"Incident","super_class":"task","is_extendable":true,"sys_id":"d17b..."}]
+[{"value":"incident","label":"Incident","rawLabel":"Incident","reference":false,"sequence":-1,
+  "image":"","missing":false,"selected":false,"used":false}]
 ```
+
+⚠️ **The table name is `value`, not `name`.** This endpoint returns a picker-style
+list, so `jq -r '.[].name'` yields `null` for every row. Use `jq -r '.[].value'`.
+There is no `super_class`, `is_extendable`, or `sys_id` here.
 
 ```bash
 sn schema columns incident --writable      # mandatory fields, types, references
 ```
 ```json
 [
-  {"name":"short_description","type":"string","max_length":160,"mandatory":true,"reference":null,"choice_field":false},
-  {"name":"caller_id","type":"reference","mandatory":false,"reference":"sys_user","choice_field":false},
-  {"name":"state","type":"integer","mandatory":true,"choice_field":true,"default_value":"1"}
+  {"name":"short_description","type":"string","internal_type":"string","max_length":160,
+   "mandatory":true,"read_only":false,"default":"","label":"Short description"},
+  {"name":"caller_id","type":"reference","mandatory":false,"reference":"sys_user",
+   "reference_display_field":"name","label":"Caller"},
+  {"name":"state","type":"choice","internal_type":"integer","mandatory":true,"default":"1",
+   "choice_type":"dropdown","choices":[{"value":"1","label":"New"},{"value":"2","label":"In Progress"}]}
 ]
 ```
+
+⚠️ There is **no `choice_field`** and **no `default_value`**. The default is `default`.
+A choice column is one whose **`type` is `"choice"`** — note its `internal_type` may
+still be `"integer"` — and its options are inlined in a **`choices[]`** array, so you
+often don't need a second `schema choices` call. `reference` is *absent* on
+non-reference columns rather than `null`.
 
 `columns` filters: `--writable` (excludes read-only), `--mandatory`,
 `--filter <substr>` (name or label), `--references-only`, `--choices-only`,
@@ -338,7 +396,8 @@ apply across `table` and most other command groups.
 | `--suppress-auto-sys-field` | `sysparm_suppress_auto_sys_field` | create/update/replace | Skip system-field auto-gen |
 | `--all` / `--array` / `--max-records <N>` | (CLI only) | list | Auto-paginate / array output / cap |
 | `--query-category <cat>` | `sysparm_query_category` | list | Index selection |
-| `--output`, `--profile`, `--yes`, `-d`/`-dd`/`-ddd` | (CLI only) | all | See relevant sections |
+| `--output`, `--profile`, `-d`/`-dd`/`-ddd` | (CLI only) | all | See relevant sections |
+| `--yes` / `-y` | (CLI only) | **`delete` subcommands only** — not global | Skip the confirmation; required on a non-TTY |
 
 ## Aggregate
 
@@ -346,11 +405,36 @@ apply across `table` and most other command groups.
 in one round trip, instead of paginating and counting client-side.
 
 ```bash
-sn aggregate incident --count --group-by state --display-value true
+sn aggregate incident --count                       # ungrouped → ONE object
 ```
 ```json
-{"stats":{"count":"142","groupby_fields":[{"field":"state","value":"In Progress","count":"87"},{"field":"state","value":"New","count":"55"}]}}
+{"stats":{"count":"142"}}
 ```
+
+```bash
+sn aggregate incident --count --group-by state      # grouped → an ARRAY, one entry per group
+```
+```json
+[
+  {"groupby_fields":[{"field":"state","value":"1"}],"stats":{"count":"15"}},
+  {"groupby_fields":[{"field":"state","value":"2"}],"stats":{"count":"20"}},
+  {"groupby_fields":[{"field":"state","value":"7"}],"stats":{"count":"27"}}
+]
+```
+
+⚠️ **`--group-by` changes the top-level type from object to array**, and
+`groupby_fields` is a **sibling** of `stats`, not a member of it. The count for a
+group lives at `.stats.count`, and the group's value at
+`.groupby_fields[0].value` — so `jq '.stats.groupby_fields[]'` returns nothing.
+To read groups:
+
+```bash
+sn aggregate incident --count --group-by state \
+  | jq -r '.[] | "\(.groupby_fields[0].value)\t\(.stats.count)"'
+```
+
+`sum`/`avg`/`min`/`max` nest **per field** rather than being scalars:
+`{"stats":{"sum":{"reassignment_count":"24"},"min":{"priority":"1"}}}`.
 
 ```bash
 # Combine aggregations and filter server-side
@@ -367,6 +451,18 @@ Flags: `--count`, `--group-by <csv>`, `--avg-fields`/`--sum-fields`/
 **emergency**, **standard**; `--type` targets a type-specific endpoint (omit for
 the generic one). Standard changes **require** `--template`.
 
+⚠️ **Unlike the Table API, the Change API returns every field as a
+`{display_value, value}` pair.** `.number` is an *object*, not a string:
+
+```json
+{"number":{"display_value":"CHG0000024","value":"CHG0000024"},
+ "state":{"display_value":"Closed","value":3.0}}
+```
+
+So `jq -r '.number'` prints a JSON blob, not `CHG0000024` — you want
+`jq -r '.number.value'`. Note `state.value` comes back as a **number** (`3.0`),
+while the Table API would give you the string `"3"`.
+
 ```bash
 sn change list --type normal --query "state=1^priority<=2" --setlimit 10
 sn change get chg001 --type normal
@@ -380,7 +476,11 @@ sn change delete chg001 --yes
 invalid-transition errors:
 
 ```bash
-sn change nextstates chg001          # [{"value":"-4","label":"Scheduled"},{"value":"3","label":"Implement"}]
+sn change nextstates chg001
+# {"available_states":["3"],"state_label":{"3":"Closed"},"state_transitions":[]}
+#   ^ an OBJECT, not a list of {value,label}: the legal next states are the strings
+#     in .available_states, and .state_label maps each to its display name.
+#     e.g.  jq -r '.available_states[] as $s | "\($s)\t\(.state_label[$s])"'
 sn change approvals chg001 --field approval="approved"
 sn change risk chg001 --data '{"risk_value":"moderate"}'
 sn change schedule chg001
@@ -410,7 +510,7 @@ record. Content type is auto-detected from file extension; override with
 sn attachment list --query "table_name=incident" --setlimit 20
 sn attachment get att001
 sn attachment upload --table incident --record <record_sys_id> --file ./report.pdf
-sn attachment download att001 --output ./downloaded.png    # {"path":"./downloaded.png","size":245760}
+sn attachment download att001 --out ./downloaded.png       # {"path":"./downloaded.png","size":245760}
 sn attachment download att001 > file.bin                   # or raw bytes to stdout
 sn attachment delete att001 --yes
 ```
@@ -429,6 +529,15 @@ sn cmdb update cmdb_ci_server ci001 --field operational_status=2   # PATCH; repl
 sn cmdb meta cmdb_ci_server                             # class schema
 sn cmdb relation add cmdb_ci_server ci001 --data '{"outbound_relations":[{"type":"<cmdb_rel_type_sys_id>","target":"<target_ci_sys_id>"}]}'
 sn cmdb relation delete cmdb_ci_server ci001 <rel_sys_id> --yes
+```
+
+⚠️ **`cmdb get` nests the CI's fields under `attributes`.** The top level has
+exactly three keys — `attributes`, `inbound_relations`, `outbound_relations` — so
+the CI's name is `.attributes.name`, not `.name`:
+
+```bash
+sn cmdb get cmdb_ci_server ci001 | jq -r '.attributes.name'
+sn cmdb get cmdb_ci_server ci001 | jq '.outbound_relations[] | {type, target}'
 ```
 
 ## Import Sets
@@ -509,23 +618,40 @@ Running, `2` Successful, `3` Failed, `4` Cancelled.
 progress result. `--wait-timeout <SECS>` bounds the wait; on expiry the command
 exits 3 pointing you to `sn progress <id>`.
 
+**Branch on the exit code, never on `status_label`.** `--wait` returns 0 *only* when
+`status` reaches `2`. A failed operation is **exit 2 with empty stdout** (the progress
+object is on stderr, under `.error.sn_error`); a timeout is **exit 3, also empty
+stdout**. So reading the command's stdout on a failure branch gets you an empty
+string:
+
 ```bash
-result=$(sn app install --scope x_myapp --version 1.2.0 --wait --wait-timeout 300)
-[ "$(jq -r '.status_label' <<<"$result")" = Complete ] || { jq -r '.status_message' <<<"$result" >&2; exit 1; }
+if out=$(sn app install --scope x_myapp --version 1.2.0 --wait --wait-timeout 300 2>/tmp/sn.err); then
+  echo "installed"                                    # exit 0 ⇒ status "2", nothing else to check
+else
+  case $? in
+    2) jq -r '.error.message' /tmp/sn.err >&2 ;;      # failed — details in .error.sn_error
+    3) echo "timed out; still running — poll: sn progress <id>" >&2 ;;
+  esac
+  exit 1
+fi
 ```
 
-Final `--wait` shape:
-`{"status":"2","status_label":"Complete","status_message":"...","percent_complete":100}`.
+Final `--wait` stdout on success:
+`{"status":"2","status_label":"Successful","status_message":"...","percent_complete":"100"}`.
 
-**Manual polling** (for an operation already in flight) — poll `sn progress <id>`
-until `status_label` is `Complete` or `Failed`:
+⚠️ **`status_label` is ServiceNow's own string, passed through verbatim — `sn` never
+normalizes it.** It varies by instance and operation ("Successful", "Complete",
+"Succeeded"…). Matching on it is how you write a poll loop that never terminates.
+The numeric `status` is the contract; the label is for humans.
+
+**Manual polling** (for an operation already in flight) — key off `status`:
 
 ```bash
 while r=$(sn progress "$id"); do
-  case "$(jq -r '.status_label' <<<"$r")" in
-    Complete) break ;;
-    Failed)   jq -r '.status_message' <<<"$r" >&2; exit 1 ;;
-    *)        sleep 5 ;;
+  case "$(jq -r '.status' <<<"$r")" in
+    2)   break ;;                                              # successful
+    3|4) jq -r '.status_message' <<<"$r" >&2; exit 1 ;;        # failed / cancelled
+    *)   sleep 5 ;;                                            # 0 pending, 1 running
   esac
 done
 ```
@@ -566,8 +692,12 @@ sn atf results <result_id>                            # {"status":"success","tes
 sn scores list --per-page 20 --sort-by VALUE --sort-dir DESC
 ```
 ```json
-[{"uuid":"indicator-uuid-1","name":"MTTR - Incidents","value":4.2,"target":6.0,"direction":"minimize","frequency":"Daily"}]
+[{"uuid":"indicator-uuid-1","name":"MTTR - Incidents","value":4.2,"target":6.0,
+  "direction":2,"direction_label":"Minimize","frequency":10,"frequency_label":"Daily"}]
 ```
+
+⚠️ `direction` and `frequency` are **integer codes**, not words. The human strings
+are in `direction_label` / `frequency_label` — read those, not the numbers.
 
 ```bash
 sn scores list --uuid <indicator_id> --include-scores --from 2026-01-01 --to 2026-04-01   # historical series
@@ -593,14 +723,25 @@ sn introspect                            # full command tree as JSON — auto-ge
 
 `sn raw <METHOD> <PATH>` applies the active profile's auth/proxy/TLS and the
 standard output/error contract; use it for endpoints `sn` doesn't model.
-`sn introspect` emits every subcommand, flag, value type, and help string —
-each entry carries `name`, `summary`, `args`, `flags` (with `sysparm`/`value_type`),
-and `exit_codes`:
+`sn introspect` emits the whole command tree as **one recursive object** —
+`{name, about, args[], subcommands[]}`, with `subcommands` nesting the same shape
+all the way down. There is **no** top-level `commands` array (`jq '.commands[]'`
+fails with "Cannot iterate over null"), and no `summary`, `flags`, or `exit_codes`
+key: the help string is `about`, and every option lives in `args[]`.
 
 ```bash
-sn introspect | jq '.commands[] | {name, summary}'
-# {"name":"table list","summary":"List records from a table"} ...
+# Flatten the tree to every command and its help text:
+sn introspect | jq '[.. | objects | select(has("subcommands")) | {name, about}]'
+
+# What flags does `table list` take?
+sn introspect | jq '.subcommands[] | select(.name=="table")
+                    | .subcommands[] | select(.name=="list") | .args[].name'
 ```
+
+Each entry in `args[]` carries `name`, `about`, `takes_value`, `positional`,
+`repeatable`, `aliases`, `default_values`, and `possible_values` — enough to
+generate an MCP tool or function-call schema. A `takes_value: false` arg is a
+valueless switch: emit `--all`, never `--all true`.
 
 ## Common mistakes
 
@@ -635,6 +776,8 @@ add tehubersheezy/servicenow-cli`, or a local clone path), then
 
 ```
 sn init [--profile NAME]                          sn ping [--profile NAME]
+sn profile add NAME --instance X --username Y --password-stdin [--force|--no-verify|--set-default]
+sn profile list|show NAME|use NAME|remove NAME    sn auth login|status|refresh|logout
 sn user me     sn open TABLE SYS_ID [--print-url]     sn completion SHELL
 sn raw METHOD PATH [-q k=v ...] [--data ...|--field k=v ...]
 sn introspect  sn progress PROGRESS_ID
@@ -661,7 +804,7 @@ sn change ci list|add CHANGE_SYS_ID (--data|--field)    sn change conflict get|a
 
 sn attachment list [--query EQ] [--setlimit N]      sn attachment get|delete SYS_ID [--yes]
 sn attachment upload --table T --record SYS_ID --file PATH [--file-name N] [--content-type MIME]
-sn attachment download SYS_ID [--output PATH]
+sn attachment download SYS_ID [--out PATH]
 
 sn cmdb list CLASS [--query EQ] [--setlimit N]       sn cmdb get CLASS SYS_ID      sn cmdb meta CLASS
 sn cmdb create|update|replace CLASS [SYS_ID] (--data|--field)

@@ -4,7 +4,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ## What this project is
 
-`sn` is a single-binary Rust CLI wrapping ServiceNow's REST APIs: Table, Change Management, Attachment, CMDB, Import Set, Service Catalog, Identification & Reconciliation, CICD (App Repository, Update Sets, ATF), Aggregate, Performance Analytics, and two undocumented schema-discovery endpoints. Built for LLM agents: stable JSON on stdout, structured JSON errors on stderr, deterministic exit codes, no interactive surprises unless opted into (`sn init`).
+`sn` is a single-binary Rust CLI wrapping ServiceNow's REST APIs: Table, Change Management, Attachment, CMDB, Import Set, Service Catalog, Identification & Reconciliation, CICD (App Repository, Update Sets, ATF), Aggregate, Performance Analytics, and two undocumented schema-discovery endpoints. Built for LLM agents: stable JSON on stdout, structured JSON errors on stderr, deterministic exit codes, no interactive surprises unless opted into (`sn init`). Commands that *can* prompt (`sn init`, `sn profile add`) only ever do so on a TTY — with a non-terminal stdin they fail naming the missing flag rather than blocking on a read nobody will answer.
 
 ## Build, test, lint
 
@@ -39,9 +39,9 @@ src/
   observability.rs  → global AtomicU8 verbosity, log helpers (set_level called in main; log_request/response/body wired into client.rs)
   cli/
     mod.rs          → Cli struct, GlobalFlags, all Subcommand enums + arg structs
-    init.rs         → sn init (interactive profile setup — basic or oauth — + verification; oauth branch reuses auth::complete_oauth_login)
-    auth.rs         → sn auth login/logout/status/refresh (OAuth session commands; login runs the flow for a configured oauth profile, no config mutation)
-    profile.rs      → sn profile list/show/remove/use
+    init.rs         → sn init (onboarding wizard: profile setup + verification, and ALWAYS claims default_profile); a thin policy layer over profile.rs's core
+    auth.rs         → sn auth login/logout/status/refresh (OAuth session commands; login runs the flow for a configured oauth profile, no config mutation) + whoami (authenticated-identity read, shared with profile.rs)
+    profile.rs      → sn profile add/list/show/remove/use + the shared profile-writing core (ProfileInput, resolve_name/resolve_input, save_and_verify) used by both `add` and `init`
     table.rs        → sn table list/get/create/update/replace/delete + shared helpers
     schema.rs       → sn schema tables/columns/choices (undocumented SN endpoints)
     introspect.rs   → sn introspect (dumps clap command tree as JSON)
@@ -91,7 +91,7 @@ Base paths and quirks not obvious from the module list:
 
 ### CICD async pattern
 
-CICD operations (`app`, `updateset`, `atf`) are async: they return a `progress_id` and run in the background on the instance. Prefer `--wait` — it blocks (polling `GET /api/sn_cicd/progress/{id}` every 2s) until the operation completes, then emits the final progress result. `--wait-timeout <SECS>` (requires `--wait`) bounds the wait; on expiry the command exits 3 with a pointer to `sn progress`. Without `--wait`, the command returns the initial progress object immediately; poll in-flight operations with `sn progress <progress_id>`. Progress responses carry `state` (`running`/`complete`/`failed`) and `percentComplete`. All groups share one tail — `cli/progress.rs::finish_cicd` (progress-link extraction + polling + emission via `write_response`, so `--output table` works under `--wait`); new async commands must route through it, not open-code the wait.
+CICD operations (`app`, `updateset`, `atf`) are async: they return a `progress_id` and run in the background on the instance. Prefer `--wait` — it blocks (polling `GET /api/sn_cicd/progress/{id}` every 2s) until the operation completes, then emits the final progress result. `--wait-timeout <SECS>` (requires `--wait`) bounds the wait; on expiry the command exits 3 with a pointer to `sn progress`. Without `--wait`, the command returns the initial progress object immediately; poll in-flight operations with `sn progress <id>`. Progress responses carry `status` — a numeric **string**, not an enum name: `"0"` pending, `"1"` running, `"2"` successful, `"3"` failed, `"4"` cancelled — plus `status_message`/`status_detail` and `percent_complete` (snake_case). The id is at `links.progress.id`; there is no top-level `progress_id` in the response (that name is only the CLI's positional arg). All groups share one tail — `cli/progress.rs::finish_cicd` (progress-link extraction + polling + emission via `write_response`, so `--output table` works under `--wait`); new async commands must route through it, not open-code the wait.
 
 ### Client binary methods
 
@@ -102,7 +102,24 @@ CICD operations (`app`, `updateset`, `atf`) are async: they return a `progress_i
 
 ### Profile resolution precedence
 
-A profile is the single unit of identity: commands either manage profiles (`sn init`, `sn profile *`) or use exactly one. Selection is `--profile` flag > `default_profile` in config.toml; if neither resolves, `resolve_profile_name` (in `config.rs`) returns `Error::Config("no profile selected; pass --profile <name> or run \`sn init\`")` (exit 1). There are **no** per-field argv overrides — change identity by editing the profile via `sn init` or selecting a different one via `--profile`. A profile with an empty/whitespace `instance` is rejected. There are deliberately no env vars for credential values or profile selection; proxy/TLS env vars (`SN_PROXY` etc.) and the `SN_CONFIG_DIR` config-directory override (see below) still exist.
+A profile is the single unit of identity: commands either manage profiles (`sn init`, `sn profile *`) or use exactly one. Selection is `--profile` flag > `default_profile` in config.toml; if neither resolves, `resolve_profile_name` (in `config.rs`) returns `Error::Config("no profile selected; pass --profile <name> or run \`sn init\`")` (exit 1). There are **no** per-field argv overrides — change identity by rewriting the profile (`sn init`, or `sn profile add --force`) or selecting a different one via `--profile`. A profile with an empty/whitespace `instance` is rejected. There are deliberately no env vars for credential values or profile selection; proxy/TLS env vars (`SN_PROXY` etc.) and the `SN_CONFIG_DIR` config-directory override (see below) still exist.
+
+### `sn init` vs `sn profile add`
+
+Both write a profile through **one shared core** in `cli/profile.rs` (`resolve_name` → `resolve_input` → `save_and_verify`); they differ only in the three policies layered on top, so the two can't drift:
+
+| | `sn init` | `sn profile add` |
+|---|---|---|
+| role | onboarding wizard | scriptable creator |
+| `default_profile` | **always** claims it | **never** touches it (unless `--set-default`) |
+| existing profile | upserts | exit 1 unless `--force` |
+| result reported as | human text on stderr | JSON on stdout, empty stderr |
+| secret input | prompt only | `--password-stdin` / `--client-secret-stdin` (or a prompt) |
+| skip verification | can't | `--no-verify` |
+
+(Prompts themselves go to **stdout** — `print!` in `profile::ask` — for both. They only ever fire on a TTY, so scripted stdout stays clean JSON.)
+
+Verification is on by default and `save_and_verify` **rolls the config files back** when it fails — a profile that can't authenticate must never survive on disk, or it fails later somewhere confusing. `sn profile add --no-verify` is the one deliberate escape hatch (air-gapped provisioning; registering an `authorization_code` profile a human will later `sn auth login` to); `sn init` has no such flag and always verifies. Prefer the `-stdin` secret flags over argv, which `ps` and shell history can see.
 
 ### OAuth / SSO authentication
 
@@ -111,7 +128,9 @@ A profile authenticates via `auth = "basic"` (default) or `auth = "oauth"` in it
 - **Split by secrecy:** non-secret OAuth config (client_id, redirect_uri, endpoint overrides, grant, pkce) lives in `config.toml` under `[profiles.<name>.oauth]`; the client secret and cached tokens live in `credentials.toml` (`chmod 0600`), mirroring the username/password split.
 - **Two grants:** `authorization_code` (interactive browser flow, loopback redirect server per RFC 8252, PKCE S256; registered as a **public client** — `sn init` neither needs nor prompts for a secret; pass `--client-secret` only for a confidential client) and `client_credentials` (non-interactive, confidential, requires a secret). The loopback `redirect_uri` (default `http://localhost:8400/callback`) **must be registered exactly** in the Application Registry.
 - **Endpoints:** authorization `GET /oauth_auth.do`, token `POST /oauth_token.do` (overridable per profile).
-- **Commands:** `sn auth login` (pure session command, no flags: resolves the selected profile, requires `auth = "oauth"` with an `[oauth]` block — a basic profile errors `does not use oauth; run \`sn init\`` — runs the flow with the stored grant, caches tokens), plus `sn auth status`/`refresh`/`logout`. All four emit success JSON to **stdout**; OAuth profiles are configured via `sn init --auth oauth`.
+- **Commands:** `sn auth login` (pure session command, no flags: resolves the selected profile, requires `auth = "oauth"` with an `[oauth]` block — a basic profile errors `does not use oauth; run \`sn init\`` — runs the flow with the stored grant, caches tokens), plus `sn auth status`/`refresh`/`logout`. All emit success JSON to **stdout**; OAuth profiles are configured via `sn init --auth oauth` or `sn profile add --auth oauth`.
+- **Headless setup:** `client_credentials` mints a token without a browser, so `sn profile add` verifies it like any other credential. `authorization_code` cannot be verified without one — `sn profile add` refuses on a non-TTY rather than persist an untested profile, and points at `--no-verify` + `sn auth login`.
+- **Whose identity is it:** `auth::whoami` resolves the authenticated user via `sysparm_query=user_name=javascript:gs.getUserName()`. A bare `sysparm_limit=1` read of `sys_user` returns whichever row sorts first — an arbitrary account, not the caller — so never use it to report "who you logged in as" (that bug shipped for several releases).
 - **Transparent refresh:** `build_client` (in `cli/table.rs`) calls `oauth::ensure_access_token` before every request for OAuth profiles — returns a cached token, refreshes a stale one via the refresh token (or mints a fresh one for client_credentials), persists new tokens. Call sites need no changes; the `Client` is auth-agnostic (one `Auth` enum `Basic`/`Bearer`/`None`, applied in `send()`).
 
 ### Proxy and TLS

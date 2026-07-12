@@ -190,6 +190,70 @@ async fn attachment_get_metadata() {
     .unwrap();
 }
 
+/// `attachment download` used to panic (exit 101) on EVERY invocation — flag or
+/// no flag. Its local `--output <PATH>` (a String) collided with the clap-global
+/// `--output default|raw|table` (an OutputMode): clap merges args by id, so the
+/// local definition shadowed the global one's type and `GlobalFlags` then tried
+/// to downcast an `OutputMode` out of a `String`. Nothing exercised the command,
+/// so a total crash shipped. The flag is `--out`/`-o` now.
+///
+/// The load-bearing assertion is simply that these RUN: a panic is exit 101, and
+/// `.success()` / `.code(n)` catches it no matter what the body says.
+#[tokio::test(flavor = "current_thread")]
+async fn attachment_download_writes_the_file_and_does_not_panic() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/now/attachment/att001/file"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(b"hello-bytes".to_vec(), "application/octet-stream"),
+        )
+        .mount(&server)
+        .await;
+    let tmp = write_profiles(
+        "test",
+        &[ProfileSpec {
+            name: "test",
+            instance: &server.uri(),
+            username: "u",
+            password: "p",
+        }],
+    );
+    tokio::task::spawn_blocking(move || {
+        let dest = tmp.path().join("downloaded.bin");
+        let dest_str = dest.to_str().unwrap().to_string();
+
+        // --out writes to disk and reports where.
+        let out = sn_cmd(tmp.path())
+            .args(["--compact", "attachment", "download", "att001", "--out"])
+            .arg(&dest_str)
+            .assert()
+            .success();
+        let v: serde_json::Value =
+            serde_json::from_slice(&out.get_output().stdout).expect("emits JSON on stdout");
+        assert_eq!(v["size"], 11);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"hello-bytes");
+
+        // No flag at all: the bytes go to stdout. This is the exact invocation
+        // that used to panic before parsing even finished.
+        let out = sn_cmd(tmp.path())
+            .args(["attachment", "download", "att001"])
+            .assert()
+            .success();
+        assert_eq!(out.get_output().stdout, b"hello-bytes");
+
+        // The global --output must still be usable on this command — that
+        // coexistence is the whole point of the rename.
+        sn_cmd(tmp.path())
+            .args(["--output", "raw", "attachment", "download", "att001", "-o"])
+            .arg(&dest_str)
+            .assert()
+            .success();
+    })
+    .await
+    .unwrap();
+}
+
 // ── cmdb ─────────────────────────────────────────────────────────────────────
 
 #[tokio::test(flavor = "current_thread")]

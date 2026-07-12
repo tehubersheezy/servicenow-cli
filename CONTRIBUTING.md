@@ -35,7 +35,9 @@ cargo test --lib query::            # tests in a module
 3. Add the module declaration to `src/cli/mod.rs`
 4. Wire up dispatch in `src/main.rs`
 5. Add integration tests in `tests/`
-6. Update documentation: README.md, CLAUDE.md, docs/agent-guide.md, .claude/skills/sn.md, skills/sn/SKILL.md
+6. Update documentation: README.md, CLAUDE.md, docs/agent-guide.md, .claude/skills/sn.md, skills/sn/SKILL.md, CHANGELOG.md
+
+`.claude/skills/sn.md` and `skills/sn/SKILL.md` must stay byte-identical apart from SKILL.md's extra `allowed-tools:` frontmatter line — edit one and regenerate the other rather than hand-editing both.
 
 ## Conventions
 

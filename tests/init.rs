@@ -44,6 +44,61 @@ async fn init_writes_files_and_verifies_creds() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn init_always_claims_the_default_profile() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/now/table/sys_user"))
+        .and(basic_auth("u", "p"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"result": []})))
+        .mount(&server)
+        .await;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().to_path_buf();
+    let server_uri = server.uri();
+
+    // An existing default that `init` must take over. This is the line between
+    // the two commands: `sn init` onboards you onto a profile (and so claims the
+    // default); `sn profile add` merely registers one (and never does).
+    let mut cfg = sn::config::Config {
+        default_profile: Some("old".into()),
+        ..Default::default()
+    };
+    cfg.profiles.insert(
+        "old".into(),
+        sn::config::ProfileConfig {
+            instance: "old.example.com".into(),
+            ..Default::default()
+        },
+    );
+    sn::config::save_config_to(&tmp_path.join("config.toml"), &cfg).unwrap();
+
+    tokio::task::spawn_blocking(move || {
+        common::sn_cmd(&tmp_path)
+            .args([
+                "init",
+                "--profile",
+                "fresh",
+                "--instance",
+                &server_uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+            ])
+            .assert()
+            .success();
+
+        let saved = sn::config::load_config_from(&tmp_path.join("config.toml")).unwrap();
+        assert_eq!(saved.default_profile.as_deref(), Some("fresh"));
+        // The profile it displaced is still there, just no longer the default.
+        assert!(saved.profiles.contains_key("old"));
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn reinit_preserves_proxy_credentials() {
     let server = wiremock::MockServer::start().await;
     Mock::given(method("GET"))

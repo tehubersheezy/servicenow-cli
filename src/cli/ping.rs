@@ -1,3 +1,4 @@
+use crate::cli::auth::whoami;
 use crate::cli::table::{build_client, build_profile, write_response};
 use crate::cli::GlobalFlags;
 use crate::error::Result;
@@ -14,6 +15,16 @@ pub fn run(global: &GlobalFlags) -> Result<()> {
         &[("sysparm_limit".into(), "1".into())],
     )?;
     let latency_ms = started.elapsed().as_millis() as u64;
+
+    // An OAuth profile stores no username — the identity lives in the token — so
+    // reporting the configured one would just print an empty string. Ask the
+    // instance instead. Basic profiles keep reporting what they were configured
+    // with, which is what proves a stray env var didn't swap the credentials out.
+    let username = if profile.username.is_empty() {
+        whoami(&client)?.unwrap_or_default()
+    } else {
+        profile.username.clone()
+    };
 
     let (build_name, build_tag) = match client.get(
         "/api/now/table/sys_properties",
@@ -34,7 +45,7 @@ pub fn run(global: &GlobalFlags) -> Result<()> {
         "ok": true,
         "profile": profile.name,
         "instance": profile.instance,
-        "username": profile.username,
+        "username": username,
         "latency_ms": latency_ms,
         "build_name": build_name,
         "build_tag": build_tag,

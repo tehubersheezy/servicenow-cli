@@ -1,8 +1,9 @@
 mod common;
 
-use common::{sn_cmd, write_profiles, ProfileSpec};
+use common::{sn_cmd, write_oauth_profile, write_profiles, ProfileSpec};
 use serde_json::json;
-use wiremock::matchers::{basic_auth, method, path};
+use sn::config::now_unix;
+use wiremock::matchers::{basic_auth, method, path, query_param};
 use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test(flavor = "current_thread")]
@@ -37,6 +38,50 @@ async fn ping_ok() {
         assert_eq!(out["profile"], json!("p1"));
         assert_eq!(out["username"], json!("u"));
         assert!(out["latency_ms"].is_u64());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn ping_names_the_user_on_an_oauth_profile() {
+    // An OAuth profile stores no username — the identity is in the token — so
+    // reporting `profile.username` printed an empty string. Ask the instance.
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/now/table/sys_user"))
+        .and(query_param(
+            "sysparm_query",
+            "user_name=javascript:gs.getUserName()",
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"result": [{"user_name": "sso.user"}]})),
+        )
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    // The unfiltered latency probe.
+    Mock::given(method("GET"))
+        .and(path("/api/now/table/sys_user"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"result": []})))
+        .with_priority(2)
+        .mount(&server)
+        .await;
+
+    let tmp = write_oauth_profile("sso", &server.uri(), "cid", (now_unix() + 3600) as i64);
+    let dir = tmp.path().to_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        let assert = sn_cmd(&dir).arg("ping").assert().success();
+        let out: serde_json::Value =
+            serde_json::from_slice(&assert.get_output().stdout).expect("ping emits JSON on stdout");
+        assert_eq!(out["ok"], json!(true));
+        assert_eq!(
+            out["username"],
+            json!("sso.user"),
+            "oauth ping must name the authenticated user, not an empty string"
+        );
     })
     .await
     .unwrap();

@@ -184,7 +184,11 @@ impl ClientBuilder {
     }
 }
 
-fn normalize_base_url(instance: &str) -> String {
+/// Turn a stored `instance` into an absolute base URL. Profiles persist the host
+/// without a scheme (`acme.service-now.com`), so anything that builds a URL from
+/// one — not just this client — has to come through here or it emits a
+/// scheme-less string that no browser or HTTP stack will accept.
+pub(crate) fn normalize_base_url(instance: &str) -> String {
     if instance.starts_with("http://") || instance.starts_with("https://") {
         instance.trim_end_matches('/').to_string()
     } else {

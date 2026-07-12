@@ -22,6 +22,7 @@ sn ping                                       # auth + latency health check
 - [Installation](#installation)
 - [Setup](#setup)
   - [Basic auth](#basic-auth)
+  - [Non-interactive setup (CI, containers, agents)](#non-interactive-setup-ci-containers-agents)
   - [OAuth / SSO](#oauth--sso)
 - [Usage](#usage)
   - [Reading records](#reading-records)
@@ -87,35 +88,83 @@ Download from [Releases](https://github.com/tehubersheezy/servicenow-cli/release
 
 ```bash
 sn init
-# Instance (e.g. acme.service-now.com): mycompany.service-now.com
+# Profile name [default]:
+# Instance (e.g. 'dev380385' or 'https://acme.service-now.com'): mycompany.service-now.com
+# Auth method (basic/oauth) [basic]:
 # Username: admin
 # Password: ********
-# profile 'default' saved and verified.
+# profile 'default' saved and verified (mycompany.service-now.com).
+# 'default' is now the default profile.
 ```
 
-Add more instances as named profiles, then pick one per command or set a default:
+`sn init` is the onboarding command: it sets up a profile **and makes it the default**. To add
+further instances without disturbing which profile your commands currently use, reach for
+`sn profile add`:
 
 ```bash
-sn init --profile prod --instance prod.service-now.com --username svc-user
+sn profile add prod --instance prod.service-now.com --username svc-user --auth basic   # prompts for the password
 sn --profile prod table list incident --setlimit 5
-sn profile use prod                  # make it the default
+sn profile use prod                  # make it the default, when you're ready
 ```
+
+(Omit `--auth basic` and it prompts for the auth method too. Any field you don't pass, it asks for —
+on a terminal. Off one, it fails naming the flag instead. See below.)
+
+### Non-interactive setup (CI, containers, agents)
+
+`sn profile add` is built to be scripted. It never prompts when stdin isn't a terminal — it fails
+naming the flag it needed — so it cannot hang a pipeline. Pipe the password in rather than passing
+`--password`, which is visible in `ps` output and shell history:
+
+```bash
+sn profile add ci --instance acme.service-now.com --username svc-user --password-stdin < secret.txt
+# → {"auth":"basic","default":false,"instance":"acme.service-now.com","next":"sn profile use ci",
+#    "ok":true,"profile":"ci","user":"svc-user","verified":true}
+```
+
+Keys come back sorted. `user` is the identity the instance resolved the credentials to — worth
+asserting on in CI, since it catches a service account being silently swapped out.
+
+It always checks the credentials against the instance, and **a profile that fails the check is not
+written at all** — no half-configured identity to trip over later. Pass `--no-verify` to register a
+profile without touching the network (air-gapped provisioning, or config management that runs
+before the instance is reachable).
+
+`"next"` appears only when there's something to do about it — above, that no default profile is
+selected yet, so `ci` needs `sn profile use ci` or an explicit `--profile ci`.
+
+`add` creates; it will not silently overwrite an identity you or a teammate may be relying on:
+
+| | |
+|---|---|
+| profile already exists | exit 1 — pass `--force` to overwrite |
+| required flag missing, no TTY | exit 1, naming the flag |
+| credentials rejected | exit 4, nothing written |
+| `--non-interactive` | never prompt, even on a terminal — fail naming the flag |
+| `--set-default` | also make it the default (otherwise `add` leaves it alone) |
 
 ### OAuth / SSO
 
-Configure the profile with `sn init --auth oauth`, then run the flow with `sn auth login`:
+Configure the profile with `sn init --auth oauth` (or `sn profile add --auth oauth`), then run the
+flow with `sn auth login`:
 
 ```bash
 # Authorization-code + PKCE (default): a PUBLIC client — no secret needed or prompted for.
 sn init --profile sso --auth oauth --instance acme.service-now.com --client-id <id>
 
 # Non-interactive server-to-server: client_credentials is a CONFIDENTIAL client and needs a secret
-# (prompted if --client-secret is omitted).
-sn init --profile svc --auth oauth --instance acme.service-now.com \
-  --grant client_credentials --client-id <id> --client-secret <secret>
+# (prompted if --client-secret is omitted; --client-secret-stdin keeps it out of `ps`).
+sn profile add svc --auth oauth --instance acme.service-now.com \
+  --grant client_credentials --client-id <id> --client-secret-stdin < secret.txt
 
 sn --profile sso auth login          # run the OAuth flow, cache tokens
 ```
+
+The two grants differ in whether they can be set up headlessly. `client_credentials` mints a token
+without a browser, so `sn profile add` verifies it like any other credential. `authorization_code`
+**requires** a browser, so there is nothing for `sn profile add` to test on a machine that has none:
+it refuses rather than save an untested profile. Pass `--no-verify` to register it anyway, then have
+a human run `sn auth login`.
 
 **One-time admin setup** (if the instance has no registry entry yet): **System OAuth → Application Registry → New → "Create an OAuth API endpoint for external clients"**; set the redirect URL to `http://localhost:8400/callback` — which must match `--redirect-uri` **exactly** — and copy the client ID. For the default authorization-code flow, enable **Public Client / PKCE required** so no secret is needed; only `client_credentials` needs the generated secret.
 
@@ -249,7 +298,7 @@ sn attachment upload --table incident --record <record_sys_id> --file ./data.csv
   --file-name "export_2026.csv" --content-type text/csv
 
 # Download to a file, or to stdout for piping
-sn attachment download <sys_id> --output ./downloaded.png
+sn attachment download <sys_id> --out ./downloaded.png   # -o also works
 sn attachment download <sys_id> | gzip > backup.gz
 
 sn attachment delete <sys_id> --yes
@@ -325,7 +374,7 @@ sn identify query-enhanced --data @query.json --data-source "discovery"
 
 ### CICD operations
 
-`app`, `updateset`, and `atf run` are asynchronous — they return a `progress_id` and run in the background. Add `--wait` to block until the operation finishes and emit the final result, and `--wait-timeout <SECS>` to bound that wait (on expiry `sn` exits 3 with a pointer to `sn progress`). Without `--wait`, poll manually with `sn progress <progress_id>`.
+`app`, `updateset`, and `atf run` are asynchronous — they return a progress object and run in the background on the instance. Add `--wait` to block until the operation finishes and emit the final result, and `--wait-timeout <SECS>` to bound that wait (on expiry `sn` exits 3 with a pointer to `sn progress`). Without `--wait`, take the id from `links.progress.id` and poll manually with `sn progress <id>`.
 
 ```bash
 # App Repository lifecycle
@@ -367,7 +416,8 @@ sn scores unfavorite <uuid>
 ```bash
 # Latency + auth + ServiceNow build version — one-shot health check (either auth method)
 sn ping
-# {"ok":true,"profile":"prod","instance":"https://acme.service-now.com","username":"admin","latency_ms":134,"build_name":"Vancouver",...}
+# {"build_name":"Vancouver","build_tag":"glide-vancouver-...","instance":"acme.service-now.com",
+#  "latency_ms":134,"ok":true,"profile":"prod","username":"admin"}
 
 # The authenticated user, resolved via gs.getUserName()
 sn user me
@@ -444,8 +494,8 @@ Commands emit JSON on stdout by a few consistent rules:
 - `get` / `create` / `update` / `replace` → the single record object (`cmdb get` includes relations).
 - `delete` → nothing.
 - `aggregate` → a stats object; `scores` → scorecard records.
-- Async CICD (`app`, `updateset`, `atf run`, `progress`) → a progress object with `progress_id`, `state`, and `percentComplete`.
-- `attachment download` → raw bytes (or metadata JSON when you pass `--output <file>` — here `--output` is a destination file path, not the global output-mode flag).
+- Async CICD (`app`, `updateset`, `atf run`, `progress`) → a progress object carrying `status` — a numeric **string**, not a word: `"0"` pending, `"1"` running, `"2"` successful, `"3"` failed, `"4"` cancelled — alongside `status_message`, `percent_complete`, and the operation's id at `links.progress.id`.
+- `attachment download` → raw bytes (or `{"path","size"}` metadata JSON when you pass `--out <file>`). The destination flag is `--out`/`-o`; `--output` is reserved CLI-wide for the output *mode*.
 
 Across every command:
 
@@ -475,14 +525,14 @@ Every `sysparm_*` parameter has both a friendly name and a raw alias; `--query` 
 | `--setlimit` |  | `--limit`, `--sysparm-limit`, `--page-size` | Max records returned (default 1000 for table list; 100 for attachment list) |
 | `--offset` |  | `--sysparm-offset` | Starting offset |
 | `--display-value` |  | `--sysparm-display-value` | `true`, `false`, `all` |
-| `--exclude-reference-link` |  | `--sysparm-exclude-reference-link` | Boolean |
+| `--exclude-reference-link` |  | `--sysparm-exclude-reference-link` | Flag (presence ⇒ true) |
 | `--view` |  | `--sysparm-view` | Named UI view |
-| `--input-display-value` |  | `--sysparm-input-display-value` | Boolean (writes) |
-| `--suppress-auto-sys-field` |  | `--sysparm-suppress-auto-sys-field` | Boolean (writes) |
-| `--suppress-pagination-header` |  | `--sysparm-suppress-pagination-header` | Boolean |
+| `--input-display-value` |  | `--sysparm-input-display-value` | Flag (presence ⇒ true; writes) |
+| `--suppress-auto-sys-field` |  | `--sysparm-suppress-auto-sys-field` | Flag (presence ⇒ true; writes) |
+| `--suppress-pagination-header` |  | `--sysparm-suppress-pagination-header` | Flag (presence ⇒ true) |
 | `--query-category` |  | `--sysparm-query-category` | Index-selection hint (string) |
-| `--query-no-domain` |  | `--sysparm-query-no-domain` | Boolean |
-| `--no-count` |  | `--sysparm-no-count` | Boolean |
+| `--query-no-domain` |  | `--sysparm-query-no-domain` | Flag (presence ⇒ true) |
+| `--no-count` |  | `--sysparm-no-count` | Flag (presence ⇒ true) |
 | `--output` |  | (CLI only) | `default` (unwrapped JSON), `raw` (full envelope), or `table` (columnar — interactive only) |
 
 ## Configuration
@@ -496,7 +546,7 @@ Credentials use a two-file, AWS CLI-style split:
 
 macOS uses `~/Library/Application Support/sn/` and Windows `%APPDATA%\sn\`.
 
-A **profile** is the single unit of identity. Create one with `sn init`, select it with `--profile NAME` or `sn profile use NAME`; resolution is `--profile` > `default_profile` > a clear error. No env var or flag overrides an individual profile field.
+A **profile** is the single unit of identity. Create one with `sn init` (which also makes it the default) or `sn profile add` (which does not), select it with `--profile NAME` or `sn profile use NAME`; resolution is `--profile` > `default_profile` > a clear error. No env var or flag overrides an individual profile field.
 
 Point `sn` at a different config directory (for testing or sandboxing) with `SN_CONFIG_DIR`.
 
@@ -516,7 +566,7 @@ SN_PROXY=http://proxy:8080 sn table list incident
 SN_INSECURE=1 sn table list incident    # skip cert verification
 ```
 
-There are deliberately no environment variables for credential values or profile selection — use profiles (`sn init`, `--profile`) instead.
+There are deliberately no environment variables for credential values or profile selection — use profiles (`sn init`, `sn profile add`, `--profile`) instead. To keep a secret off the command line in a script, pipe it in with `sn profile add --password-stdin` / `--client-secret-stdin`.
 
 ## Proxy and TLS
 
@@ -548,6 +598,8 @@ proxy_password = "proxy-pass"
 ```
 
 Precedence for every proxy/TLS setting: CLI flag > env var (`SN_PROXY`, `SN_INSECURE=1`, …) > profile config.
+
+`--insecure` is the exception: it is a logical OR across all three sources, not a chain. TLS verification is disabled if **any** of the flag, `SN_INSECURE`, or the profile's `insecure = true` says so — there is no way to turn it back *on* for one invocation of a profile that has it set. That's deliberate (a footgun should not be quietly re-armed by a stale config), but it means the only way to undo `insecure = true` is to edit the profile.
 
 ## Debugging
 

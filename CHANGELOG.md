@@ -1,5 +1,113 @@
 # Changelog
 
+## 0.9.0 (2026-07-12)
+
+Creating a profile was only ever possible through `sn init` — a wizard that prompts
+for whatever you left out, reports its result to a human on stderr, and claims
+`default_profile` when none is set. Scripting it meant hoping you'd passed enough
+flags to keep it from blocking on a read that would never be answered. This release
+splits the job in two: `sn init` stays the onboarding wizard, and `sn profile add`
+becomes the scriptable half.
+
+### Added
+
+- **`sn profile add [NAME]`** — register a profile without the wizard. It emits JSON
+  on stdout, and **never prompts when stdin is not a terminal**: a missing field is
+  exit 1 naming the flag that supplies it, so it cannot hang a pipeline. It refuses
+  to overwrite an existing profile (exit 1; `--force` opts in), and it leaves
+  `default_profile` alone — `--set-default`, or `sn profile use`, does that
+  deliberately. `--non-interactive` forces the fail-fast behavior on a terminal too.
+- **`sn profile add --password-stdin` / `--client-secret-stdin`** pipe a secret in
+  rather than passing it on the command line, where `ps` and shell history can see
+  it. (`sn init` has neither; it prompts.)
+- **`sn profile add --no-verify`** registers a profile without any network call, for
+  air-gapped provisioning or config management that runs before the instance is
+  reachable.
+
+### Breaking changes
+
+- **`sn init` now always claims `default_profile`.** It previously set it only when
+  no default existed, which made "set up my connection" quietly do nothing to a
+  machine that already had one. Onboarding onto a profile now means using it. Use
+  `sn profile add` to register an instance *without* repointing your commands.
+
+### Fixed
+
+- **Login reported the wrong person.** `sn auth login` and `sn init --auth oauth`
+  named the authenticated user by reading `sys_user` with `sysparm_limit=1` — which
+  returns whichever row happens to sort first, an arbitrary account that was never
+  the caller. The identity now comes from `gs.getUserName()` server-side, the way
+  `sn user me` always did.
+- **A profile that fails verification is no longer left on disk.** `sn init` wrote
+  the config files first and checked the credentials second, so a typo'd password
+  left a broken identity behind — and, on a machine with no default yet, made it the
+  default. Both commands now roll the write back, so a failed `add`/`init` leaves no
+  profile and changes no default.
+- **`sn init` no longer invents a bogus instance.** With a non-terminal stdin the
+  instance prompt read EOF as an empty answer, which `normalize_instance` then turned
+  into the bare suffix `.service-now.com` — a *non-empty* string, so the
+  `instance is required` guard never fired and was in effect dead code. A scripted
+  `sn init --username u --password p` therefore wrote a profile named `default`
+  pointing at `https://.service-now.com`, made it the default, and only *then* failed
+  resolving it. Missing fields now name themselves (exit 1), an empty instance stays
+  empty, and nothing is written.
+- **`sn attachment download` panicked on every invocation.** Exit 101, flag or no
+  flag, since the command shipped. Its local `--output <PATH>` (a string) collided
+  with the CLI-wide `--output default|raw|table` (an enum): clap merges arguments by
+  id, so the local definition shadowed the global one's type and the parser then
+  tried to read an `OutputMode` out of a `String`. **The destination flag is now
+  `--out` / `-o`** — `--output` keeps its CLI-wide meaning everywhere. Nothing
+  exercised `attachment download`, so a total crash went unnoticed across releases;
+  it has tests now.
+- **`sn open` emitted a URL with no scheme.** Profiles store the bare host, and
+  `open` interpolated it straight into the link, producing
+  `acme.service-now.com/nav_to.do?...` — which no browser will open. It now goes
+  through the same `normalize_base_url` the HTTP client uses. This affected every
+  profile created the documented way; nothing exercised `sn open`, so it went
+  unnoticed. There are tests now.
+- **`sn progress -d` printed no percentage.** ServiceNow sends `percent_complete` as
+  a JSON string on some operations and a number on others; the code only read the
+  string form and silently skipped the rest.
+- **`sn ping` printed an empty username on OAuth profiles.** An OAuth profile stores
+  no username — the identity is in the token — so `ping` reported `""`. It now asks
+  the instance. Basic profiles still report their configured username, which is what
+  proves a stray environment variable didn't swap the credentials out.
+
+### Docs
+
+An adversarial pass over the docs — every claim executed against the compiled
+binary and a live instance — found six response shapes that were **invented**, and
+that would silently mislead any agent trusting them. All corrected, with the real
+shapes captured verbatim:
+
+- `schema tables` puts the table name in **`value`**, not `name` — `jq -r '.[].name'`
+  returned `null` for every row.
+- `schema columns` has no `choice_field` and no `default_value`; the default is
+  `default`, and a choice column is `type: "choice"` with its options inlined in a
+  `choices[]` array.
+- `aggregate --group-by` returns an **array**, and `groupby_fields` is a *sibling* of
+  `stats`, not a member — the documented `jq '.stats.groupby_fields[]'` matched
+  nothing.
+- `change` returns every field as a **`{display_value, value}` pair**, so `.number` is
+  an object, not a string. `change nextstates` returns an object keyed by
+  `available_states`/`state_label`, not a list of `{value, label}`.
+- `cmdb get` nests the CI's fields under **`.attributes`**.
+- `scores list` returns `direction`/`frequency` as **integer codes**; the words live
+  in `direction_label`/`frequency_label`.
+- `introspect` emits a **recursive tree** (`{name, about, args[], subcommands[]}`).
+  There is no `.commands[]`, and the documented `jq` recipe failed outright.
+- The `--wait` recipe read the command's stdout on its failure branch, where stdout
+  is **empty** (the progress object goes to stderr), and matched on `status_label` —
+  a verbatim ServiceNow string that varies by instance, which is how you write a poll
+  loop that never terminates. Branch on the exit code and the numeric `status`.
+
+### Internal
+
+- `sn init` and `sn profile add` share one profile-writing core in `cli/profile.rs`
+  (`resolve_name` → `resolve_input` → `save_and_verify`) and differ only in policy,
+  so the two paths cannot drift. The authenticated-identity read is likewise shared
+  (`auth::whoami`).
+
 ## 0.8.0 (2026-07-11)
 
 An adversarial review of the docs — checked against the compiled CLI, ServiceNow's

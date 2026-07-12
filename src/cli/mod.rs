@@ -51,7 +51,7 @@ pub use identify::{IdentifyArgs, IdentifyEnhancedArgs, IdentifySub};
 pub use import::{ImportBulkArgs, ImportCreateArgs, ImportGetArgs, ImportSub};
 pub use init::InitArgs;
 pub use open_record::OpenArgs;
-pub use profile::ProfileSub;
+pub use profile::{ProfileAddArgs, ProfileSub};
 pub use progress::ProgressArgs;
 pub use raw::RawArgs;
 pub use schema::{SchemaChoicesArgs, SchemaColumnsArgs, SchemaSub, SchemaTablesArgs};

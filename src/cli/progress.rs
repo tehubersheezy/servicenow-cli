@@ -87,8 +87,16 @@ pub(crate) fn wait_for_completion(
             }
             _ => {
                 if global.verbose > 0 {
-                    if let Some(pct) = result.get("percent_complete").and_then(|v| v.as_str()) {
-                        eprintln!("sn: progress {}%", pct);
+                    // ServiceNow sends percent_complete as a JSON string ("100") on
+                    // some operations and a number (0) on others, so `.as_str()`
+                    // alone silently printed nothing half the time.
+                    let pct = result.get("percent_complete").and_then(|v| {
+                        v.as_str()
+                            .map(str::to_string)
+                            .or_else(|| v.as_f64().map(|n| n.to_string()))
+                    });
+                    if let Some(pct) = pct {
+                        eprintln!("sn: progress {pct}%");
                     }
                 }
                 if let Some(d) = deadline {

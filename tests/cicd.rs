@@ -13,9 +13,13 @@ async fn progress_get_unwraps_result() {
     Mock::given(method("GET"))
         .and(path("/api/sn_cicd/progress/prog123"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            // ServiceNow sends `percent_complete` as a snake_case *string*. An
+            // earlier camelCase `percentComplete` here was read by nothing and
+            // asserted by nothing — it just sat around looking like the API
+            // shape, and the docs were written from it.
             "result": {
                 "links": {},
-                "percentComplete": 100,
+                "percent_complete": "100",
                 "status": "2",
                 "status_detail": "Completed",
                 "status_label": "Complete"

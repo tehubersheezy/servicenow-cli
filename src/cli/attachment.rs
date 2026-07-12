@@ -59,9 +59,15 @@ pub struct AttachmentUploadArgs {
 #[derive(clap::Args, Debug)]
 pub struct AttachmentDownloadArgs {
     pub sys_id: String,
-    /// Output file path (writes to stdout if not specified).
-    #[arg(long, short)]
-    pub output: Option<String>,
+    /// Write the file here. Defaults to stdout.
+    ///
+    /// NOT `--output`: that name belongs to the global `--output default|raw|table`.
+    /// clap merges args by id, so a second `output` here shadowed the global one's
+    /// type and made `GlobalFlags` downcast an `OutputMode` out of a `String` —
+    /// panicking on *every* `attachment download`, with or without the flag. Keep
+    /// this id distinct from any global.
+    #[arg(long = "out", short = 'o', value_name = "PATH")]
+    pub out: Option<String>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -131,7 +137,7 @@ pub fn download(global: &GlobalFlags, args: AttachmentDownloadArgs) -> Result<()
     let client = build_client(&profile, global.timeout)?;
     let path = format!("/api/now/attachment/{}/file", args.sys_id);
     let (bytes, _ct) = client.download_file(&path)?;
-    if let Some(out_path) = args.output {
+    if let Some(out_path) = args.out {
         std::fs::write(&out_path, &bytes)
             .map_err(|e| Error::Usage(format!("write {out_path}: {e}")))?;
         let meta = serde_json::json!({

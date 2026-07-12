@@ -1,5 +1,6 @@
 use crate::cli::table::{build_profile, format_from_flags};
 use crate::cli::GlobalFlags;
+use crate::client::normalize_base_url;
 use crate::error::{Error, Result};
 use crate::output::{emit_value, map_stdout_err};
 use serde_json::json;
@@ -17,7 +18,10 @@ pub struct OpenArgs {
 
 pub fn run(global: &GlobalFlags, args: OpenArgs) -> Result<()> {
     let profile = build_profile(global)?;
-    let instance = profile.instance.trim_end_matches('/');
+    // Profiles store the bare host, so the scheme has to be put back on — a
+    // scheme-less "acme.service-now.com/nav_to.do?..." is not a URL a browser
+    // will open, and it's what every profile made the documented way produces.
+    let instance = normalize_base_url(&profile.instance);
     let url = format!(
         "{instance}/nav_to.do?uri=%2F{table}.do%3Fsys_id%3D{sys_id}",
         table = args.table,

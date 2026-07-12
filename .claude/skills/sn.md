@@ -12,22 +12,30 @@ Install: `brew install tehubersheezy/sn/sn` or https://github.com/tehubersheezy/
 ## Setup & profiles
 
 ```bash
-sn init                                          # interactive: prompts auth method, instance, credentials
-sn init --profile prod --instance X --username Y --password Z   # scripted basic auth
+sn profile add prod --instance X --username Y --password-stdin < secret.txt   # AGENT-SAFE: never prompts
+sn init                                          # human wizard: prompts, and CLAIMS default_profile
 sn ping                                          # verify connectivity + credentials + build version
 sn --profile prod table list incident           # pick profile per command
-sn profile list                                  # also: show <name> / use <name> / remove <name>
+sn profile list                                  # also: add <name> / show <name> / use <name> / remove <name>
 ```
+
+**Use `sn profile add`, not `sn init`.** It emits JSON on stdout and never prompts when stdin isn't a TTY (a missing field is exit 1 naming the flag, not a hang). It also leaves `default_profile` alone — `sn init` takes it over. Pipe secrets via `--password-stdin` / `--client-secret-stdin`; `--password` is visible in `ps` and shell history.
+
+`add` verifies the credentials against the instance and **writes nothing if they're rejected** (exit 4), so you never inherit a broken profile. Exit 1 if the profile exists (`--force` to overwrite) or a flag is missing. `--no-verify` skips the network; `--set-default` also makes it the default.
 
 Profile selection: `--profile` > `default_profile` in config > error (no implicit fallback). `SN_CONFIG_DIR` overrides the config dir (`config.toml`/`credentials.toml`). No env var sets credentials or selects a profile (proxy/TLS env vars excepted — see Proxy & TLS).
 
 ## OAuth / SSO
 
-For instances behind an external IdP (Okta, Azure AD, ADFS) basic auth can't work — use OAuth (`auth = "oauth"`). Configure via `sn init`; `sn auth login` runs the flow and caches tokens. The default `authorization_code` flow is public PKCE (no secret); `client_credentials` is non-interactive and needs a secret.
+For instances behind an external IdP (Okta, Azure AD, ADFS) basic auth can't work — use OAuth (`auth = "oauth"`). Configure via `sn profile add --auth oauth`; `sn auth login` runs the flow and caches tokens. The default `authorization_code` flow is public PKCE (no secret); `client_credentials` is non-interactive and needs a secret.
 
 ```bash
-sn init --auth oauth --client-id <id>            # authorization_code (SSO, default)
-sn init --auth oauth --grant client_credentials --client-id <id> --client-secret <secret>
+# client_credentials is headless: `add` mints and verifies the token itself. AGENT-SAFE.
+sn profile add svc --auth oauth --grant client_credentials --client-id <id> --client-secret-stdin < secret.txt
+
+# authorization_code NEEDS A BROWSER, so `add` refuses to save it unverified off a TTY.
+# Register it, then get a human to log in:
+sn profile add sso --auth oauth --client-id <id> --no-verify
 sn auth login    # runs flow: OPENS A BROWSER, blocks up to 300s on human login — not agent-safe
 sn auth status   # token state (never prints secrets)
 sn auth refresh  # force refresh
@@ -60,6 +68,10 @@ sn schema columns incident --writable       # 2. writable fields
 sn schema choices incident state            # 3. valid values for a choice field
 sn table create incident --field short_description="x" --field state=2   # 4. write
 ```
+
+Response-shape gotchas — these bite hard because the obvious `jq` is silently wrong:
+- `schema tables` — the table name is **`.value`**, not `.name` (`.name` is null).
+- `schema columns` — no `choice_field`/`default_value`. Default is **`default`**; a choice column has `type:"choice"` with its options inlined in **`choices[]`**.
 
 ## Table CRUD
 
@@ -102,10 +114,14 @@ sn table list incident --all | jq -r '.number'   # pipe JSONL through jq
 Server-side stats, no record fetch:
 
 ```bash
-sn aggregate incident --count --group-by state
-sn aggregate incident --avg-fields reassignment_count --query "active=true"
-sn aggregate incident --sum-fields reassignment_count --min-fields priority --max-fields priority
+sn aggregate incident --count                       # → {"stats":{"count":"142"}}
+sn aggregate incident --count --group-by state      # → an ARRAY, one entry per group
+# [{"groupby_fields":[{"field":"state","value":"1"}],"stats":{"count":"15"}}, ...]
+sn aggregate incident --sum-fields reassignment_count --min-fields priority
+# sum/avg/min/max nest PER FIELD: {"stats":{"sum":{"reassignment_count":"24"}}}
 ```
+
+⚠️ `--group-by` flips the top level from object to **array**, and `groupby_fields` is a **sibling** of `stats`, not inside it — `jq '.stats.groupby_fields[]'` returns nothing. Use `jq -r '.[] | "\(.groupby_fields[0].value)\t\(.stats.count)"'`.
 
 ## Change Management
 
@@ -116,6 +132,11 @@ sn change create --type normal --field short_description="DB migration"
 sn change create --type standard --template <template_id>   # standard requires --template
 sn change update <sys_id> --field state=2
 sn change delete <sys_id> --yes                             # --yes required on non-TTY (like table delete)
+```
+
+⚠️ **The Change API returns every field as a `{display_value, value}` pair** — unlike the Table API. `.number` is an OBJECT: use `jq -r '.number.value'`, not `jq -r '.number'`. (`state.value` is a number, e.g. `3.0`.) And `change nextstates` returns `{"available_states":["3"],"state_label":{"3":"Closed"}}` — an object, not a list of `{value,label}`.
+
+```bash
 sn change nextstates <sys_id>                               # valid state transitions
 sn change approvals <sys_id> --field approval="approved"
 sn change risk <sys_id> --data '{"risk_value":"moderate"}'
@@ -135,7 +156,7 @@ sn change conflict get <sys_id>
 sn attachment list --query "table_name=incident"
 sn attachment get <sys_id>
 sn attachment upload --table incident --record <record_id> --file ./report.pdf
-sn attachment download <sys_id> --output ./file.pdf    # --output is the FILE PATH here (stdout without it)
+sn attachment download <sys_id> --out ./file.pdf       # -o too; NOT --output (that's the output MODE)
 sn attachment delete <sys_id> --yes
 ```
 
@@ -143,7 +164,9 @@ sn attachment delete <sys_id> --yes
 
 ```bash
 sn cmdb list cmdb_ci_server --query "operational_status=1"
-sn cmdb get cmdb_ci_server <sys_id>
+sn cmdb get cmdb_ci_server <sys_id>       # ⚠️ CI fields nest under .attributes — use .attributes.name,
+                                          #    NOT .name. Top level is only {attributes,
+                                          #    inbound_relations, outbound_relations}.
 sn cmdb create cmdb_ci_server --field name=web-01 --field ip_address=10.0.1.1
 sn cmdb update cmdb_ci_server <sys_id> --field operational_status=2
 sn cmdb replace cmdb_ci_server <sys_id> --data @ci.json     # PUT (also a partial update)
@@ -189,6 +212,8 @@ sn identify query-enhanced --data @query.json
 ## CICD (app / updateset / atf)
 
 Async — `--wait` blocks until done (add `--wait-timeout <SECS>` to bound a stall, exit 3 on expiry). Poll running ops with `sn progress <id>`.
+
+**Branch on the exit code, never on `status_label`.** `--wait` exits 0 only when the operation actually succeeded (`status` `"2"`). A failure is **exit 2 with empty stdout** (the progress object is on stderr under `.error.sn_error`); a timeout is **exit 3, also empty stdout** — so reading the command's stdout on a failure branch gets you nothing. `status_label` is ServiceNow's verbatim string ("Successful"/"Complete"/"Succeeded", varies by instance); matching on it is how you write a poll loop that never ends. When polling manually, key off the numeric `status`: `0` pending, `1` running, `2` successful, `3` failed, `4` cancelled.
 
 ```bash
 sn app install --scope x_myapp --version 1.2.0 --wait --wait-timeout 900

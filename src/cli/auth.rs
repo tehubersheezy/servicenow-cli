@@ -1,5 +1,6 @@
 use crate::cli::table::{build_client, build_profile, write_response};
 use crate::cli::GlobalFlags;
+use crate::client::Client;
 use crate::config::{
     clear_oauth_tokens, config_path, load_config_from, now_unix, resolve_profile_name,
     save_oauth_tokens, AuthMethod, OAuthGrant, ResolvedProfile,
@@ -29,7 +30,8 @@ fn grant_str(g: OAuthGrant) -> &'static str {
 }
 
 /// Pure session command: run the OAuth flow for an already-configured OAuth
-/// profile and cache the tokens. All configuration lives in `sn init`.
+/// profile and cache the tokens. Configuration lives in `sn profile add` /
+/// `sn init`; this touches only the token cache.
 pub fn login(global: &GlobalFlags) -> Result<()> {
     let config = load_config_from(&config_path()?)?;
     let name = resolve_profile_name(global.profile.as_deref(), &config)?;
@@ -87,16 +89,38 @@ pub(crate) fn complete_oauth_login(
     // Verify the freshly-issued token against the instance.
     let profile = build_profile(&scoped)?;
     let client = build_client(&profile, scoped.timeout)?;
+    let user = whoami(&client)?;
+    Ok((profile, user))
+}
+
+/// Ask the instance who the current credentials actually authenticate as, and
+/// in doing so prove that they authenticate at all.
+///
+/// The identity has to come from `gs.getUserName()` server-side, the way
+/// `sn user me` does it: a bare `sysparm_limit=1` read of `sys_user` returns
+/// whichever row happens to sort first, which is some arbitrary account and not
+/// the caller. Reporting that as "the user you just authenticated as" is worse
+/// than reporting nothing.
+///
+/// A successful read with no row back is not an error — the credentials worked,
+/// the instance just didn't name them — so the user is optional.
+pub(crate) fn whoami(client: &Client) -> Result<Option<String>> {
     let v = client.get(
         "/api/now/table/sys_user",
-        &[("sysparm_limit".into(), "1".into())],
+        &[
+            (
+                "sysparm_query".into(),
+                "user_name=javascript:gs.getUserName()".into(),
+            ),
+            ("sysparm_fields".into(), "user_name".into()),
+            ("sysparm_limit".into(), "1".into()),
+        ],
     )?;
-    let user = v["result"]
+    Ok(v["result"]
         .get(0)
         .and_then(|r| r.get("user_name"))
         .and_then(|x| x.as_str())
-        .map(ToString::to_string);
-    Ok((profile, user))
+        .map(ToString::to_string))
 }
 
 pub fn logout(global: &GlobalFlags) -> Result<()> {
