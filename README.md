@@ -17,6 +17,24 @@ sn table create incident --field short_description="Disk full on prod-db-01"
 sn ping                                       # auth + latency health check
 ```
 
+> ### 🆕 What's new in 0.9.1 — `sn watch`
+>
+> Every read used to be a poll. **[`sn watch`](#watching-records-live)** adds the other
+> half: a live stream of record changes over the same websocket ServiceNow's own UI uses,
+> emitted as JSONL, one event per line, as they happen.
+>
+> ```bash
+> sn watch table incident --query "priority=1^active=true" --max-events 5
+> sn watch table incident --sys-id <SYS_ID> --on-change state --duration 60
+> ```
+>
+> Events are **hydrated by default** — ServiceNow tells you *that* a record changed and
+> *which* fields, never what they changed to, so each event is completed with a Table API
+> read. `--max-events` / `--duration` / `--idle-timeout` bound the stream so it is usable
+> from a script, and `--operation` / `--on-change` narrow it to the changes you care about.
+>
+> Full [changelog](CHANGELOG.md).
+
 ## Contents
 
 - [Installation](#installation)
@@ -28,6 +46,7 @@ sn ping                                       # auth + latency health check
   - [Reading records](#reading-records)
   - [Writing records](#writing-records)
   - [Pagination](#pagination)
+  - [Watching records (live)](#watching-records-live)
   - [Schema discovery](#schema-discovery)
   - [Aggregate queries](#aggregate-queries)
   - [Change Management](#change-management)
@@ -222,6 +241,45 @@ sn table list incident --all --array --max-records 5000
 # Pipe to jq
 sn table list incident --all | jq -r '.number'
 ```
+
+### Watching records (live)
+
+`sn watch` streams record changes as they happen, over the same websocket ServiceNow's UI uses. Output is **JSONL on stdout** — one event per line, flushed as it arrives.
+
+```bash
+# Stream changes to matching records. Bound the stream, or it runs until you stop it.
+sn watch table incident --query "priority=1^active=true" --max-events 5
+sn watch table incident --sys-id <SYS_ID> --duration 60      # stop after 60s
+sn watch table incident --query "active=true" --idle-timeout 30   # stop after 30s of quiet
+
+# Narrow it down
+sn watch table incident --query "active=true" --operation insert          # only new records
+sn watch table incident --query "active=true" --on-change state,priority  # only these fields
+
+# Other channels
+sn watch count incident --query "active=true"   # how many records match
+sn watch activity <SYS_ID>                      # comments, work notes, field changes
+sn watch channel '/uxbannerannouncements'       # raw AMB channel (escape hatch)
+```
+
+**Events are hydrated by default.** ServiceNow reports *that* a record changed and *which* fields changed — never what they changed to; the raw payload carries only `sys_*` columns. So each event triggers one Table API read, merged in as `record`:
+
+```jsonc
+{"table_name":"incident","sys_id":"1c74…","display_value":"INC0000060",
+ "operation":"update","changes":["state","incident_state"],
+ "changes_with_users":{"state":"abeyahmad"},
+ "record":{"number":"INC0000060","state":"2"}}     // ← the new value
+```
+
+Narrow what gets fetched with `--fields`, or skip the per-event read entirely with `--no-hydrate` on a high-volume watch.
+
+Worth knowing:
+
+- **`changes` includes derived fields** — writing `urgency` also reports `priority`, because ServiceNow recomputes it.
+- **Inserts list every populated field**; **deletes carry `changes: []`**, so `--on-change` never matches a delete (which emits `record: null`).
+- **`sn watch count` reports a delta, not a total** — `{"count": "+1"}`. Seed from `sn aggregate --count` and accumulate.
+- Ctrl-C exits 0 cleanly. Works with both basic and OAuth/SSO profiles.
+- `--insecure` and `--ca-cert` are honored; **proxies are not supported** and are refused rather than silently bypassed.
 
 ### Schema discovery
 

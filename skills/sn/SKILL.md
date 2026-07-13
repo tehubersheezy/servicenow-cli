@@ -1,6 +1,6 @@
 ---
 name: sn
-description: Use when the user asks about ServiceNow data, incidents, change requests, problems, CIs, attachments, CMDB, service catalog, import sets, or any SNOW/SN operations. Also use when user says "sn", "servicenow", or references a ServiceNow instance, CICD operations (app install/publish/rollback, update sets, ATF tests), aggregate statistics, Performance Analytics scorecards, or CI reconciliation.
+description: Use when the user asks about ServiceNow data, incidents, change requests, problems, CIs, attachments, CMDB, service catalog, import sets, or any SNOW/SN operations. Also use when user says "sn", "servicenow", or references a ServiceNow instance, CICD operations (app install/publish/rollback, update sets, ATF tests), aggregate statistics, Performance Analytics scorecards, CI reconciliation, or watching records change in real time (record watchers / live updates / AMB websocket).
 allowed-tools: Bash(sn *)
 ---
 
@@ -109,6 +109,39 @@ sn table list incident --all --array             # single JSON array
 sn table list incident --all --max-records 5000  # safety cap (default 100000)
 sn table list incident --all | jq -r '.number'   # pipe JSONL through jq
 ```
+
+## Watch (live record changes)
+
+Streams record changes over ServiceNow's AMB websocket. **JSONL on stdout, one event per line, flushed as it arrives.**
+
+```bash
+# Bound the stream or it runs forever — an unbounded watch is useless in a script.
+sn watch table incident -q "priority=1^active=true" --max-events 5
+sn watch table incident --sys-id <SYS_ID> --duration 60      # stop after 60s
+sn watch table incident -q "active=true" --idle-timeout 30   # stop after 30s of quiet
+
+sn watch table incident -q "active=true" --operation insert           # only new records
+sn watch table incident -q "active=true" --on-change state,priority   # only these fields
+sn watch count incident -q "active=true"                              # count deltas
+sn watch activity <SYS_ID>                                            # comments / work notes
+sn watch channel '/uxbannerannouncements'                             # raw AMB channel
+```
+
+**Events carry no field values.** AMB reports *that* a record changed and *which* fields (`changes`), never what they changed to. So `watch table` **hydrates by default** — one Table API GET per event, merged in as `record`. Narrow it with `-f/--fields`, or use `--no-hydrate` on a high-volume watch to skip the per-event call.
+
+```jsonc
+{"table_name":"incident","sys_id":"1c74…","display_value":"INC0000060",
+ "operation":"update","changes":["state","incident_state"],
+ "changes_with_users":{"state":"abeyahmad"},
+ "record":{"number":"INC0000060","state":"2"}}      // ← hydrated: the NEW value
+```
+
+⚠️ Gotchas:
+- **`changes` includes derived fields** — writing `urgency` also reports `priority` (ServiceNow recomputes it).
+- **Inserts list every populated field**; **deletes carry `changes: []`**, so `--on-change` never matches a delete. A delete emits `record: null`.
+- **`sn watch count` emits a delta, not a total**: `{"count":"+1"}` / `{"count":"-1"}` (strings). Seed with `sn aggregate --count` and accumulate.
+- Ctrl-C exits 0 cleanly. Exit 4 if the profile can't authenticate, 3 if the socket can't be established.
+- Works with basic **and** OAuth profiles. **No proxy support** (refused with exit 1, not silently bypassed); `--insecure`/`--ca-cert` do work.
 
 ## Aggregate
 

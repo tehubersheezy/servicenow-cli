@@ -2,7 +2,7 @@ use crate::config::ResolvedProfile;
 use crate::error::{Error, Result};
 use crate::observability::{log_body, log_request, log_response, log_response_headers};
 use reqwest::blocking::{Client as ReqwestClient, Response};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE, SET_COOKIE, USER_AGENT};
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -360,6 +360,54 @@ impl Client {
         parse_response_redacted(self.send(req, "POST", &url)?)
     }
 
+    /// Mint a ServiceNow session and return the `Cookie:` header value that
+    /// authenticates an AMB websocket upgrade.
+    ///
+    /// The AMB endpoint ignores `Authorization` entirely and authenticates by
+    /// session cookie alone, so a websocket cannot present this client's
+    /// credentials the way every other call does. One ordinary authenticated
+    /// request is enough to make the instance mint a session — and because it
+    /// goes out through `send()`, it authenticates however the profile does.
+    /// Basic and OAuth bearer yield the same cookies, and AMB accepts either, so
+    /// SSO profiles need no separate path.
+    ///
+    /// Uses the same `sys_user` read that `sn ping` uses as its auth check, so a
+    /// profile that can ping can watch.
+    pub fn session_cookies(&self) -> Result<String> {
+        let url = self.url("/api/now/table/sys_user");
+        let req = self
+            .http
+            .request(Method::GET, &url)
+            .query(&[("sysparm_limit", "1"), ("sysparm_fields", "sys_id")]);
+        let resp = self.send(req, "GET", &url)?;
+        let status = resp.status();
+        let tx = transaction_id(&resp);
+        log_response_headers(resp.headers());
+        if !status.is_success() {
+            let text = resp
+                .text()
+                .map_err(|e| Error::Transport(format!("read body: {e}")))?;
+            return Err(from_http_text(status, tx, &text));
+        }
+
+        let jar = collect_session_cookies(resp.headers());
+        if !jar.iter().any(|(name, _)| name == SESSION_COOKIE) {
+            return Err(Error::Auth {
+                status: status.as_u16(),
+                message: format!(
+                    "instance returned no {SESSION_COOKIE} cookie; \
+                     cannot authenticate the AMB websocket"
+                ),
+                transaction_id: tx,
+            });
+        }
+        Ok(jar
+            .iter()
+            .map(|(n, v)| format!("{n}={v}"))
+            .collect::<Vec<_>>()
+            .join("; "))
+    }
+
     pub fn download_file(&self, path: &str) -> Result<(Vec<u8>, Option<String>)> {
         let url = self.url(path);
         let req = self.http.request(Method::GET, &url);
@@ -524,6 +572,30 @@ fn transaction_id(resp: &Response) -> Option<String> {
         .map(ToString::to_string)
 }
 
+/// The cookie the AMB websocket actually authenticates with. Without it the
+/// upgrade still succeeds and the Bayeux handshake still reports success — the
+/// connection simply never delivers anything (see `crate::amb`).
+const SESSION_COOKIE: &str = "JSESSIONID";
+
+/// Pull the session cookies out of a response's `Set-Cookie` headers.
+///
+/// ServiceNow clears `glide_user`/`glide_user_session` by re-sending them *empty*
+/// with `Max-Age=0`. Those tombstones must be dropped: echoing an empty value
+/// back on the upgrade contributes nothing and, on some stacks, unsets the real
+/// cookie. Only name/value survives — attributes (`Path`, `HttpOnly`, …) are
+/// response-side directives and are not valid in a request `Cookie:` header.
+fn collect_session_cookies(headers: &HeaderMap) -> Vec<(String, String)> {
+    headers
+        .get_all(SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter_map(|raw| raw.split(';').next())
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
+        .filter(|(_, value)| !value.is_empty())
+        .collect()
+}
+
 fn from_http_text(status: StatusCode, tx: Option<String>, raw: &str) -> Error {
     let body: Option<Value> = serde_json::from_str(raw).ok();
     let (message, detail, sn_error) = body
@@ -577,7 +649,59 @@ fn truncate_body(s: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::redact_token_json;
+    use super::{collect_session_cookies, redact_token_json};
+    use reqwest::header::{HeaderMap, HeaderValue, SET_COOKIE};
+
+    fn headers(raw: &[&str]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for v in raw {
+            h.append(SET_COOKIE, HeaderValue::from_str(v).unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn session_cookies_keep_name_value_and_drop_attributes() {
+        let h = headers(&[
+            "JSESSIONID=ABC123; Path=/; HttpOnly",
+            "glide_user_route=node42; Path=/; Secure; HttpOnly",
+        ]);
+        let jar = collect_session_cookies(&h);
+        assert_eq!(
+            jar,
+            vec![
+                ("JSESSIONID".to_string(), "ABC123".to_string()),
+                ("glide_user_route".to_string(), "node42".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn tombstone_cookies_are_dropped() {
+        // ServiceNow clears these by re-sending them empty with Max-Age=0.
+        // Forwarding an empty value would unset the real cookie on some stacks.
+        let h = headers(&[
+            "JSESSIONID=ABC123; Path=/; HttpOnly",
+            "glide_user=; Max-Age=0; Expires=Thu, 01-Jan-1970 00:00:10 GMT; Path=/",
+            "glide_user_session=; Max-Age=0; Path=/",
+        ]);
+        let jar = collect_session_cookies(&h);
+        assert_eq!(jar.len(), 1, "only the live cookie survives: {jar:?}");
+        assert_eq!(jar[0].0, "JSESSIONID");
+    }
+
+    #[test]
+    fn cookie_value_containing_equals_is_preserved() {
+        // Base64-ish session values can carry '='; only the FIRST '=' separates.
+        let h = headers(&["glide_session_store=aGVsbG8=; Path=/"]);
+        let jar = collect_session_cookies(&h);
+        assert_eq!(jar[0].1, "aGVsbG8=");
+    }
+
+    #[test]
+    fn no_cookies_yields_empty_jar() {
+        assert!(collect_session_cookies(&HeaderMap::new()).is_empty());
+    }
 
     #[test]
     fn token_secrets_are_masked_but_metadata_stays_readable() {

@@ -21,6 +21,7 @@ pub mod scores;
 pub mod table;
 pub mod update_set;
 pub mod user;
+pub mod watch;
 
 pub use aggregate::AggregateArgs;
 pub use app::{AppInstallArgs, AppPublishArgs, AppRollbackArgs, AppSub};
@@ -65,6 +66,10 @@ pub use update_set::{
     UpdateSetRetrieveArgs, UpdateSetSub,
 };
 pub use user::UserSub;
+pub use watch::{
+    Operation, WatchActivityArgs, WatchChannelArgs, WatchCountArgs, WatchLimits, WatchSub,
+    WatchTableArgs,
+};
 
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -164,6 +169,11 @@ pub enum Command {
     Table {
         #[command(subcommand)]
         sub: TableSub,
+    },
+    /// Watch records change in real time (AMB websocket). Streams JSONL.
+    Watch {
+        #[command(subcommand)]
+        sub: WatchSub,
     },
     /// Schema discovery.
     Schema {

@@ -16,6 +16,14 @@ pub fn log_request(method: &str, url: &str) {
     }
 }
 
+/// Operational notice that is not a request/response — reconnects, backoff.
+/// Goes to stderr so it never contaminates a JSONL stream on stdout.
+pub fn log_note(msg: &str) {
+    if level() >= 1 {
+        eprintln!("sn: {msg}");
+    }
+}
+
 pub fn log_response(status: u16, elapsed_ms: u128) {
     if level() >= 1 {
         eprintln!("sn: -> {status} ({elapsed_ms}ms)");
