@@ -69,6 +69,7 @@ fn run(cli: Cli) -> Result<()> {
             TableSub::Replace(args) => sn::cli::table::replace(&global, args),
             TableSub::Delete(args) => sn::cli::table::delete(&global, args),
         },
+        Command::Watch { sub } => sn::cli::watch::run(&global, sub),
         Command::Schema { sub } => match sub {
             SchemaSub::Tables(args) => sn::cli::schema::tables(&global, args),
             SchemaSub::Columns(args) => sn::cli::schema::columns(&global, args),

@@ -1,6 +1,6 @@
 [package]
 name = "sn"
-version = "0.9.0"
+version = "0.9.1"
 authors = ["Abey Ahmad <ibrahimsafah@gmail.com>"]
 edition = "2021"
 rust-version = "1.75"
@@ -40,6 +40,22 @@ comfy-table = "7"
 base64 = "0.22"
 sha2 = "0.10"
 getrandom = "0.2"
+# Blocking WebSocket for the AMB record watcher. Deliberately *not*
+# tokio-tungstenite: Bayeux's /meta/connect is a long-poll, not a heartbeat, so
+# the watcher is a single sequential read loop and needs no async runtime.
+# webpki roots to match reqwest's `rustls-tls` trust store.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
+ctrlc = "3"
+# The websocket opens its own TLS connection, so --insecure/--ca-cert have to be
+# honored here too. `ring` (not the aws-lc-rs default) because that is the
+# provider reqwest already links — a second crypto backend in one binary is pure
+# cost.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# PEM parsing comes from pki-types' own `PemObject`, not the `rustls-pemfile`
+# wrapper — that crate is archived and unmaintained (RUSTSEC-2025-0134), and it
+# was only ever a thin shim over this same code.
+rustls-pki-types = { version = "1", features = ["std"] }
+webpki-roots = "1"
 
 [dev-dependencies]
 wiremock = "0.6"

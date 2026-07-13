@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.9.1 (2026-07-13)
+
+Every read in this CLI was a poll: ask, get an answer, ask again. `sn watch` adds the
+other half — a live stream of record changes over the same websocket ServiceNow's own
+UI uses to make a form update itself when someone else saves the record. Events arrive
+as JSONL on stdout, one per line, as they happen.
+
+### Added
+
+- **`sn watch table <TABLE> --query <ENCODED_QUERY>`** — stream changes to every
+  matching record. `--sys-id` watches exactly one. Also `sn watch count` (how many
+  records match), `sn watch activity` (a record's comments and work notes), and
+  `sn watch channel` as a raw escape hatch for channels the CLI does not model.
+- **Events are hydrated by default.** The message bus reports *that* a record changed
+  and *which* fields changed — never what they changed to; its payload carries only
+  `sys_*` columns. So each event triggers one Table API read and the result is merged
+  in as `record`, which is what makes the stream answer the question you actually
+  asked. Narrow it with `--fields`, or skip the per-event read with `--no-hydrate`.
+- **`--max-events`, `--duration`, `--idle-timeout`** bound the stream, because a
+  command that never returns is useless inside a script. Ctrl-C exits 0 cleanly after
+  telling the instance to drop the subscription.
+- **`--operation insert|update|delete` and `--on-change <FIELDS>`** filter the stream.
+  ServiceNow has no server-side filter for either, so both are applied before
+  hydration: a discarded event costs no API call, does not count against
+  `--max-events`, and does not reset `--idle-timeout`.
+- OAuth/SSO profiles work with no extra setup. The websocket cannot present the
+  profile's credentials — the endpoint ignores the `Authorization` header entirely and
+  authenticates by session cookie alone — so `watch` first makes one ordinary
+  authenticated request purely to mint a session. That request goes out through the
+  normal HTTP client, so a password profile and an OAuth access-token profile mint the
+  same cookies and both are accepted.
+
+### Notes
+
+- A connection that never established fails immediately rather than retrying; only a
+  session that *was* established and then dropped earns a reconnect with backoff.
+- `--insecure` and `--ca-cert` are honored on the websocket. **Proxies are not
+  supported** and are refused (exit 1) rather than silently bypassed, since ignoring a
+  configured proxy would send the session cookie outside the egress path you chose.
+- `sn watch count` reports a **delta**, not a total (`{"count": "+1"}`). Seed from
+  `sn aggregate --count` and accumulate.
+
 ## 0.9.0 (2026-07-12)
 
 Creating a profile was only ever possible through `sn init` — a wizard that prompts

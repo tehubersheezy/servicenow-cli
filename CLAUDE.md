@@ -27,7 +27,8 @@ Integration tests use `wiremock` to mock ServiceNow and `assert_cmd` to drive th
 ```
 src/
   main.rs           → parse Cli, set verbosity, dispatch, map Error → ExitCode
-  lib.rs            → pub mod {body, cli, client, config, error, observability, output, output_table, query} — register new modules here
+  lib.rs            → pub mod {amb, body, cli, client, config, error, observability, output, output_table, query} — register new modules here
+  amb.rs            → AMB/Bayeux websocket client (record watchers): channel encoding, handshake, long-poll, TLS
   error.rs          → Error enum (5 variants), exit_code(), to_stderr_json()
   output.rs         → emit_value (JSON), emit_jsonl (JSONL), emit_error (stderr)
   output_table.rs   → write_table (renders JSON as a comfy-table columnar view for `--output table`)
@@ -43,6 +44,7 @@ src/
     auth.rs         → sn auth login/logout/status/refresh (OAuth session commands; login runs the flow for a configured oauth profile, no config mutation) + whoami (authenticated-identity read, shared with profile.rs)
     profile.rs      → sn profile add/list/show/remove/use + the shared profile-writing core (ProfileInput, resolve_name/resolve_input, save_and_verify) used by both `add` and `init`
     table.rs        → sn table list/get/create/update/replace/delete + shared helpers
+    watch.rs        → sn watch table/count/activity/channel (live record watchers; streams JSONL)
     schema.rs       → sn schema tables/columns/choices (undocumented SN endpoints)
     introspect.rs   → sn introspect (dumps clap command tree as JSON)
     progress.rs     → sn progress + finish_cicd (poll async CICD ops)
@@ -88,10 +90,36 @@ Base paths and quirks not obvious from the module list:
 | `import` | `/api/now/import/{stagingTableName}` | single create + bulk via `insertMultiple`; staging table is positional |
 | `identify` | `/api/now/identifyreconcile` | POST-only; CI create/update + read-only query; enhanced variants accept `--options`; payload via `--data` |
 | schema (undocumented) | `GET /api/now/doc/table/schema` (tables); `GET /api/now/ui/meta/{table}` (columns/choices/refs) | not in SN's OpenAPI specs; may 404 on very old instances |
+| `watch` (undocumented) | `wss://<instance>/amb` (Bayeux/CometD) | cookie-auth only — `Authorization` is ignored; needs an `Origin` header and a session minted by a prior HTTP call. See "Record watchers" below |
 
 ### CICD async pattern
 
 CICD operations (`app`, `updateset`, `atf`) are async: they return a `progress_id` and run in the background on the instance. Prefer `--wait` — it blocks (polling `GET /api/sn_cicd/progress/{id}` every 2s) until the operation completes, then emits the final progress result. `--wait-timeout <SECS>` (requires `--wait`) bounds the wait; on expiry the command exits 3 with a pointer to `sn progress`. Without `--wait`, the command returns the initial progress object immediately; poll in-flight operations with `sn progress <id>`. Progress responses carry `status` — a numeric **string**, not an enum name: `"0"` pending, `"1"` running, `"2"` successful, `"3"` failed, `"4"` cancelled — plus `status_message`/`status_detail` and `percent_complete` (snake_case). The id is at `links.progress.id`; there is no top-level `progress_id` in the response (that name is only the CLI's positional arg). All groups share one tail — `cli/progress.rs::finish_cicd` (progress-link extraction + polling + emission via `write_response`, so `--output table` works under `--wait`); new async commands must route through it, not open-code the wait.
+
+### Record watchers (AMB websocket)
+
+`sn watch` streams live record changes over ServiceNow's **AMB** (Asynchronous Message Bus) — Bayeux/CometD over a websocket at `wss://<instance>/amb`. This is the transport behind the UI's own record watchers. It is undocumented; everything below was established against a live instance, and most of it is not guessable from a browser packet capture.
+
+**The quirk: you cannot open the socket with the profile's credentials.** `/amb` ignores the `Authorization` header entirely and authenticates **by session cookie alone**. So a watcher must first make one ordinary authenticated HTTP request purely to make the instance mint a session (`Client::session_cookies()`, which reuses `sn ping`'s `sys_user` read), then carry `JSESSIONID`/`glide_user_route`/`glide_session_store` onto the upgrade. Because that request goes out through the normal `Client`, **Basic and OAuth profiles both work with no special handling** — a bearer-authenticated call mints the identical cookies, and AMB accepts them.
+
+Two failure modes both *look like success*, and a naive client falls into both:
+
+1. **`Origin` is mandatory.** Without it the upgrade is `403 Forbidden` no matter how good the cookies are. Browsers set it implicitly, so it appears in no capture of the UI.
+2. **The `101` upgrade proves nothing about auth.** An *unauthenticated* socket also gets `101 Switching Protocols`, a `successful: true` handshake and a real `clientId`; it only comes apart at `/meta/subscribe`, which fails with the actively misleading `404::message_deleted`. The one honest signal is the handshake's `ext["glide.session.status"]` — `session.logged.in` vs `session.invalidated`. `amb::Amb::connect` checks it and raises an auth error (exit 4), because the alternative is a client that reports "connected" and then silently receives nothing forever.
+
+Protocol notes:
+
+- **`/meta/connect` is the long-poll, not a heartbeat.** Events only flow while a connect is outstanding: the server holds it ~30s, responds, and the client must immediately re-issue it or the stream goes quiet. This is why the watcher is a plain blocking read loop — `tungstenite`, deliberately *not* `tokio-tungstenite`; no async runtime is warranted.
+- **Channel names** are `/rw/{default,count2}/<table>/<b64(query)>`, where the base64 is *standard* (not base64url) with only the padding rewritten: `==` → `--`, `=` → `-`.
+- **Event payloads carry no field values.** An event gives `operation` (`insert`/`update`/`delete`), `changes` (the changed field names) and a `record` of `sys_*` columns only — never what a field changed *to*. `sn watch table` therefore hydrates by default: one Table API GET per event, replacing `record`. `--no-hydrate` opts out for high-volume watches; a delete emits `record: null` without a fetch, and a hydration failure sets `hydrate_error` rather than killing the stream.
+- **`changes` includes derived fields** — writing `urgency` reports `priority` as changed too, because ServiceNow recomputes it.
+- **Inserts list every populated field** in `changes`; **deletes carry `changes: []`**, so an `--on-change` filter never matches a delete.
+- **`count2` emits a delta, not a total** — `{"count": "+1"}` / `{"count": "-1"}`, as strings. Seed from `sn aggregate` and accumulate.
+- **AMB has no server-side operation or field filter**, so `--operation` / `--on-change` filter client-side, *before* hydration (a rejected event must not cost an API call, count against `--max-events`, or reset `--idle-timeout`).
+
+Operational shape: output is JSONL on stdout, flushed per event (an unflushed pipe would look frozen). `--max-events`/`--duration`/`--idle-timeout` bound the stream so it is usable from a script; Ctrl-C sends `/meta/disconnect` and exits 0. Connect failures **fail fast** (a session that never established will not establish on retry); only an *established* session that drops earns reconnect-with-backoff (2s→60s, 10 attempts, reset after 60s of health).
+
+Transport gaps: the socket is opened directly rather than through reqwest, so it does not inherit its settings. `--insecure` and `--ca-cert` are carried across explicitly (`amb::TlsOptions`, rustls with the `ring` provider — the one reqwest already links; a custom CA is *added* to the built-in roots, never swapped for them). **Proxies are not supported** and are refused loudly rather than silently bypassed, since ignoring one would send the session cookie outside the caller's sanctioned egress path.
 
 ### Client binary methods
 
