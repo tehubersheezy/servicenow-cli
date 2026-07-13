@@ -41,6 +41,7 @@ use base64::Engine;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::CryptoProvider;
 use rustls::{DigitallySignedStruct, SignatureScheme};
+use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use serde_json::{json, Value};
 use std::io::ErrorKind;
@@ -146,11 +147,26 @@ fn tls_connector(tls: &TlsOptions) -> Result<Connector> {
 }
 
 fn read_ca_pem(path: &str) -> Result<Vec<CertificateDer<'static>>> {
-    let pem =
-        std::fs::read(path).map_err(|e| Error::Config(format!("read CA cert '{path}': {e}")))?;
-    let certs: Vec<_> = rustls_pemfile::certs(&mut std::io::Cursor::new(pem))
-        .collect::<std::result::Result<_, _>>()
-        .map_err(|e| Error::Config(format!("parse CA cert '{path}': {e}")))?;
+    let sections = CertificateDer::pem_file_iter(path)
+        .map_err(|e| Error::Config(format!("read CA cert '{path}': {e}")))?;
+
+    let mut certs = Vec::new();
+    for section in sections {
+        match section {
+            Ok(cert) => certs.push(cert),
+            // Having parsed nothing, the file simply holds no certificate — say
+            // that, rather than surfacing a PEM-parser detail the caller cannot
+            // act on. Having parsed some, a trailing non-certificate section (a
+            // key, a comment) must not sink an otherwise usable bundle.
+            Err(e) if certs.is_empty() => {
+                return Err(Error::Config(format!(
+                    "no certificates found in CA cert '{path}': {e}"
+                )))
+            }
+            Err(_) => break,
+        }
+    }
+
     if certs.is_empty() {
         return Err(Error::Config(format!(
             "no certificates found in CA cert '{path}'"

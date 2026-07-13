@@ -51,8 +51,10 @@ ctrlc = "3"
 # provider reqwest already links — a second crypto backend in one binary is pure
 # cost.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-rustls-pki-types = "1"
-rustls-pemfile = "2"
+# PEM parsing comes from pki-types' own `PemObject`, not the `rustls-pemfile`
+# wrapper — that crate is archived and unmaintained (RUSTSEC-2025-0134), and it
+# was only ever a thin shim over this same code.
+rustls-pki-types = { version = "1", features = ["std"] }
 webpki-roots = "1"
 
 [dev-dependencies]
