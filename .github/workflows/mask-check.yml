@@ -1,14 +1,32 @@
-# Preflight: would this changelog survive a release?
+# Preflight: would this changelog silently ship an empty release?
 #
-# GitHub masks *each line* of a multiline secret. cargo-dist passes the release
-# body through a job output, and the runner silently withholds any output
-# containing a masked string — which skips every build job and ships an empty
-# release, green. See .github/workflows/release-guard.yml for the full mechanism.
+# cargo-dist passes the release body through a GitHub Actions job output. The
+# runner refuses to set any output whose value contains a masked string — and it
+# masks more than your secrets. It also registers CredScan credential regexes,
+# and one of them matches a bearer credential:
 #
-# This reproduces that exact path — text in, job output, text out — without
-# tagging anything. Run it before cutting a release, and after rotating any
-# secret. It reads the top section of CHANGELOG.md, which is what cargo-dist
-# uses as the release body.
+#   \bBearer + whitespace + any non-whitespace character   (case-sensitive)
+#
+# Measured on the runner, 2026-07-14 (.github/workflows/mask-forensics.yml in
+# git history has the experiment):
+#
+#   MASKED                          NOT MASKED
+#   "Bearer auth"                   "bearer auth"    (case-sensitive)
+#   "Bearer xyzzy"                  "Bearer" alone   (needs a token after it)
+#   "Bearer 123"                    "Bearer-auth"    (needs whitespace after)
+#   "Bearer" \n "auth"              "Bearers auth"   (word boundary required)
+#   "Authorization: Bearer abc"     "Carrier auth"
+#
+# Note the newline case: wrapping the phrase across two lines is NOT an escape.
+#
+# When the body is withheld, the plan job's `val` output arrives empty, every
+# downstream job's `if` evaluates false, they all SKIP, and the workflow reports
+# success while publishing a release with no assets. This emptied v0.8.0 three
+# times, and was misdiagnosed for months as junk lines inside HOMEBREW_TAP_TOKEN.
+# It never was: the secret is a clean single-line token and the mask persists.
+#
+# So stop relying on remembering the forbidden phrase. Run this before tagging
+# and let the runner answer.
 #
 #   gh workflow run mask-check.yml --repo tehubersheezy/servicenow-cli
 name: mask-check
@@ -20,10 +38,10 @@ permissions:
   contents: read
 
 jobs:
-  # The root cause is always a secret with more than one line: GitHub registers
-  # each line as its own mask, so a stray line of prose becomes a forbidden
-  # phrase repo-wide. A secret's length and line count leak nothing, so check
-  # them directly rather than inferring the shape from the symptom.
+  # A multiline secret is a *separate* hazard of the same family: GitHub masks
+  # each line of one, so a stray line of prose becomes a forbidden phrase
+  # repo-wide. Not what bit us, but worth never finding out the hard way. A
+  # secret's length and line count leak nothing.
   shape:
     runs-on: ubuntu-latest
     env:
@@ -37,7 +55,7 @@ jobs:
             echo "::error::secret is empty"; exit 1
           fi
           if [ "$lines" -gt 1 ]; then
-            echo "::error title=Multiline secret::HOMEBREW_TAP_TOKEN has ${lines} lines. Every line becomes a repo-wide mask, so any prose line in it silently censors that phrase out of job outputs — which is how a release ships empty and green. Re-save it as a bare token."
+            echo "::error title=Multiline secret::HOMEBREW_TAP_TOKEN has ${lines} lines. Every line becomes a repo-wide mask, so any line of prose in it silently censors that phrase out of job outputs. Re-save it as a bare token."
             exit 1
           fi
           echo "single line — no prose can be hiding in it"
@@ -46,27 +64,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       body: ${{ steps.e.outputs.body }}
-      probe: ${{ steps.e.outputs.probe }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - id: e
+        name: Push the release body through a job output
         run: |
-          # The top CHANGELOG section — what cargo-dist ships as the release body.
           {
             echo 'body<<MASK_EOF'
             awk '/^## /{n++} n==1' CHANGELOG.md
-            echo 'MASK_EOF'
-          } >> "$GITHUB_OUTPUT"
-
-          # Known junk lines from the HOMEBREW_TAP_TOKEN multiline paste. If these
-          # come back withheld, that secret still is not a bare token.
-          {
-            echo 'probe<<MASK_EOF'
-            echo 'Bearer auth'
-            echo 'Bearer token'
-            echo 'Bearer tokens'
             echo 'MASK_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -75,26 +82,37 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BODY: ${{ needs.emit.outputs.body }}
-      PROBE: ${{ needs.emit.outputs.probe }}
     steps:
-      - name: Diagnose
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verdict
         run: |
-          secret_armed=0
-          body_blocked=0
-          [ -z "$PROBE" ] && secret_armed=1
-          [ -z "$BODY" ] && body_blocked=1
-
-          if [ "$secret_armed" = 1 ]; then
-            echo "::warning title=A secret still contains plain-English lines::The probe output was withheld, so a repo secret still has a line like 'Bearer auth' in it. Re-save HOMEBREW_TAP_TOKEN as a bare single-line token; until then CHANGELOG.md can never contain those phrases."
-          else
-            echo "probe passed through — no secret is masking those phrases"
+          if [ -n "$BODY" ]; then
+            echo "release body survived the job output ($(printf %s "$BODY" | wc -c) bytes) — safe to tag"
+            exit 0
           fi
 
-          if [ "$body_blocked" = 1 ]; then
-            echo "::error title=This changelog would ship an empty release::The release body was withheld as a job output, so every build job would skip and the release would publish with no assets — while reporting success. A line of some repo secret appears verbatim in the top section of CHANGELOG.md."
-            exit 1
-          fi
+          echo "::error title=This changelog would ship an empty release::The release body was withheld as a job output. Every build job would skip and the release would publish with no assets, while the workflow reported success."
 
-          echo "release body passed through intact ($(printf %s "$BODY" | wc -c) bytes) — safe to tag"
-          [ "$secret_armed" = 1 ] && echo "(but fix the secret: the changelog is only safe by avoidance)"
-          exit 0
+          awk '/^## /{n++} n==1' CHANGELOG.md > /tmp/body.md
+          python3 - <<'PY'
+          import re
+          body = open("/tmp/body.md").read()
+          hits = list(re.finditer(r"\bBearer\s+\S+", body))
+          if hits:
+              print("The runner's bearer-credential regex matches here:")
+              for h in hits:
+                  line = body.count("\n", 0, h.start()) + 1
+                  # Break the pattern with a middle dot so the log can actually
+                  # print it — otherwise the runner masks our own error message.
+                  print(f"  CHANGELOG.md line {line}:  {re.sub(r'[ \t\n]+', chr(183), h.group(0))}")
+              print()
+              print("Rewrite it. Lowercase 'bearer' is fine, so is 'Bearer' with no word after")
+              print("it. Wrapping the line is NOT a fix: the regex spans newlines.")
+          else:
+              print("No bearer pattern found, so some *other* masked value is in the body.")
+              print("Check whether a repo secret's value (or one line of a multiline secret)")
+              print("appears verbatim in the top section of CHANGELOG.md.")
+          PY
+          exit 1

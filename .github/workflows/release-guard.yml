@@ -6,12 +6,14 @@
 #
 #   if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && ... }}
 #
-# GitHub masks *each line* of a multiline secret. If any masked line appears
-# anywhere in that manifest, the runner withholds the output ("Skip output 'val'
-# since it may contain secret"). `val` arrives empty, `fromJson('')` makes every
+# The runner withholds any output containing a masked string ("Skip output 'val'
+# since it may contain secret"), and it masks more than your secrets — it also
+# registers credential regexes, one of which matches `Bearer <token>` in plain
+# prose. When that fires, `val` arrives empty, `fromJson('')` makes every
 # condition false, and the build/host/publish jobs all **skip**. Skipped is not
 # failed, so the run is green and the release is empty. This emptied v0.8.0 three
-# times before anyone noticed.
+# times before anyone noticed. See mask-check.yml for the exact pattern, and run
+# it before tagging.
 #
 # So: never trust `Release`'s own conclusion. Verify what it actually produced.
 name: release-guard
@@ -48,7 +50,7 @@ jobs:
           if [ -n "$skipped" ]; then
             echo "::error title=Release skipped jobs::Release run reported '$CONCLUSION', but these jobs never ran:"
             echo "$skipped"
-            echo "::error::The usual cause is a masked secret line appearing in the plan job's manifest, so its 'val' output was withheld and every downstream 'if' evaluated false. Check the plan job log for \"Skip output 'val'\", and check that no repo secret contains a plain-English line that also appears in CHANGELOG.md."
+            echo "::error::The usual cause is a masked string in the plan job's manifest, so its 'val' output was withheld and every downstream 'if' evaluated false. Check the plan job log for \"Skip output 'val'\". Most likely the changelog contains 'Bearer <word>', which the runner masks by regex — run the mask-check workflow, which names the offending line."
             exit 1
           fi
           echo "no skipped jobs"
