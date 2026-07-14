@@ -17,21 +17,20 @@ sn table create incident --field short_description="Disk full on prod-db-01"
 sn ping                                       # auth + latency health check
 ```
 
-> ### 🆕 What's new in 0.9.1 — `sn watch`
+> ### 🆕 What's new in 0.10.0 — `sn watch`
 >
-> Every read used to be a poll. **[`sn watch`](#watching-records-live)** adds the other
-> half: a live stream of record changes over the same websocket ServiceNow's own UI uses,
-> emitted as JSONL, one event per line, as they happen.
+> **[`sn watch`](#watching-records-live)** streams record changes over ServiceNow's AMB
+> websocket as they happen, as JSONL on stdout, one event per line. Each event carries the
+> fields that changed and their new values.
 >
 > ```bash
 > sn watch table incident --query "priority=1^active=true" --max-events 5
 > sn watch table incident --sys-id <SYS_ID> --on-change state --duration 60
 > ```
 >
-> Events are **hydrated by default** — ServiceNow tells you *that* a record changed and
-> *which* fields, never what they changed to, so each event is completed with a Table API
-> read. `--max-events` / `--duration` / `--idle-timeout` bound the stream so it is usable
-> from a script, and `--operation` / `--on-change` narrow it to the changes you care about.
+> Filter with `--operation` and `--on-change`; bound the stream with `--max-events`,
+> `--duration` and `--idle-timeout`. Add `--hydrate` to also fetch the fields that
+> *didn't* change.
 >
 > Full [changelog](CHANGELOG.md).
 
@@ -244,7 +243,7 @@ sn table list incident --all | jq -r '.number'
 
 ### Watching records (live)
 
-`sn watch` streams record changes as they happen, over the same websocket ServiceNow's UI uses. Output is **JSONL on stdout** — one event per line, flushed as it arrives.
+`sn watch` streams record changes as they happen, over ServiceNow's AMB websocket. Output is **JSONL on stdout**: one event per line, flushed as it arrives.
 
 ```bash
 # Stream changes to matching records. Bound the stream, or it runs until you stop it.
@@ -262,24 +261,26 @@ sn watch activity <SYS_ID>                      # comments, work notes, field ch
 sn watch channel '/uxbannerannouncements'       # raw AMB channel (escape hatch)
 ```
 
-**Events are hydrated by default.** ServiceNow reports *that* a record changed and *which* fields changed — never what they changed to; the raw payload carries only `sys_*` columns. So each event triggers one Table API read, merged in as `record`:
+**An event carries the fields that changed, with their new values.** `record` holds every field named in `changes` as a `{display_value, value}` pair, plus a few `sys_*` audit columns. This is what you get by default, with no extra API call:
 
 ```jsonc
-{"table_name":"incident","sys_id":"1c74…","display_value":"INC0000060",
- "operation":"update","changes":["state","incident_state"],
- "changes_with_users":{"state":"abeyahmad"},
- "record":{"number":"INC0000060","state":"2"}}     // ← the new value
+{"table_name":"incident","sys_id":"1c74…","display_value":"INC0008001",
+ "operation":"update","changes":["urgency","priority"],
+ "changes_with_users":{"urgency":"abeyahmad"},
+ "record":{"urgency":{"display_value":"1 - High","value":"1"},      // ← the new value
+           "priority":{"display_value":"3 - Moderate","value":"3"}, // ← derived, recomputed
+           "sys_updated_by":{"display_value":"abeyahmad","value":"abeyahmad"}}}
 ```
 
-Narrow what gets fetched with `--fields`, or skip the per-event read entirely with `--no-hydrate` on a high-volume watch.
+What an event does **not** carry is any field that *didn't* change: an event about `urgency` has no `number` and no `assigned_to`, because nobody wrote them. **`--hydrate`** fetches the whole row for each event (one Table API read) and puts it in `record` instead — reach for it when you need fields nobody touched. `--fields` narrows that fetch and `--display-value` resolves references; both require `--hydrate`. Note a hydrated row is current as of the *fetch*, not the event.
 
 Worth knowing:
 
-- **`changes` includes derived fields** — writing `urgency` also reports `priority`, because ServiceNow recomputes it.
-- **Inserts list every populated field**; **deletes carry `changes: []`**, so `--on-change` never matches a delete (which emits `record: null`).
-- **`sn watch count` reports a delta, not a total** — `{"count": "+1"}`. Seed from `sn aggregate --count` and accumulate.
-- Ctrl-C exits 0 cleanly. Works with both basic and OAuth/SSO profiles.
-- `--insecure` and `--ca-cert` are honored; **proxies are not supported** and are refused rather than silently bypassed.
+- **`changes` includes derived fields.** Writing `urgency` also reports `priority`, because ServiceNow recomputes it.
+- **Inserts list every populated field** in `changes`, so an insert's `record` is the whole new row. **Deletes carry `changes: []`**, so `--on-change` never matches a delete — and no `record`, since there is nothing left to report (under `--hydrate` a delete emits `record: null` instead of attempting a doomed fetch).
+- **`sn watch count` reports a delta, not a total** (`{"count": "+1"}`). Seed from `sn aggregate <TABLE> --count` and accumulate.
+- Ctrl-C exits 0. Works with both basic and OAuth/SSO profiles.
+- `--insecure` and `--ca-cert` are honored. **Proxies are not supported**: a profile with a proxy configured exits 1 rather than connecting around it.
 
 ### Schema discovery
 

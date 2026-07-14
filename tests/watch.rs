@@ -86,6 +86,90 @@ fn watch_rejects_an_unknown_operation() {
 }
 
 #[test]
+fn fields_without_hydrate_is_a_usage_error() {
+    // --fields only narrows the hydration fetch. With hydration off by default,
+    // accepting it and doing nothing would be exactly the class of bug this repo
+    // has fixed elsewhere (flags silently dropped on the wire). Fail loudly.
+    let tmp = profile_at("https://example.invalid");
+    let out = sn_cmd(tmp.path())
+        .args([
+            "watch",
+            "table",
+            "incident",
+            "-q",
+            "active=true",
+            "--fields",
+            "number,state",
+        ])
+        .assert()
+        .failure()
+        .code(1);
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    assert!(
+        stderr.contains("--hydrate"),
+        "must name the flag that makes --fields meaningful: {stderr}"
+    );
+}
+
+#[test]
+fn display_value_without_hydrate_is_a_usage_error() {
+    let tmp = profile_at("https://example.invalid");
+    sn_cmd(tmp.path())
+        .args([
+            "watch",
+            "table",
+            "incident",
+            "-q",
+            "active=true",
+            "--display-value",
+            "all",
+        ])
+        .assert()
+        .failure()
+        .code(1);
+}
+
+#[test]
+fn hydrate_and_no_hydrate_together_is_a_usage_error() {
+    let tmp = profile_at("https://example.invalid");
+    sn_cmd(tmp.path())
+        .args([
+            "watch",
+            "table",
+            "incident",
+            "-q",
+            "active=true",
+            "--hydrate",
+            "--no-hydrate",
+        ])
+        .assert()
+        .failure()
+        .code(1);
+}
+
+#[test]
+fn no_hydrate_is_still_accepted_as_a_no_op() {
+    // 0.9.1 scripts pass --no-hydrate. It now describes the default, so it must
+    // parse rather than exit 1 on an unknown flag. It gets as far as the network
+    // (exit 3 against an address nothing answers on), which proves it parsed.
+    let tmp = profile_at("https://127.0.0.1:1");
+    sn_cmd(tmp.path())
+        .args([
+            "watch",
+            "table",
+            "incident",
+            "-q",
+            "active=true",
+            "--no-hydrate",
+            "--max-events",
+            "1",
+        ])
+        .assert()
+        .failure()
+        .code(3);
+}
+
+#[test]
 fn watch_refuses_a_proxy_rather_than_silently_bypassing_it() {
     // The socket is opened directly, so a configured proxy would be ignored —
     // quietly sending the session cookie outside the sanctioned egress path.

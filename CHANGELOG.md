@@ -1,46 +1,60 @@
 # Changelog
 
+## 0.10.0 (2026-07-14)
+
+### Breaking changes
+
+- **`sn watch table` no longer reads the record for each event.** An AMB event already
+  carries the fields that changed *and their new values*: `record` holds every field
+  named in `changes` as a `{display_value, value}` pair, plus five `sys_*` audit columns.
+  0.9.1 fetched the record anyway — one Table API read per event — and overwrote `record`
+  with the result. The event's own record is now emitted as-is, and no API call is made.
+
+  Pass **`--hydrate`** for the old behavior: one Table API read per event, replacing
+  `record` with the whole row. Use it when you need fields that did *not* change. An event
+  about `state` carries no `number` and no `assigned_to`, because they were not written.
+
+  `--fields` and `--display-value` now require `--hydrate`, since they only affect that
+  fetch; accepting them without it would silently do nothing. `--no-hydrate` is still
+  accepted and does nothing, as it now describes the default.
+
+  Note that a hydrated record is the row as of the *fetch*, not as of the event. A record
+  written twice in quick succession can hydrate the first event with the second event's
+  values. The event's own record has no such skew.
+
+### Fixed
+
+- **The docs claimed AMB events carry no field values.** They do, and always did — the
+  claim ("its payload carries only `sys_*` columns, never what they changed to") was in
+  the README, both skills, and `watch.rs` itself, and it is what put hydration on by
+  default in 0.9.1. Corrected everywhere, verified against a live instance.
+
 ## 0.9.1 (2026-07-13)
 
-Every read in this CLI was a poll: ask, get an answer, ask again. `sn watch` adds the
-other half — a live stream of record changes over the same websocket ServiceNow's own
-UI uses to make a form update itself when someone else saves the record. Events arrive
-as JSONL on stdout, one per line, as they happen.
+Adds `sn watch`: live record watchers. Record changes are streamed over ServiceNow's
+AMB websocket as they happen, as JSONL on stdout, one event per line.
 
 ### Added
 
-- **`sn watch table <TABLE> --query <ENCODED_QUERY>`** — stream changes to every
-  matching record. `--sys-id` watches exactly one. Also `sn watch count` (how many
-  records match), `sn watch activity` (a record's comments and work notes), and
-  `sn watch channel` as a raw escape hatch for channels the CLI does not model.
-- **Events are hydrated by default.** The message bus reports *that* a record changed
-  and *which* fields changed — never what they changed to; its payload carries only
-  `sys_*` columns. So each event triggers one Table API read and the result is merged
-  in as `record`, which is what makes the stream answer the question you actually
-  asked. Narrow it with `--fields`, or skip the per-event read with `--no-hydrate`.
-- **`--max-events`, `--duration`, `--idle-timeout`** bound the stream, because a
-  command that never returns is useless inside a script. Ctrl-C exits 0 cleanly after
-  telling the instance to drop the subscription.
-- **`--operation insert|update|delete` and `--on-change <FIELDS>`** filter the stream.
-  ServiceNow has no server-side filter for either, so both are applied before
-  hydration: a discarded event costs no API call, does not count against
-  `--max-events`, and does not reset `--idle-timeout`.
-- OAuth/SSO profiles work with no extra setup. The websocket cannot present the
-  profile's credentials — the endpoint ignores the `Authorization` header entirely and
-  authenticates by session cookie alone — so `watch` first makes one ordinary
-  authenticated request purely to mint a session. That request goes out through the
-  normal HTTP client, so a password profile and an OAuth access-token profile mint the
-  same cookies and both are accepted.
+- **`sn watch table <TABLE> --query <ENCODED_QUERY>`** — stream changes to every record
+  matching the query. `--sys-id <SYS_ID>` watches a single record.
+- **`sn watch count <TABLE> --query <ENCODED_QUERY>`** — stream changes to the number of
+  records matching the query.
+- **`sn watch activity <SYS_ID>`** — stream a record's comments, work notes and field
+  changes.
+- **`sn watch channel <CHANNEL>`** — subscribe to a raw AMB channel, for channels the
+  CLI does not model.
+- **`--operation insert|update|delete`** and **`--on-change <FIELDS>`** filter the
+  stream. **`--max-events <N>`**, **`--duration <SECS>`** and **`--idle-timeout <SECS>`**
+  bound it. Ctrl-C exits 0.
 
 ### Notes
 
-- A connection that never established fails immediately rather than retrying; only a
-  session that *was* established and then dropped earns a reconnect with backoff.
-- `--insecure` and `--ca-cert` are honored on the websocket. **Proxies are not
-  supported** and are refused (exit 1) rather than silently bypassed, since ignoring a
-  configured proxy would send the session cookie outside the egress path you chose.
-- `sn watch count` reports a **delta**, not a total (`{"count": "+1"}`). Seed from
-  `sn aggregate --count` and accumulate.
+- `sn watch count` reports a delta, not a total (`{"count": "+1"}`). Seed it with
+  `sn aggregate <TABLE> --count --query <ENCODED_QUERY>` and accumulate.
+- Proxies are not supported. The websocket is opened directly rather than through the
+  HTTP client, so a profile with a proxy configured exits 1 instead of connecting around
+  it. `--insecure` and `--ca-cert` are honored.
 
 ## 0.9.0 (2026-07-12)
 

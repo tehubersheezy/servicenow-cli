@@ -5,14 +5,24 @@
 //! backoff), enforces the termination limits that make an infinite stream usable
 //! from a script, filters events, and hydrates the survivors.
 //!
-//! ## Why hydration exists
+//! ## What an event carries, and why `--hydrate` exists
 //!
-//! An AMB event says *that* a record changed and *which* fields changed — never
-//! what they changed to. Its `record` payload carries only `sys_*` columns. So by
-//! default each event triggers one Table API read and the result replaces
-//! `record`, which is what makes the stream useful rather than merely
-//! informative. `--no-hydrate` opts out for high-volume watches, where one API
-//! call per event is a real cost.
+//! An AMB event carries values. Its `record` holds every field named in `changes`
+//! — with the new value, as a `{display_value, value}` pair — plus five `sys_*`
+//! audit columns (`sys_created_by/on`, `sys_updated_by/on`, `sys_mod_count`). On
+//! an insert that is the whole populated row, since `changes` then lists every
+//! field. This is what the stream emits, unchanged, by default.
+//!
+//! What an event does *not* carry is any field that did not change. A watch on
+//! `state` that also wants `number` or `assigned_to` gets neither, because they
+//! were not written. `--hydrate` opts into one Table API read per event, whose
+//! result *replaces* `record` with the whole row. It costs an API call per event,
+//! and note the row it fetches is the row as of the fetch, not as of the event:
+//! a record written twice in quick succession can hydrate the first event with
+//! the second event's values. The event's own `record` has no such skew.
+//!
+//! Until 0.10.0 hydration was the default, on the false premise that events carry
+//! only `sys_*` columns.
 //!
 //! ## Why filtering is client-side
 //!
@@ -121,14 +131,26 @@ pub struct WatchTableArgs {
         value_name = "FIELDS"
     )]
     pub on_change: Vec<String>,
-    /// Comma-separated fields to fetch when hydrating. Defaults to the whole record.
-    #[arg(long, short = 'f', alias = "sysparm-fields")]
-    pub fields: Option<String>,
-    /// Resolve reference/choice fields when hydrating: false (default), true, or all.
-    #[arg(long, alias = "sysparm-display-value", value_enum)]
-    pub display_value: Option<DisplayValueArg>,
-    /// Emit the raw AMB event without fetching the record.
+    /// Fetch the whole record for each event (one Table API read per event).
+    /// Without it, `record` is the event's own: the fields that changed, with
+    /// their new values.
     #[arg(long)]
+    pub hydrate: bool,
+    /// Comma-separated fields to fetch. Requires `--hydrate`.
+    #[arg(long, short = 'f', alias = "sysparm-fields", requires = "hydrate")]
+    pub fields: Option<String>,
+    /// Resolve reference/choice fields: false (default), true, or all. Requires `--hydrate`.
+    #[arg(
+        long,
+        alias = "sysparm-display-value",
+        value_enum,
+        requires = "hydrate"
+    )]
+    pub display_value: Option<DisplayValueArg>,
+    /// Deprecated: not hydrating is now the default. Accepted as a no-op so
+    /// scripts written against 0.9.1 keep working — they already ask for what
+    /// they now get.
+    #[arg(long, hide = true, conflicts_with = "hydrate")]
     pub no_hydrate: bool,
     #[command(flatten)]
     pub limits: WatchLimits,
@@ -238,7 +260,7 @@ pub fn run(global: &GlobalFlags, sub: WatchSub) -> Result<()> {
                     operations: a.operation,
                     on_change: a.on_change,
                 },
-                hydrate: (!a.no_hydrate).then(|| Hydrate {
+                hydrate: a.hydrate.then(|| Hydrate {
                     table: a.table.clone(),
                     query: GetQuery {
                         fields: a.fields.clone(),
@@ -422,6 +444,10 @@ fn pump(
 }
 
 /// Turn a raw AMB event into the record the caller actually wants.
+///
+/// With no `Hydrate` the event passes through untouched, which is the default:
+/// its `record` is already the changed fields with their new values. When
+/// hydrating, the fetched row *replaces* that record rather than merging with it.
 ///
 /// Hydration failure is never fatal: a record can be deleted, or lose its ACL,
 /// between the event firing and the fetch landing. Losing one record's detail

@@ -114,7 +114,7 @@ sn table list incident --all | jq -r '.number'   # pipe JSONL through jq
 Streams record changes over ServiceNow's AMB websocket. **JSONL on stdout, one event per line, flushed as it arrives.**
 
 ```bash
-# Bound the stream or it runs forever — an unbounded watch is useless in a script.
+# Bound the stream, or it runs until interrupted.
 sn watch table incident -q "priority=1^active=true" --max-events 5
 sn watch table incident --sys-id <SYS_ID> --duration 60      # stop after 60s
 sn watch table incident -q "active=true" --idle-timeout 30   # stop after 30s of quiet
@@ -126,20 +126,23 @@ sn watch activity <SYS_ID>                                            # comments
 sn watch channel '/uxbannerannouncements'                             # raw AMB channel
 ```
 
-**Events carry no field values.** AMB reports *that* a record changed and *which* fields (`changes`), never what they changed to. So `watch table` **hydrates by default** — one Table API GET per event, merged in as `record`. Narrow it with `-f/--fields`, or use `--no-hydrate` on a high-volume watch to skip the per-event call.
+**Events carry the changed fields WITH their new values.** `record` holds each field in `changes` as a `{display_value, value}` pair (+ a few `sys_*` audit cols). No API call — this is the default output:
 
 ```jsonc
-{"table_name":"incident","sys_id":"1c74…","display_value":"INC0000060",
- "operation":"update","changes":["state","incident_state"],
- "changes_with_users":{"state":"abeyahmad"},
- "record":{"number":"INC0000060","state":"2"}}      // ← hydrated: the NEW value
+{"table_name":"incident","sys_id":"1c74…","display_value":"INC0008001",
+ "operation":"update","changes":["urgency","priority"],
+ "changes_with_users":{"urgency":"abeyahmad"},
+ "record":{"urgency":{"display_value":"1 - High","value":"1"},        // ← the NEW value
+           "priority":{"display_value":"3 - Moderate","value":"3"}}}  // ← derived
 ```
+
+**It omits fields that did NOT change** — an `urgency` event has no `number`, no `assigned_to`. Add **`--hydrate`** to fetch the whole row (1 Table API GET per event, **replaces** `record`); `-f/--fields` and `--display-value` narrow that fetch and **require** `--hydrate`. A hydrated row is current as of the fetch, not the event.
 
 ⚠️ Gotchas:
 - **`changes` includes derived fields** — writing `urgency` also reports `priority` (ServiceNow recomputes it).
-- **Inserts list every populated field**; **deletes carry `changes: []`**, so `--on-change` never matches a delete. A delete emits `record: null`.
-- **`sn watch count` emits a delta, not a total**: `{"count":"+1"}` / `{"count":"-1"}` (strings). Seed with `sn aggregate --count` and accumulate.
-- Ctrl-C exits 0 cleanly. Exit 4 if the profile can't authenticate, 3 if the socket can't be established.
+- **Inserts list every populated field** (so an insert's `record` is the whole new row); **deletes carry `changes: []`**, so `--on-change` never matches a delete. A delete carries no `record` at all (`record: null` under `--hydrate`).
+- **`sn watch count` emits a delta, not a total**: `{"count":"+1"}` / `{"count":"-1"}` (strings). Seed with `sn aggregate <TABLE> --count` and accumulate.
+- Ctrl-C exits 0. Exit 4 if the profile can't authenticate, 3 if the socket can't be established.
 - Works with basic **and** OAuth profiles. **No proxy support** (refused with exit 1, not silently bypassed); `--insecure`/`--ca-cert` do work.
 
 ## Aggregate
