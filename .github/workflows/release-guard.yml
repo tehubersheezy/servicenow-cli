@@ -1,0 +1,74 @@
+# Catches a Release run that reports success while shipping nothing.
+#
+# `Release` (cargo-dist, generated) publishes the whole dist-manifest — changelog
+# text and all — as the `plan` job's `val` output, and every downstream job gates
+# on it:
+#
+#   if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && ... }}
+#
+# GitHub masks *each line* of a multiline secret. If any masked line appears
+# anywhere in that manifest, the runner withholds the output ("Skip output 'val'
+# since it may contain secret"). `val` arrives empty, `fromJson('')` makes every
+# condition false, and the build/host/publish jobs all **skip**. Skipped is not
+# failed, so the run is green and the release is empty. This emptied v0.8.0 three
+# times before anyone noticed.
+#
+# So: never trust `Release`'s own conclusion. Verify what it actually produced.
+name: release-guard
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    # Only tag pushes are supposed to publish. Release also runs on PRs, where
+    # skipped jobs are correct and expected.
+    if: ${{ github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      TAG: ${{ github.event.workflow_run.head_branch }}
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      # A healthy release publishes ~23 assets (6 platform archives + 2 MSIs +
+      # checksums + installers + manifest). Bump this if the target list changes.
+      MIN_ASSETS: "20"
+    steps:
+      - name: No release job may be skipped
+        run: |
+          skipped=$(gh api "/repos/$REPO/actions/runs/$RUN_ID/jobs" --paginate \
+            --jq '.jobs[] | select(.conclusion == "skipped") | .name')
+          if [ -n "$skipped" ]; then
+            echo "::error title=Release skipped jobs::Release run reported '$CONCLUSION', but these jobs never ran:"
+            echo "$skipped"
+            echo "::error::The usual cause is a masked secret line appearing in the plan job's manifest, so its 'val' output was withheld and every downstream 'if' evaluated false. Check the plan job log for \"Skip output 'val'\", and check that no repo secret contains a plain-English line that also appears in CHANGELOG.md."
+            exit 1
+          fi
+          echo "no skipped jobs"
+
+      - name: The tag must actually have assets
+        run: |
+          count=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets | length' 2>/dev/null || echo 0)
+          echo "$TAG published $count assets (floor: $MIN_ASSETS)"
+          if [ "$count" -lt "$MIN_ASSETS" ]; then
+            echo "::error title=Empty or partial release::$TAG has $count assets, expected at least $MIN_ASSETS. The workflow was green but did not publish."
+            exit 1
+          fi
+
+      - name: The Homebrew formula must match the tag
+        run: |
+          version="${TAG#v}"
+          formula=$(gh api /repos/tehubersheezy/homebrew-sn/contents/Formula/sn.rb \
+            --jq '.content' 2>/dev/null | base64 -d | grep -oE 'version "[^"]+"' | head -1 | cut -d'"' -f2)
+          echo "tap formula: ${formula:-<none>} | tag: $version"
+          if [ "$formula" != "$version" ]; then
+            echo "::error title=Homebrew tap not updated::Formula is at '${formula:-<none>}' but the tag is '$version'. The publish-homebrew-formula job did not do its job."
+            exit 1
+          fi

@@ -1,0 +1,78 @@
+# Preflight: would this changelog survive a release?
+#
+# GitHub masks *each line* of a multiline secret. cargo-dist passes the release
+# body through a job output, and the runner silently withholds any output
+# containing a masked string — which skips every build job and ships an empty
+# release, green. See .github/workflows/release-guard.yml for the full mechanism.
+#
+# This reproduces that exact path — text in, job output, text out — without
+# tagging anything. Run it before cutting a release, and after rotating any
+# secret. It reads the top section of CHANGELOG.md, which is what cargo-dist
+# uses as the release body.
+#
+#   gh workflow run mask-check.yml --repo tehubersheezy/servicenow-cli
+name: mask-check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  emit:
+    runs-on: ubuntu-latest
+    outputs:
+      body: ${{ steps.e.outputs.body }}
+      probe: ${{ steps.e.outputs.probe }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: e
+        run: |
+          # The top CHANGELOG section — what cargo-dist ships as the release body.
+          {
+            echo 'body<<MASK_EOF'
+            awk '/^## /{n++} n==1' CHANGELOG.md
+            echo 'MASK_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          # Known junk lines from the HOMEBREW_TAP_TOKEN multiline paste. If these
+          # come back withheld, that secret still is not a bare token.
+          {
+            echo 'probe<<MASK_EOF'
+            echo 'Bearer auth'
+            echo 'Bearer token'
+            echo 'Bearer tokens'
+            echo 'MASK_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  consume:
+    needs: emit
+    runs-on: ubuntu-latest
+    env:
+      BODY: ${{ needs.emit.outputs.body }}
+      PROBE: ${{ needs.emit.outputs.probe }}
+    steps:
+      - name: Diagnose
+        run: |
+          secret_armed=0
+          body_blocked=0
+          [ -z "$PROBE" ] && secret_armed=1
+          [ -z "$BODY" ] && body_blocked=1
+
+          if [ "$secret_armed" = 1 ]; then
+            echo "::warning title=A secret still contains plain-English lines::The probe output was withheld, so a repo secret still has a line like 'Bearer auth' in it. Re-save HOMEBREW_TAP_TOKEN as a bare single-line token; until then CHANGELOG.md can never contain those phrases."
+          else
+            echo "probe passed through — no secret is masking those phrases"
+          fi
+
+          if [ "$body_blocked" = 1 ]; then
+            echo "::error title=This changelog would ship an empty release::The release body was withheld as a job output, so every build job would skip and the release would publish with no assets — while reporting success. A line of some repo secret appears verbatim in the top section of CHANGELOG.md."
+            exit 1
+          fi
+
+          echo "release body passed through intact ($(printf %s "$BODY" | wc -c) bytes) — safe to tag"
+          [ "$secret_armed" = 1 ] && echo "(but fix the secret: the changelog is only safe by avoidance)"
+          exit 0
