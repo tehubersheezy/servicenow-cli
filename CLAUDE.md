@@ -204,4 +204,23 @@ This repo is also a Claude Code plugin and its own marketplace (`.claude-plugin/
 - `security.yml` — `cargo audit` (RustSec) + `cargo deny check all` (license/source/banned-crate policy in `deny.toml`); on dep changes + daily 06:00 UTC.
 - `scorecard.yml` — OSSF Scorecard; weekly + push to main; publishes to scorecard.dev.
 - `release.yml` — cargo-dist on `v*` tag: builds {x86_64,aarch64}-{linux,macos,windows}, shell/PowerShell/MSI installers, Homebrew formula, and signed provenance attestations (`gh attestation verify`); auto-publishes the formula to `tehubersheezy/homebrew-sn` via `HOMEBREW_TAP_TOKEN`.
+- `release-guard.yml` — hooks `Release` via `workflow_run`, so it still runs when every job inside skipped. Fails if any release job was **skipped**, if the tag published fewer than 20 assets, or if the Homebrew formula version doesn't match the tag. Exists because a green `Release` does *not* mean anything shipped (see below).
+- `mask-check.yml` — **run before tagging** (`gh workflow run mask-check.yml`). Preflight that pushes the top CHANGELOG section through a job output, the exact path that breaks, and names the offending line if it would be withheld.
 - Config: `dist-workspace.toml` (cargo-dist), `wix/main.wxs` (MSI template; stable GUIDs in `[package.metadata.wix]` of `Cargo.toml`), `.github/dependabot.yml` (weekly grouped dep PRs for cargo + github-actions).
+
+### The changelog can silently empty a release
+
+**Never write `Bearer <word>` in `CHANGELOG.md`.** It will publish a release with zero assets while reporting success.
+
+cargo-dist passes the whole dist-manifest — release body included — as the `plan` job's `val` output, and every downstream job gates on `fromJson(needs.plan.outputs.val)`. The runner refuses to set an output containing a masked string, so `val` arrives empty, every `if` evaluates false, and build/host/publish all **skip**. Skipped is not failed, so the run is green. This emptied v0.8.0 three times.
+
+The masked string is not one of your secrets. The runner registers CredScan credential regexes alongside real secrets, and one matches a bearer credential. Measured on the runner 2026-07-14 (see the `mask-forensics` workflow in git history):
+
+| masked | not masked |
+|---|---|
+| `Bearer auth`, `Bearer xyzzy`, `Bearer 123`, `Bearer x` | `bearer auth` (case-sensitive), `BEARER AUTH` |
+| `Bearer` ⏎ `auth` — **a newline is whitespace, so wrapping is no escape** | `Bearer` alone (needs a token after it) |
+| `Authorization: Bearer abc123`, and the phrase anywhere inside prose | `Bearer-auth`, `Bearer.auth`, `Bearer_auth`, `Bearer, auth` (needs whitespace) |
+| | `Bearers auth`, `MyBearer auth` (word boundaries required) |
+
+So the rule is `\bBearer` + whitespace + any non-whitespace character. Say "bearer token" lowercase, or "OAuth access token", and rely on `mask-check` rather than on remembering this. **This was misdiagnosed for months** as junk prose lines pasted into `HOMEBREW_TAP_TOKEN`; that secret is a clean single line (`mask-check`'s `shape` job proves it every run) and rotating it changes nothing. A multiline secret *is* a real hazard of the same family — each line becomes a repo-wide mask — which is why `shape` still checks.
