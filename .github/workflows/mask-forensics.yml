@@ -1,16 +1,13 @@
 # TEMPORARY forensics — delete after use.
 #
-# HOMEBREW_TAP_TOKEN is now provably a single 93-char line, yet a job output
-# containing "Bearer auth" is still withheld. So the mask is NOT coming from that
-# secret, and the standing theory ("the secret was pasted with junk prose lines")
-# is wrong.
+# Round 1 established the mask is a runner REGEX, not a secret value: the string
+# "Bearer xyzzy", invented on the spot and present in no secret, was withheld,
+# while "bearer auth" (lowercase) and "Carrier auth" passed.
 #
-# Competing hypothesis: the runner masks `Bearer <something>` by *pattern*, via
-# the CredScan regexes it registers alongside real secrets. If so, the phrase ban
-# is a permanent property of GitHub Actions, not something a rotation can fix.
-#
-# The discriminator is `Bearer xyzzy`: that string cannot be inside any secret,
-# so if it is withheld too, it is a regex, not a value.
+# Round 2 pins the boundary. The one that decides whether a changelog author can
+# escape by wrapping the line is `nl`: "Bearer" at end-of-line, its word on the
+# next. If that is withheld too, the regex spans newlines and wrapping is no
+# defense.
 name: mask-forensics
 
 on:
@@ -32,9 +29,7 @@ jobs:
       c06: ${{ steps.e.outputs.c06 }}
       c07: ${{ steps.e.outputs.c07 }}
       c08: ${{ steps.e.outputs.c08 }}
-      c09: ${{ steps.e.outputs.c09 }}
-      c10: ${{ steps.e.outputs.c10 }}
-      c11: ${{ steps.e.outputs.c11 }}
+      nl: ${{ steps.e.outputs.nl }}
     steps:
       - id: e
         run: |
@@ -43,50 +38,50 @@ jobs:
             printf 'c%02d=%s\n' "$i" "$cand" >> "$GITHUB_OUTPUT"
             i=$((i + 1))
           done <<'CANDS'
-          Bearer auth
-          Bearer token
-          Bearer tokens
-          Bearer xyzzy
-          Bearer
-          bearer auth
-          BEARER AUTH
-          auth
-          token
-          Carrier auth
-          the Bearer auth line
-          Authorization: Bearer abc123
+          Bearer x
+          Bearer-auth
+          Bearer.auth
+          Bearer  auth
+          Bearer 123
+          Bearers auth
+          Bearer_auth
+          MyBearer auth
+          Bearer, auth
           CANDS
+
+          # The wrapped-changelog case: a newline between the word and its token.
+          {
+            echo 'nl<<EOF'
+            echo 'a line ending in Bearer'
+            echo 'auth starting the next'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
   consume:
     needs: emit
     runs-on: ubuntu-latest
     steps:
-      - name: Which candidates survived a job output?
+      - name: Where exactly is the boundary?
         env:
           ALL: ${{ toJson(needs.emit.outputs) }}
         run: |
-          # Index → candidate, kept here because the runner would mask the names
-          # in its own log if we printed them from the emit job.
           names=(
-            "Bearer auth"
-            "Bearer token"
-            "Bearer tokens"
-            "Bearer xyzzy   <-- DISCRIMINATOR: cannot be in any secret"
-            "Bearer"
-            "bearer auth    (lowercase)"
-            "BEARER AUTH    (uppercase)"
-            "auth"
-            "token"
-            "Carrier auth   <-- CONTROL: should always survive"
-            "the Bearer auth line   (embedded in prose)"
-            "Authorization: Bearer abc123"
+            "Bearer x        (single char)"
+            "Bearer-auth     (hyphen, no space)"
+            "Bearer.auth     (dot)"
+            "Bearer  auth    (two spaces)"
+            "Bearer 123      (digits)"
+            "Bearers auth    (Bearer+s = different word)"
+            "Bearer_auth     (underscore)"
+            "MyBearer auth   (no word boundary before)"
+            "Bearer, auth    (comma)"
           )
-          for i in $(seq 0 11); do
+          for i in $(seq 0 8); do
             key=$(printf 'c%02d' "$i")
             val=$(printf '%s' "$ALL" | jq -r --arg k "$key" '.[$k] // ""')
-            if [ -z "$val" ]; then
-              printf '%-2s WITHHELD  %s\n' "$i" "${names[$i]}"
-            else
-              printf '%-2s passed    %s\n' "$i" "${names[$i]}"
-            fi
+            [ -z "$val" ] && printf '%-2s WITHHELD  %s\n' "$i" "${names[$i]}" \
+                          || printf '%-2s passed    %s\n' "$i" "${names[$i]}"
           done
+          nl=$(printf '%s' "$ALL" | jq -r '.nl // ""')
+          [ -z "$nl" ] && echo "nl WITHHELD  'Bearer' \\n 'auth'  <-- WRAPPING IS NO ESCAPE" \
+                       || echo "nl passed    'Bearer' \\n 'auth'  <-- a newline breaks the match"
