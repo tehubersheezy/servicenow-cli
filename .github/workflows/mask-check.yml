@@ -20,6 +20,28 @@ permissions:
   contents: read
 
 jobs:
+  # The root cause is always a secret with more than one line: GitHub registers
+  # each line as its own mask, so a stray line of prose becomes a forbidden
+  # phrase repo-wide. A secret's length and line count leak nothing, so check
+  # them directly rather than inferring the shape from the symptom.
+  shape:
+    runs-on: ubuntu-latest
+    env:
+      TAP: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - name: HOMEBREW_TAP_TOKEN must be a single line
+        run: |
+          lines=$(printf '%s' "$TAP" | grep -c '' || true)
+          echo "HOMEBREW_TAP_TOKEN: ${#TAP} chars, ${lines} line(s)"
+          if [ "${#TAP}" -eq 0 ]; then
+            echo "::error::secret is empty"; exit 1
+          fi
+          if [ "$lines" -gt 1 ]; then
+            echo "::error title=Multiline secret::HOMEBREW_TAP_TOKEN has ${lines} lines. Every line becomes a repo-wide mask, so any prose line in it silently censors that phrase out of job outputs — which is how a release ships empty and green. Re-save it as a bare token."
+            exit 1
+          fi
+          echo "single line — no prose can be hiding in it"
+
   emit:
     runs-on: ubuntu-latest
     outputs:
