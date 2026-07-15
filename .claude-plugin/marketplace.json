@@ -1,5 +1,6 @@
 {
   "name": "sn",
+  "description": "ServiceNow CLI as a Claude Code skill — table CRUD, change management, CMDB, attachments, catalog, import sets, CI reconciliation, CICD, aggregates, and schema discovery",
   "owner": {
     "name": "Abey Ahmad"
   },
