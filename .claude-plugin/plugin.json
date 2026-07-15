@@ -6,9 +6,6 @@
     "name": "Abey Ahmad"
   },
   "homepage": "https://github.com/tehubersheezy/servicenow-cli",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/tehubersheezy/servicenow-cli.git"
-  },
+  "repository": "https://github.com/tehubersheezy/servicenow-cli",
   "license": "MIT"
 }
