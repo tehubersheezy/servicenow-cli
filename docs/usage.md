@@ -642,6 +642,32 @@ wire, so a term the instance cannot evaluate cannot be silently dropped and leav
 stranger's record. On an instance without that endpoint it falls back to the scripted `sys_user`
 read and exits 2 if the filter was evidently dropped.
 
+## Acting as another user
+
+```bash
+# Run one command as abel.tuter, then end the impersonation
+sn impersonate abel.tuter -- table get incident <sys_id>   # "why can't they see this?"
+sn impersonate abel.tuter -- ping                          # impersonating: true, original_user: you
+sn impersonate <sys_id> --profile prod --output table -- table list incident --limit 5
+```
+
+The server evaluates roles and ACLs as the target, so a record they cannot read comes back empty
+or 403 exactly as it would for them. The profile's user needs the admin or impersonator role;
+without it the command exits 4 before anything is attempted.
+
+The command after `--` is any `sn` command (a leading `sn` is optional) except the ones that
+manage local state or open a session of their own: `init`, `profile`, `watch`, `open`,
+`completion`, `introspect`, and `impersonate` itself. Its stdout, stderr and exit code are its own.
+Connection options (`--profile`, `--proxy`, `--timeout`, TLS) go before `--`, since the session is
+opened first; output options work on either side.
+
+The impersonation lives on a session private to this one process: minted with the profile's
+credentials, then driven by cookie alone (a per-request credential would re-authenticate as you and
+undo it), and never written to disk. Your browser and every other `sn` invocation are unaffected.
+It ends on every exit — success, a failing command, Ctrl-C (exit 130) — by switching back, logging
+the session out, and checking the session is gone. The switch is also verified before the command
+runs: the instance answers the impersonate call with success even when it refused it.
+
 ## Open a record in the web UI
 
 ```bash

@@ -3,11 +3,14 @@ use crate::error::{Error, Result};
 use crate::observability::{log_body, log_request, log_response, log_response_headers};
 use crate::query::{is_cursor_safe, keyset_query};
 use reqwest::blocking::{Client as ReqwestClient, Response};
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
+use reqwest::header::{
+    ACCEPT, CONTENT_TYPE, COOKIE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT,
+};
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::io::{ErrorKind, Read, Write};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// How a `Client` attaches credentials to each request. Resolved at build time
@@ -27,9 +30,123 @@ pub enum Auth {
     ApiKey {
         key: String,
     },
+    /// An already-minted ServiceNow session, carried by cookie alone — **no**
+    /// `Authorization` header. This is what `sn impersonate` runs its inner
+    /// command on: impersonation is state on the server-side session, and a
+    /// per-request credential (Basic *or* bearer) re-establishes the
+    /// credential-holder's identity on every call, wiping it.
+    Session(Arc<SessionJar>),
     /// No credentials attached — used for the OAuth token endpoint, which
     /// authenticates via form parameters (or a Basic client_id:secret) instead.
     None,
+}
+
+/// The CSRF header ServiceNow reads on cookie-authenticated requests; its
+/// value is the session's `SessionToken` (the UI's `g_ck`).
+pub const USER_TOKEN_HEADER: &str = "X-UserToken";
+
+/// A live ServiceNow session: its cookies and its CSRF token, both secrets.
+///
+/// Held only in this process's memory and never written anywhere, so the
+/// session is unreachable once the process is gone and dies at the instance's
+/// idle timeout even when nothing got the chance to end it. Every response
+/// through an [`Auth::Session`] client folds its `Set-Cookie` headers back in,
+/// so a cookie the instance rotates mid-session is followed, not left stale.
+pub struct SessionJar {
+    cookies: Mutex<Vec<(String, String)>>,
+    token: Mutex<Option<String>>,
+}
+
+impl std::fmt::Debug for SessionJar {
+    // Names only: the values are the session.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<String> = self
+            .cookies
+            .lock()
+            .map(|c| c.iter().map(|(n, _)| n.clone()).collect())
+            .unwrap_or_default();
+        f.debug_struct("SessionJar")
+            .field("cookies", &names)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SessionJar {
+    pub fn new(cookies: Vec<(String, String)>, token: Option<String>) -> Self {
+        Self {
+            cookies: Mutex::new(cookies),
+            token: Mutex::new(token),
+        }
+    }
+
+    /// Replace the CSRF token with the one the instance most recently handed
+    /// out for this session.
+    pub fn set_token(&self, token: Option<String>) {
+        if let Ok(mut t) = self.token.lock() {
+            *t = token;
+        }
+    }
+
+    /// Whether the jar still holds a cookie by this name.
+    pub fn has_cookie(&self, name: &str) -> bool {
+        self.cookies
+            .lock()
+            .map(|c| c.iter().any(|(n, _)| n == name))
+            .unwrap_or(false)
+    }
+
+    fn token(&self) -> Option<String> {
+        self.token.lock().ok().and_then(|t| t.clone())
+    }
+
+    fn cookie_header(&self) -> String {
+        self.cookies
+            .lock()
+            .map(|c| {
+                c.iter()
+                    .map(|(n, v)| format!("{n}={v}"))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_default()
+    }
+
+    /// Fold a response's `Set-Cookie` headers into the jar: a live value
+    /// replaces (or adds) the cookie, a tombstone (empty value or a
+    /// non-positive `Max-Age`) removes it.
+    fn absorb(&self, headers: &HeaderMap) {
+        let Ok(mut jar) = self.cookies.lock() else {
+            return;
+        };
+        for raw in headers.get_all(SET_COOKIE).iter() {
+            let Some((name, value, expired)) = raw.to_str().ok().and_then(parse_set_cookie) else {
+                continue;
+            };
+            jar.retain(|(n, _)| *n != name);
+            if !expired {
+                jar.push((name, value));
+            }
+        }
+    }
+}
+
+/// `(name, value, is_tombstone)` from one `Set-Cookie` header value.
+fn parse_set_cookie(raw: &str) -> Option<(String, String, bool)> {
+    let mut parts = raw.split(';');
+    let (name, value) = parts.next()?.split_once('=')?;
+    let name = name.trim().to_string();
+    let value = value.trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    let max_age_expired = parts.any(|attr| {
+        attr.split_once('=').is_some_and(|(k, v)| {
+            k.trim().eq_ignore_ascii_case("max-age")
+                && v.trim().parse::<i64>().is_ok_and(|n| n <= 0)
+        })
+    });
+    let expired = value.is_empty() || max_age_expired;
+    Some((name, value, expired))
 }
 
 /// The header ServiceNow's inbound API-key authentication reads by default.
@@ -51,6 +168,7 @@ impl std::fmt::Debug for Client {
             Auth::Basic { username, .. } => format!("basic({username})"),
             Auth::Bearer { .. } => "bearer".to_string(),
             Auth::ApiKey { .. } => "apikey".to_string(),
+            Auth::Session(_) => "session".to_string(),
             Auth::None => "none".to_string(),
         };
         f.debug_struct("Client")
@@ -325,6 +443,30 @@ impl Client {
                 value.set_sensitive(true);
                 req.header(API_KEY_HEADER, value)
             }
+            // Cookie + CSRF token, both marked sensitive, and deliberately no
+            // `Authorization`: that header would re-authenticate the request as
+            // the credential holder and undo whatever the session carries.
+            Auth::Session(jar) => {
+                let mut cookie = HeaderValue::from_str(&jar.cookie_header()).map_err(|_| {
+                    Error::Transport(
+                        "the instance set a cookie that is not valid in a request header".into(),
+                    )
+                })?;
+                cookie.set_sensitive(true);
+                let mut req = req.header(COOKIE, cookie);
+                if let Some(token) = jar.token() {
+                    let mut token = HeaderValue::from_str(&token).map_err(|_| {
+                        Error::Transport(
+                            "the instance issued a session token that is not valid in a \
+                             request header"
+                                .into(),
+                        )
+                    })?;
+                    token.set_sensitive(true);
+                    req = req.header(USER_TOKEN_HEADER, token);
+                }
+                req
+            }
             Auth::None => req,
         };
         // Caller headers go on last, after every request-level header this
@@ -342,6 +484,9 @@ impl Client {
         let start = Instant::now();
         let resp = req.send().map_err(|e| Error::Transport(format!("{e}")))?;
         log_response(resp.status().as_u16(), start.elapsed().as_millis());
+        if let Auth::Session(jar) = &self.auth {
+            jar.absorb(resp.headers());
+        }
         Ok(resp)
     }
 
@@ -418,6 +563,51 @@ impl Client {
         // Redact the response body: it carries access/refresh/id tokens that the
         // plain `parse_response` would print verbatim at -ddd.
         parse_response_redacted(self.send(req, "POST", &url)?)
+    }
+
+    /// `GET path` for a JSON body that carries a credential — the
+    /// `SessionToken` in `sg/impersonation/session` — so the body is **never**
+    /// logged, at any verbosity. Request line, status and headers (with
+    /// `Set-Cookie` masked) still are.
+    pub fn get_secret(&self, path: &str) -> Result<Value> {
+        self.get_secret_with_cookies(path).map(|(v, _)| v)
+    }
+
+    /// [`get_secret`](Self::get_secret), also returning the session cookies
+    /// the response set: one request both mints a session under this client's
+    /// credentials and reads that session's CSRF token.
+    pub fn get_secret_with_cookies(&self, path: &str) -> Result<(Value, Vec<(String, String)>)> {
+        let url = self.url(path);
+        let req = self.http.request(Method::GET, &url);
+        let resp = self.send(req, "GET", &url)?;
+        let status = resp.status();
+        let tx = transaction_id(&resp);
+        log_response_headers(resp.headers());
+        let cookies = collect_session_cookies(resp.headers());
+        let text = resp
+            .text()
+            .map_err(|e| Error::Transport(format!("read body: {e}")))?;
+        log_body("<", "<redacted: carries a session credential>");
+        if !status.is_success() {
+            return Err(from_http_text(status, tx, &text));
+        }
+        let v = if text.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_str(&text)
+                .map_err(|e| Error::Transport(format!("parse response: {e}")))?
+        };
+        Ok((v, cookies))
+    }
+
+    /// `GET path` for its side effect alone: the status is the whole answer,
+    /// and the body (an HTML page, for `/logout.do`) is discarded unread.
+    pub fn get_discard(&self, path: &str) -> Result<StatusCode> {
+        let url = self.url(path);
+        let req = self.http.request(Method::GET, &url);
+        let resp = self.send(req, "GET", &url)?;
+        log_response_headers(resp.headers());
+        Ok(resp.status())
     }
 
     /// Mint a ServiceNow session and return the `Cookie:` header value that
@@ -976,7 +1166,7 @@ fn transaction_id(resp: &Response) -> Option<String> {
 /// The cookie the AMB websocket actually authenticates with. Without it the
 /// upgrade still succeeds and the Bayeux handshake still reports success — the
 /// connection simply never delivers anything (see `crate::amb`).
-const SESSION_COOKIE: &str = "JSESSIONID";
+pub const SESSION_COOKIE: &str = "JSESSIONID";
 
 /// Pull the session cookies out of a response's `Set-Cookie` headers.
 ///
@@ -1051,8 +1241,8 @@ fn truncate_body(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        DOWNLOAD_BUFFER_BYTES, DownloadError, collect_session_cookies, redact_token_json,
-        stream_body,
+        DOWNLOAD_BUFFER_BYTES, DownloadError, SessionJar, collect_session_cookies,
+        redact_token_json, stream_body,
     };
     use reqwest::header::{HeaderMap, HeaderValue, SET_COOKIE};
     use std::io::{self, Read, Write};
@@ -1101,6 +1291,33 @@ mod tests {
         let h = headers(&["glide_session_store=aGVsbG8=; Path=/"]);
         let jar = collect_session_cookies(&h);
         assert_eq!(jar[0].1, "aGVsbG8=");
+    }
+
+    #[test]
+    fn session_jar_follows_rotation_and_drops_tombstones() {
+        let jar = SessionJar::new(
+            vec![
+                ("JSESSIONID".into(), "OLD".into()),
+                ("glide_user_route".into(), "r1".into()),
+                ("glide_user".into(), "u".into()),
+            ],
+            None,
+        );
+        jar.absorb(&headers(&[
+            "JSESSIONID=NEW; Path=/; HttpOnly",
+            "glide_user=; Max-Age=0; Path=/",
+            "glide_user_route=r1; Max-Age=-1",
+            "glide_session_store=abc=; Path=/",
+        ]));
+        assert_eq!(
+            jar.cookie_header(),
+            "JSESSIONID=NEW; glide_session_store=abc="
+        );
+        assert!(jar.has_cookie("JSESSIONID"));
+        assert!(!jar.has_cookie("glide_user"));
+        // Debug names cookies but never prints a value.
+        let dbg = format!("{jar:?}");
+        assert!(dbg.contains("JSESSIONID") && !dbg.contains("NEW"), "{dbg}");
     }
 
     #[test]

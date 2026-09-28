@@ -6,7 +6,7 @@
 //! them was as easy as importing something else.
 
 use crate::cli::{GlobalFlags, OutputMode};
-use crate::client::{Auth, Client};
+use crate::client::{Auth, Client, SessionJar};
 use crate::config::{
     AuthMethod, ProfileResolverInputs, ResolvedProfile, config_path, credentials_path,
     load_config_from, load_credentials_from, resolve_profile,
@@ -16,6 +16,7 @@ use crate::output::{Format, ResolvedFormat};
 use is_terminal::IsTerminal;
 use reqwest::header::HeaderMap;
 use serde_json::Value;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// [`build_profile`] → [`build_client`] fused: the preamble of every command
@@ -53,6 +54,40 @@ pub(crate) fn build_profile(global: &GlobalFlags) -> Result<ResolvedProfile> {
     })
 }
 
+/// The session `sn impersonate` is running its inner command on, if any.
+/// Process-global because the inner command is an ordinary handler that builds
+/// its own client several calls deep; threading a session through every
+/// handler's signature would touch every command for the benefit of one.
+static SESSION_OVERRIDE: Mutex<Option<Arc<SessionJar>>> = Mutex::new(None);
+
+fn active_session() -> Option<Arc<SessionJar>> {
+    SESSION_OVERRIDE.lock().ok().and_then(|s| s.clone())
+}
+
+/// While alive, every client [`build_client`] (and so [`connect`]) builds
+/// authenticates by `jar`'s cookies instead of the profile's credential.
+/// Clears on drop — including on unwind — so a failure can never leave later
+/// clients in this process silently riding someone else's session.
+pub(crate) struct SessionScope(());
+
+impl SessionScope {
+    pub(crate) fn enter(jar: Arc<SessionJar>) -> Self {
+        if let Ok(mut s) = SESSION_OVERRIDE.lock() {
+            *s = Some(jar);
+        }
+        SessionScope(())
+    }
+}
+
+impl Drop for SessionScope {
+    fn drop(&mut self) {
+        match SESSION_OVERRIDE.lock() {
+            Ok(mut s) => *s = None,
+            Err(poisoned) => *poisoned.into_inner() = None,
+        }
+    }
+}
+
 pub(crate) fn build_client(profile: &ResolvedProfile, timeout: Option<u64>) -> Result<Client> {
     build_client_with_headers(profile, timeout, HeaderMap::new())
 }
@@ -82,6 +117,18 @@ pub(crate) fn build_client_with_headers(
     // (That covers every OAuth grant, jwt_bearer included.)
     // API-key profiles attach the stored key as the x-sn-apikey header.
     // Basic profiles fall through to the builder's default username/password.
+    if let Some(jar) = active_session() {
+        // Inside `sn impersonate`: every client rides the one impersonated
+        // session. The profile's own credential is deliberately not attached
+        // (it would re-authenticate each request as the profile's user and
+        // wipe the impersonation), and an OAuth profile's token is not even
+        // looked at — the session was minted with it once, up front.
+        b = b.auth(Auth::Session(jar));
+        if let Some(secs) = timeout {
+            b = b.timeout(Duration::from_secs(secs));
+        }
+        return b.build(profile);
+    }
     match profile.auth_method {
         AuthMethod::Oauth => {
             let token = crate::oauth::ensure_access_token(profile, timeout)?;
