@@ -69,8 +69,10 @@ sn journal incident:INC0010001            # every (TABLE, SYS_ID) pair takes the
 sn open incident:INC0010001
 
 # The composite read: the record plus its catalog variables and journal entries.
-# Takes a reference, or a bare number with a standard prefix
-# (INC, CHG, CTASK, PRB, REQ, RITM, SCTASK, KB, SIR).
+# Takes a reference, or a bare number: the standard prefixes (INC, CHG, CTASK,
+# PRB, REQ, RITM, SCTASK, KB, SIR) are built in, any other is looked up once in
+# the instance's sys_number table (admin-readable by default) and cached. A
+# prefix several tables share is refused — name the table with table:number.
 sn get INC0010001
 sn get incident:<sys_id>
 

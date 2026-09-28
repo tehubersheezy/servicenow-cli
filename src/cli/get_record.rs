@@ -1,9 +1,9 @@
 //! `sn get` — one record by reference, with its variables and journal.
 //!
 //! The composite read: `sn get incident:INC0010001` (or `sn get INC0010001`,
-//! prefix map) answers with the record, its catalog variables, and its parsed
-//! journal entries in one command. Three round trips, each doing the only job
-//! it can:
+//! whose prefix names the table) answers with the record, its catalog
+//! variables, and its parsed journal entries in one command. Three round
+//! trips, each doing the only job it can:
 //!
 //! 1. **One GraphQL document** resolves the reference and fetches the journal
 //!    streams together: `{table}(queryConditions: "number=…"|"sys_id=…")`
@@ -22,6 +22,12 @@
 //!    already proved the record exists), including the sc_task → sc_req_item
 //!    hop.
 //!
+//! A bare number costs a prefix → table step before 1 (free for a cached or
+//! built-in prefix, one `sys_number` read otherwise — see `record_ref.rs`),
+//! and step 1 then also selects `sys_class_name`: a prefix names the table
+//! its counter is defined on, which for an inheriting table is an ancestor,
+//! so the row's own class is the table steps 2 and 3 read.
+//!
 //! Current instances return `null` for a column a table does not have (also
 //! measured live), so tables without journal fields simply yield an empty
 //! `journal` — but older releases fail the whole document with a
@@ -29,9 +35,11 @@
 //! column named that way.
 
 use crate::cli::graphql::{errors_to_api_error, execute, graphql_errors};
-use crate::cli::journal::{self, undefined_field};
+use crate::cli::journal::{self, undefined_field, validate_identifier};
 use crate::cli::kernel::{bool_opt, connect, unwrap_or_raw, write_response};
-use crate::cli::record_ref::{RecordRef, RefId, parse_get_ref};
+use crate::cli::record_ref::{
+    GetRef, PrefixSource, RecordRef, RefId, parse_get_ref, recheck_prefix, resolve_prefix,
+};
 use crate::cli::variables::{fetch_vars_unchecked, resolve_target};
 use crate::cli::{ADVANCED, DisplayValueOpt, GlobalFlags, OutputMode};
 use crate::client::Client;
@@ -42,8 +50,10 @@ use serde_json::{Value, json};
 #[derive(clap::Args, Debug)]
 pub struct GetRecordArgs {
     /// Record reference: `table:sys_id`, `table:number`
-    /// (e.g. `incident:INC0010001`), or a bare number whose prefix names a
-    /// standard table (INC, CHG, CTASK, PRB, REQ, RITM, SCTASK, KB, SIR).
+    /// (e.g. `incident:INC0010001`), or a bare number whose prefix names the
+    /// table — the standard ones (INC, CHG, CTASK, PRB, REQ, RITM, SCTASK, KB,
+    /// SIR) are built in, any other is looked up in the instance's sys_number
+    /// table (admin-readable by default) and cached.
     #[arg(value_name = "REF")]
     pub reference: String,
     /// Comma-separated fields to return on the record (variables and journal
@@ -78,10 +88,19 @@ pub fn run(global: &GlobalFlags, args: GetRecordArgs) -> Result<()> {
                 .into(),
         ));
     }
-    let r = parse_get_ref(&args.reference)?;
+    let parsed = parse_get_ref(&args.reference)?;
 
     let client = connect(global)?;
-    let (sys_id, entries) = resolve_and_journal(&client, &r)?;
+    let (table, found) = match parsed {
+        GetRef::Ref(r) => match resolve_and_journal(&client, &r, false)? {
+            Some(found) => (r.table, found),
+            None => return Err(not_found(&r)),
+        },
+        GetRef::Bare { number, prefix } => resolve_bare(&client, number, &prefix)?,
+    };
+    let Found {
+        sys_id, entries, ..
+    } = found;
 
     let q = GetQuery {
         fields: args.fields,
@@ -90,21 +109,18 @@ pub fn run(global: &GlobalFlags, args: GetRecordArgs) -> Result<()> {
         view: args.view,
         query_no_domain: bool_opt(args.query_no_domain),
     };
-    let resp = client.get(
-        &format!("/api/now/table/{}/{}", r.table, sys_id),
-        &q.to_pairs(),
-    )?;
+    let resp = client.get(&format!("/api/now/table/{table}/{sys_id}"), &q.to_pairs())?;
     // Always unwrapped: `--output raw` was rejected above, because a composite
     // built from three requests has no single envelope to keep.
     let record = unwrap_or_raw(resp, OutputMode::Default);
 
     // An sc_task's variable pool lives on its request item; every other table
     // holds its own. The hop is the one extra request, and only for sc_task.
-    let (var_table, var_sys_id, _) = resolve_target(&client, &r.table, &sys_id)?;
+    let (var_table, var_sys_id, _) = resolve_target(&client, &table, &sys_id)?;
     let variables = fetch_vars_unchecked(&client, &var_table, &var_sys_id)?;
 
     let out = json!({
-        "table": r.table,
+        "table": table,
         "sys_id": sys_id,
         "record": record,
         "variables": variables,
@@ -113,9 +129,72 @@ pub fn run(global: &GlobalFlags, args: GetRecordArgs) -> Result<()> {
     write_response(global, &out)
 }
 
+/// A bare number: its prefix names the table (`record_ref::resolve_prefix`),
+/// and the row's own `sys_class_name` names the table the record is then read
+/// from. Returns that table and the row.
+///
+/// A cached or built-in answer that finds nothing is re-checked against
+/// `sys_number` once: if the prefix now belongs to another table (a
+/// renumbered stock table, a stale cache entry) the lookup is retried there;
+/// otherwise the original not-found stands.
+fn resolve_bare(client: &Client, number: String, prefix: &str) -> Result<(String, Found)> {
+    let (table, source) = resolve_prefix(client, prefix)?;
+    let mut r = RecordRef {
+        table,
+        id: RefId::Number(number),
+    };
+    let mut found = resolve_and_journal(client, &r, true)?;
+    if found.is_none()
+        && source != PrefixSource::Instance
+        && let Some(table) = recheck_prefix(client, prefix, &r.table)
+    {
+        r.table = table;
+        found = resolve_and_journal(client, &r, true)?;
+    }
+    let Some(mut found) = found else {
+        return Err(not_found(&r));
+    };
+    let table = found.class.take().unwrap_or(r.table);
+    Ok((table, found))
+}
+
+/// The row step 1 matched.
+struct Found {
+    sys_id: String,
+    /// The row's `sys_class_name`, when it was selected, is a valid table
+    /// name, and differs from the table queried.
+    class: Option<String>,
+    entries: Vec<journal::Entry>,
+}
+
+fn not_found(r: &RecordRef) -> Error {
+    let named = match &r.id {
+        RefId::SysId(id) => format!("sys_id {id}"),
+        RefId::Number(n) => format!("number {n}"),
+    };
+    Error::Api {
+        // The HTTP call succeeded; the operation found nothing — and GraphQL
+        // row ACLs make "absent" and "not readable" the same bytes, so the
+        // message hedges rather than overclaiming.
+        status: NO_HTTP_STATUS,
+        message: format!(
+            "no {} record with {named} (or not readable by this profile)",
+            r.table
+        ),
+        detail: None,
+        transaction_id: None,
+        sn_error: None,
+    }
+}
+
 /// One GraphQL document: resolve the reference to a sys_id and fetch the
-/// journal streams with it. Returns the parsed entries newest first.
-fn resolve_and_journal(client: &Client, r: &RecordRef) -> Result<(String, Vec<journal::Entry>)> {
+/// journal streams with it (entries newest first). `Ok(None)` when no row
+/// matched. `with_class` also selects `sys_class_name`.
+fn resolve_and_journal(
+    client: &Client,
+    r: &RecordRef,
+    mut with_class: bool,
+) -> Result<Option<Found>> {
     let condition = match &r.id {
         RefId::SysId(id) => format!("sys_id={id}"),
         RefId::Number(n) => format!("number={n}"),
@@ -124,10 +203,13 @@ fn resolve_and_journal(client: &Client, r: &RecordRef) -> Result<(String, Vec<jo
     let table = &r.table;
 
     loop {
-        let selection: String = journal_cols
+        let mut selection: String = journal_cols
             .iter()
             .map(|c| format!(" {c} {{ displayValue }}"))
             .collect();
+        if with_class {
+            selection.push_str(" sys_class_name { value }");
+        }
         let query = format!(
             "query ($qc: String!) {{ GlideRecord_Query {{ {table}(queryConditions: $qc, \
              pagination: {{ limit: 2 }}) {{ _rowCount _results {{ sys_id {{ value }}{selection} \
@@ -145,12 +227,16 @@ fn resolve_and_journal(client: &Client, r: &RecordRef) -> Result<(String, Vec<jo
                     sn_error: Some(Value::Array(errors)),
                 });
             }
-            // An older instance failing the document over a journal column the
-            // table does not have: retry without it. Modern instances return
-            // null for such a column and never take this path.
+            // An older instance failing the document over a column the table
+            // does not have: retry without it. Modern instances return null
+            // for such a column and never take this path.
             let before = journal_cols.len();
             journal_cols.retain(|c| !undefined_field(&errors, c));
-            if journal_cols.len() < before {
+            let class_dropped = with_class && undefined_field(&errors, "sys_class_name");
+            if class_dropped {
+                with_class = false;
+            }
+            if journal_cols.len() < before || class_dropped {
                 continue;
             }
             return Err(errors_to_api_error(errors));
@@ -184,22 +270,7 @@ fn resolve_and_journal(client: &Client, r: &RecordRef) -> Result<(String, Vec<jo
             }
         }
         let Some(record) = results.first() else {
-            let named = match &r.id {
-                RefId::SysId(id) => format!("sys_id {id}"),
-                RefId::Number(n) => format!("number {n}"),
-            };
-            return Err(Error::Api {
-                // The HTTP call succeeded; the operation found nothing — and
-                // GraphQL row ACLs make "absent" and "not readable" the same
-                // bytes, so the message hedges rather than overclaiming.
-                status: NO_HTTP_STATUS,
-                message: format!(
-                    "no {table} record with {named} (or not readable by this profile)"
-                ),
-                detail: None,
-                transaction_id: None,
-                sn_error: None,
-            });
+            return Ok(None);
         };
 
         let sys_id = record
@@ -214,6 +285,15 @@ fn resolve_and_journal(client: &Client, r: &RecordRef) -> Result<(String, Vec<jo
                 detail: None,
             })?;
 
+        // The class is spliced into the record read's URL path, so it gets
+        // the same guard a typed table name does; anything else keeps the
+        // table queried.
+        let class = record
+            .pointer("/sys_class_name/value")
+            .and_then(Value::as_str)
+            .filter(|c| c != table && validate_identifier(c, "table").is_ok())
+            .map(str::to_string);
+
         let mut entries = Vec::new();
         for col in &journal_cols {
             let stream = record
@@ -223,6 +303,10 @@ fn resolve_and_journal(client: &Client, r: &RecordRef) -> Result<(String, Vec<jo
             entries.extend(journal::parse_stream(stream)?);
         }
         journal::sort_newest_first(&mut entries);
-        return Ok((sys_id, entries));
+        return Ok(Some(Found {
+            sys_id,
+            class,
+            entries,
+        }));
     }
 }

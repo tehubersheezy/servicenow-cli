@@ -1231,9 +1231,11 @@ sn user me     sn open TABLE [SYS_ID] [--print-url]     sn completion SHELL
 # one token `table:sys_id` / `table:number` works instead; a number costs one
 # lookup that errors rather than matching arbitrarily when the table has no
 # usable `number` field.
-sn get REF     # REF = table:sys_id | table:number | bare number with a standard
-               # prefix (INC, CHG, CTASK, PRB, REQ, RITM, SCTASK, KB, SIR);
-               # returns {table, sys_id, record, variables, journal}
+sn get REF     # REF = table:sys_id | table:number | bare number (standard
+               # prefixes built in; others looked up in sys_number, which
+               # needs admin by default, and cached; a shared prefix → exit 1);
+               # returns {table, sys_id, record, variables, journal} — `table`
+               # is the row's own class (TASK… may be a cert_follow_on_task)
 sn raw METHOD PATH [-q k=v ...] [--data ...|--field k=v ...]
 sn graphql QUERY|@FILE|@- [--var K=V ...] [--variables JSON|@FILE|@-] [--operation NAME]
 sn introspect  sn progress PROGRESS_ID

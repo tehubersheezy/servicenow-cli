@@ -1044,6 +1044,65 @@ pub fn clear_oauth_tokens(profile_name: &str) -> Result<()> {
     })
 }
 
+/// The record-number prefix cache (`number_prefixes.toml`): what an
+/// instance's `sys_number` table said a prefix maps to, so `sn get <number>`
+/// asks once rather than on every call.
+///
+/// Keyed by the instance's base URL, not the profile: the map is a property
+/// of the instance, and two profiles on one instance must not disagree about
+/// it. Only a *unique* answer is ever stored — an unknown or ambiguous prefix
+/// is asked again next time, so a newly added numbering is picked up at once.
+///
+/// It is a cache and never a source of failure: [`load_prefix_cache_from`]
+/// reads leniently (a missing, unreadable or corrupt file is an empty cache)
+/// and callers treat a failed [`update_prefix_cache_at`] as a missed
+/// optimisation, not an error.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrefixCache {
+    /// Base URL → prefix → entry.
+    #[serde(default)]
+    pub instances: BTreeMap<String, BTreeMap<String, PrefixEntry>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrefixEntry {
+    /// The table `sys_number.category` names for the prefix.
+    pub table: String,
+    /// Unix seconds when `sys_number` said so.
+    pub fetched_at: u64,
+}
+
+pub fn prefix_cache_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join("number_prefixes.toml"))
+}
+
+/// Read the prefix cache. Lenient by design: anything short of a parseable
+/// file is an empty cache, because the worst a lost cache costs is one
+/// `sys_number` request.
+pub fn load_prefix_cache_from(path: &Path) -> PrefixCache {
+    match read_config_file(path) {
+        Ok(Some(s)) => toml::from_str(&s).unwrap_or_default(),
+        _ => PrefixCache::default(),
+    }
+}
+
+/// Read → modify → write the prefix cache under the config directory's
+/// `.sn.lock`, atomically at 0600 like the config files. `timeout` bounds the
+/// lock wait: a cache write is never worth the default 10s a config write may
+/// spend, so callers pass something short and skip the write on contention.
+pub fn update_prefix_cache_at(
+    path: &Path,
+    timeout: Duration,
+    f: impl FnOnce(&mut PrefixCache),
+) -> Result<()> {
+    let _guard = DirLock::acquire_for(lock_dir_of(path), timeout)?;
+    let mut cache = load_prefix_cache_from(path);
+    f(&mut cache);
+    let s = toml::to_string_pretty(&cache)
+        .map_err(|e| Error::Config(format!("serialize prefix cache: {e}")))?;
+    write_atomic(path, &s)
+}
+
 #[cfg(test)]
 mod resolution_tests {
     use super::*;
