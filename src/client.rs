@@ -2,7 +2,9 @@ use crate::config::ResolvedProfile;
 use crate::error::{Error, Result};
 use crate::observability::{log_body, log_request, log_response, log_response_headers};
 use reqwest::blocking::{Client as ReqwestClient, Response};
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
+use reqwest::header::{
+    ACCEPT, CONTENT_TYPE, COOKIE, HeaderMap, HeaderValue, LOCATION, SET_COOKIE, USER_AGENT,
+};
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 use std::io::{ErrorKind, Read, Write};
@@ -70,6 +72,7 @@ pub struct ClientBuilder {
     proxy_password: Option<String>,
     auth: Option<Auth>,
     extra_headers: HeaderMap,
+    follow_redirects: bool,
 }
 
 impl Default for ClientBuilder {
@@ -86,6 +89,7 @@ impl Default for ClientBuilder {
             proxy_password: None,
             auth: None,
             extra_headers: HeaderMap::new(),
+            follow_redirects: true,
         }
     }
 }
@@ -150,6 +154,15 @@ impl ClientBuilder {
         self
     }
 
+    /// Stop following redirects (reqwest follows up to 10 by default), for a
+    /// caller that must see the `3xx` itself: `sys.scripts.do` answers a user it
+    /// will not serve with a `302` to `/logout_redirect.do`, and following it
+    /// turns that verdict into a `200` login page whose status says nothing.
+    pub fn follow_redirects(mut self, yes: bool) -> Self {
+        self.follow_redirects = yes;
+        self
+    }
+
     pub fn build(self, profile: &ResolvedProfile) -> Result<Client> {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
@@ -158,6 +171,9 @@ impl ClientBuilder {
         let mut builder = ReqwestClient::builder()
             .timeout(self.timeout)
             .default_headers(headers);
+        if !self.follow_redirects {
+            builder = builder.redirect(reqwest::redirect::Policy::none());
+        }
 
         if let Some(ref proxy_url) = self.proxy {
             let valid_scheme = proxy_url.starts_with("http://")
@@ -466,6 +482,121 @@ impl Client {
             .join("; "))
     }
 
+    /// Mint a UI session: the cookies and CSRF token a classic-UI processor
+    /// (`*.do`) demands, which no REST call needs.
+    ///
+    /// One authenticated `GET` of [`UI_SESSION_PATH`] does both jobs: the
+    /// instance sets the session cookies on the response, and the body's
+    /// `SessionToken` *is* that session's `g_ck` — the token the UI embeds in
+    /// every page — so nothing has to be scraped out of HTML. It goes out
+    /// through `send()`, so it authenticates however the profile does.
+    ///
+    /// The response body is **never logged**, at any verbosity: `SessionToken` is
+    /// a live credential for the session, and `-ddd` prints bodies verbatim.
+    /// Headers still log (`Set-Cookie` is masked there).
+    pub fn ui_session(&self) -> Result<UiSession> {
+        let url = self.url(UI_SESSION_PATH);
+        let req = self.http.request(Method::GET, &url);
+        let resp = self.send(req, "GET", &url)?;
+        let status = resp.status();
+        let tx = transaction_id(&resp);
+        log_response_headers(resp.headers());
+        let jar = collect_session_cookies(resp.headers());
+        let text = resp
+            .text()
+            .map_err(|e| Error::Transport(format!("read body: {e}")))?;
+        log_body("<", "<session response: redacted>");
+        if !status.is_success() {
+            return Err(from_http_text(status, tx, &text));
+        }
+        if !jar.iter().any(|(name, _)| name == SESSION_COOKIE) {
+            return Err(Error::Instance {
+                message: format!(
+                    "{UI_SESSION_PATH} set no {SESSION_COOKIE} cookie, so there is no \
+                     session to carry the request"
+                ),
+                detail: None,
+            });
+        }
+        // A bare object, not `result`-wrapped (see `sn ping`).
+        let token = serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|v| v.get("SessionToken")?.as_str().map(str::to_string))
+            .filter(|t| !t.trim().is_empty())
+            .ok_or_else(|| Error::Instance {
+                message: format!("{UI_SESSION_PATH} returned no SessionToken (CSRF token)"),
+                detail: None,
+            })?;
+        let cookie = jar
+            .iter()
+            .map(|(n, v)| format!("{n}={v}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Ok(UiSession { cookie, token })
+    }
+
+    /// POST `application/x-www-form-urlencoded` to a classic-UI processor inside
+    /// `session`: its cookies, its CSRF token as both `X-UserToken` and the
+    /// `sysparm_ck` form field (the processor accepts either — measured — and
+    /// sending both costs nothing), plus this client's own auth, which stays
+    /// attached.
+    ///
+    /// Returns the response whatever its status: these endpoints answer in HTML
+    /// and report most failures inside a `200`, so only the caller can read the
+    /// verdict. The request body is logged as field names only — it carries
+    /// the token.
+    pub fn post_ui_form(
+        &self,
+        path: &str,
+        session: &UiSession,
+        form: &[(String, String)],
+    ) -> Result<UiResponse> {
+        let url = self.url(path);
+        let mut fields: Vec<(&str, &str)> =
+            form.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        fields.push(("sysparm_ck", session.token.as_str()));
+        let names: Vec<&str> = fields.iter().map(|(k, _)| *k).collect();
+        log_body(">", &format!("<form: {}>", names.join(", ")));
+
+        let sensitive = |raw: &str, what: &str| {
+            HeaderValue::from_str(raw)
+                .map(|mut v| {
+                    v.set_sensitive(true);
+                    v
+                })
+                .map_err(|_| Error::Instance {
+                    message: format!("the session's {what} is not a valid header value"),
+                    detail: None,
+                })
+        };
+        let req = self
+            .http
+            .request(Method::POST, &url)
+            .header(ACCEPT, "text/html")
+            .header(COOKIE, sensitive(&session.cookie, "cookies")?)
+            .header(USER_TOKEN_HEADER, sensitive(&session.token, "CSRF token")?)
+            .form(&fields);
+        let resp = self.send(req, "POST", &url)?;
+        let status = resp.status().as_u16();
+        let transaction_id = transaction_id(&resp);
+        log_response_headers(resp.headers());
+        let location = resp
+            .headers()
+            .get(LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .map(ToString::to_string);
+        let body = resp
+            .text()
+            .map_err(|e| Error::Transport(format!("read body: {e}")))?;
+        log_body("<", &body);
+        Ok(UiResponse {
+            status,
+            location,
+            transaction_id,
+            body,
+        })
+    }
+
     /// Start a binary download: performs the request, resolves the status, and
     /// returns with the **body unread**.
     ///
@@ -496,6 +627,36 @@ impl Client {
         }
         Ok(Download { resp, written: 0 })
     }
+}
+
+/// Undocumented: the Mobile Impersonation API's session read. Its body names the
+/// caller and carries the session's CSRF token (`SessionToken`).
+pub const UI_SESSION_PATH: &str = "/api/now/sg/impersonation/session";
+
+/// The header a classic-UI processor reads the CSRF token (`g_ck`) from.
+const USER_TOKEN_HEADER: &str = "X-UserToken";
+
+/// A minted UI session ([`Client::ui_session`]). Both fields are credentials,
+/// so they are private and `Debug` prints neither.
+pub struct UiSession {
+    cookie: String,
+    token: String,
+}
+
+impl std::fmt::Debug for UiSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("UiSession { .. }")
+    }
+}
+
+/// What a classic-UI processor answered ([`Client::post_ui_form`]), unjudged.
+#[derive(Debug)]
+pub struct UiResponse {
+    pub status: u16,
+    /// `Location` of a redirect (only seen when the client does not follow them).
+    pub location: Option<String>,
+    pub transaction_id: Option<String>,
+    pub body: String,
 }
 
 /// Bytes moved per read/write cycle by [`Download::copy_to`], and therefore the

@@ -70,7 +70,7 @@ missing key (`jq -r '.error.status_code'` prints `null`, which no comparison
 against a status will match).
 
 `status_code: 200` is a *different* thing and does occur: `sn graphql`, `sn gr`,
-`sn journal` and `sn variables set` detect failures ServiceNow reports in-band,
+`sn journal`, `sn variables set` and `sn script run` detect failures ServiceNow reports in-band,
 inside a genuinely successful HTTP 200, and they report that 200 truthfully
 rather than hiding it. So `status_code` answers "what did HTTP say", not "did
 this succeed" — **branch on the exit code, and treat `status_code` as
@@ -1236,6 +1236,8 @@ sn get REF     # REF = table:sys_id | table:number | bare number with a standard
                # returns {table, sys_id, record, variables, journal}
 sn raw METHOD PATH [-q k=v ...] [--data ...|--field k=v ...]
 sn graphql QUERY|@FILE|@- [--var K=V ...] [--variables JSON|@FILE|@-] [--operation NAME]
+sn script run SCRIPT|@FILE|@- [--scope S] [--rollback] --yes   # server-side JS; returns
+               # {ok, scope, output[], messages[], error, elapsed_ms, history_id, rollback_context}
 sn introspect  sn progress PROGRESS_ID
 
 sn api list [--namespace NS]    sn api search TERM [--namespace NS] [--method M]

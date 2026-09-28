@@ -2,8 +2,8 @@ use clap::error::ErrorKind;
 use is_terminal::IsTerminal;
 use sn::cli::{
     ApiSub, AppSub, AtfSub, AttachmentSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
-    ContextSub, IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub, UserSub,
-    VariablesSub,
+    ContextSub, IdentifySub, ImportSub, SchemaSub, ScoresSub, ScriptSub, TableSub, UpdateSetSub,
+    UserSub, VariablesSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -200,6 +200,9 @@ fn run(cli: Cli) -> Result<()> {
         Command::Raw(args) => sn::cli::raw::run(&global, args),
         Command::Gr(args) => sn::cli::gr::run(&global, args),
         Command::Graphql(args) => sn::cli::graphql::run(&global, args),
+        Command::Script { sub } => match sub {
+            ScriptSub::Run(args) => sn::cli::script::run(&global, args),
+        },
         Command::Completion(args) => sn::cli::completion::run(args),
     }
 }

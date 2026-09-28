@@ -27,6 +27,7 @@ pub mod raw;
 pub mod record_ref;
 pub mod schema;
 pub mod scores;
+pub mod script;
 pub mod table;
 pub mod update_set;
 pub mod user;
@@ -73,6 +74,7 @@ pub use progress::ProgressArgs;
 pub use raw::RawArgs;
 pub use schema::{SchemaChoicesArgs, SchemaColumnsArgs, SchemaSub, SchemaTablesArgs};
 pub use scores::{ScoresFavoriteArgs, ScoresListArgs, ScoresSub, SortBy, SortDir};
+pub use script::{ScriptRunArgs, ScriptSub};
 pub use table::{
     TableCreateArgs, TableDeleteArgs, TableGetArgs, TableListArgs, TableSub, TableUpdateArgs,
 };
@@ -463,6 +465,11 @@ pub enum Command {
     Gr(GrArgs),
     /// Run a GraphQL query against POST /api/now/graphql (`sn graphql <QUERY>`).
     Graphql(GraphqlArgs),
+    /// Run server-side JavaScript on the instance (Scripts - Background).
+    Script {
+        #[command(subcommand)]
+        sub: ScriptSub,
+    },
     /// Generate a shell completion script (`sn completion <SHELL>`).
     Completion(CompletionArgs),
 }
