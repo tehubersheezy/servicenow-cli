@@ -260,6 +260,9 @@ fn refusal(cmd: &Command) -> Option<&'static str> {
         Command::Completion(_) | Command::Introspect => "it never contacts the instance",
         Command::Watch(_) => "`sn watch` opens its own websocket session, not this one",
         Command::Open(_) => "it opens your browser, whose session is not the impersonated one",
+        Command::Script { .. } => {
+            "`sn script run` mints its own UI session for sys.scripts.do, not this one"
+        }
         _ => return None,
     })
 }

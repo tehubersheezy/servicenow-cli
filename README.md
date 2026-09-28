@@ -80,6 +80,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn context`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
+| [`sn script run`](docs/usage.md#background-scripts) | Run server-side JavaScript and get what it printed back as JSON |
 | [`sn raw`](docs/usage.md#raw-rest-passthrough) | Call REST endpoints directly |
 | [`sn impersonate`](docs/usage.md#acting-as-another-user) | Run a command as another user to see what their roles and ACLs allow |
 | [`sn ping` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection or open a record in your browser |

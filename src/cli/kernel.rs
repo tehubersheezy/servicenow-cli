@@ -101,8 +101,29 @@ pub(crate) fn build_client_with_headers(
     timeout: Option<u64>,
     extra_headers: HeaderMap,
 ) -> Result<Client> {
-    let mut b = Client::builder()
+    client_builder(profile, timeout)?
         .extra_headers(extra_headers)
+        .build(profile)
+}
+
+/// [`connect`] for a client that does **not** follow redirects — for a caller
+/// whose endpoint answers a refusal with a `3xx` (`sn script run`: a user
+/// `sys.scripts.do` will not serve gets `302 → /logout_redirect.do`), where
+/// following it would swap the verdict for a login page and a meaningless 200.
+pub(crate) fn connect_without_redirects(global: &GlobalFlags) -> Result<Client> {
+    let profile = build_profile(global)?;
+    client_builder(&profile, global.timeout)?
+        .follow_redirects(false)
+        .build(&profile)
+}
+
+/// Everything [`build_client`] configures — transport, auth, timeout — short of
+/// building, so the entry points above can each add their one difference.
+fn client_builder(
+    profile: &ResolvedProfile,
+    timeout: Option<u64>,
+) -> Result<crate::client::ClientBuilder> {
+    let mut b = Client::builder()
         .proxy(profile.proxy.clone())
         .no_proxy(profile.no_proxy.clone())
         .insecure(profile.insecure)
@@ -127,7 +148,7 @@ pub(crate) fn build_client_with_headers(
         if let Some(secs) = timeout {
             b = b.timeout(Duration::from_secs(secs));
         }
-        return b.build(profile);
+        return Ok(b);
     }
     match profile.auth_method {
         AuthMethod::Oauth => {
@@ -156,7 +177,7 @@ pub(crate) fn build_client_with_headers(
     if let Some(secs) = timeout {
         b = b.timeout(Duration::from_secs(secs));
     }
-    b.build(profile)
+    Ok(b)
 }
 
 pub(crate) fn bool_opt(b: bool) -> Option<bool> {

@@ -42,6 +42,7 @@ Utilities:
 - [Inspect and connect](#inspect-and-connect)
 - [Open a record in the web UI](#open-a-record-in-the-web-ui)
 - [Raw REST passthrough](#raw-rest-passthrough)
+- [Background scripts](#background-scripts)
 - [Human-readable table output](#human-readable-table-output)
 - [Shell completions](#shell-completions)
 
@@ -696,6 +697,46 @@ sn raw GET /api/now/table/incident -H 'X-no-response-body: true' -H 'X-Trace: 1'
 Headers can be added with `--header` / `-H`, but `Authorization` must come from the
 profile. Body inputs are JSON; changing `Content-Type` does not change their encoding.
 
+## Background scripts
+
+`sn script run` executes server-side JavaScript as the profile's user — the CLI's
+equivalent of *System Definition › Scripts - Background* — and returns what it printed.
+It is arbitrary code execution with that user's privileges (normally admin), so it is
+gated like every destructive command: `--yes` is required whenever stdin is not a terminal.
+
+```bash
+sn script run 'gs.info(new GlideRecord("incident").getRowCount())' --yes
+sn script run @cleanup.js --rollback --yes             # record the run so its writes can be undone
+echo 'gs.info(gs.getUserName())' | sn script run @- --yes
+sn script run @job.js --scope x_acme_app --timeout 300 --yes
+```
+
+The result is one JSON object:
+
+```json
+{"ok": true, "scope": "global", "output": ["42"], "messages": [], "error": null,
+ "elapsed_ms": 951, "history_id": "48169e6a…", "rollback_context": null}
+```
+
+- `output` — each line the script logged (`gs.info`/`warn`/`error`/`debug`, a source-less
+  `gs.log`, and `gs.print` in global), one element per call. Print
+  `JSON.stringify(x)` to hand back structured data.
+- `messages` — anything else the platform printed during the run (slow-business-rule
+  notices, `gs.log(msg, source)` lines, SQL debug), kept out of `output`.
+- `error` — `{type: "compilation"|"execution", message, line, detail}`. A script error is
+  still an HTTP 200, so the object above goes to stdout with `ok: false` (output printed
+  before the error included) and the command exits 2 with `status_code: 200`.
+- `history_id` — the run's `sys_script_execution_history` row; `rollback_context` — with
+  `--rollback`, the `sys_rollback_context` its writes can be rolled back from (`null` when
+  the script wrote nothing).
+
+`--scope` takes a scope name, display name, or sys_id and is resolved before anything runs:
+the instance silently runs an unrecognised scope in global. Store application scopes are
+refused by the instance even for admin. A user without the role to run background scripts
+exits 4. The script runs synchronously, bounded by `--timeout` (default 30s) on this side
+and the instance's transaction quota on the other; a client timeout does **not** stop it —
+its result still lands in `sys_script_execution_history`.
+
 ## Human-readable table output
 
 Most read commands accept `--output table` for columns instead of JSON — for interactive browsing; keep the default JSON for scripts and pipelines (don't pipe it):
@@ -753,6 +794,7 @@ renders columns for interactive reading.
 | `variables get/set` | Variable array / verified change report |
 | `context` | Scope and update-set object; setters also include `previous` |
 | `graphql` | Unwrapped `data`; errors exit 2, but partial data is still emitted |
+| `script run` | `{ok, scope, output, messages, error, elapsed_ms, history_id, rollback_context}`; a script error still prints it (`ok: false`) and exits 2 |
 | `gr` | Record array, or `{"count": N}` with `--count`; errors exit 2 without partial data |
 | Async CICD operations / `progress` | Progress object; see [CICD operations](#cicd-operations) |
 | `api list/search` | Summary array; `--output raw` keeps the catalogue response |

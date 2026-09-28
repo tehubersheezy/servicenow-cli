@@ -409,6 +409,18 @@ async fn argv_mistakes_are_refused_before_any_request() {
                 "impersonate",
                 ABEL,
                 "--",
+                "script",
+                "run",
+                "gs.info(1)",
+                "--yes",
+            ],
+            "sys.scripts.do",
+        ),
+        (
+            &[
+                "impersonate",
+                ABEL,
+                "--",
                 "table",
                 "list",
                 "incident",

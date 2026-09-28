@@ -71,10 +71,10 @@ pub struct ContextTargetArgs {
 
 /// One resolved scope: the row `apps.current_app` points at.
 #[derive(Debug, Clone, PartialEq)]
-struct ScopeRow {
-    sys_id: String,
-    name: String,
-    scope: String,
+pub(crate) struct ScopeRow {
+    pub(crate) sys_id: String,
+    pub(crate) name: String,
+    pub(crate) scope: String,
 }
 
 /// One resolved update set, with the scope it belongs to.
@@ -312,7 +312,7 @@ fn scope_json(scope: &ScopeRow) -> Value {
 
 /// `scope <TARGET>` resolution: one Table API read matching scope name,
 /// display name, or sys_id, all exact.
-fn resolve_scope(client: &Client, target: &str) -> Result<ScopeRow> {
+pub(crate) fn resolve_scope(client: &Client, target: &str) -> Result<ScopeRow> {
     let resp = client.get(
         "/api/now/table/sys_scope",
         &query_pairs(&[
