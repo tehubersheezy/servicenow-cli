@@ -196,6 +196,9 @@ fn run(cli: Cli) -> Result<()> {
             UserSub::Me => sn::cli::user::me(&global),
         },
         Command::Ping => sn::cli::ping::run(&global),
+        // `run` is handed down so the wrapped command dispatches exactly as a
+        // top-level one would, without the dispatch table moving into the lib.
+        Command::Impersonate(args) => sn::cli::impersonate::run(&global, args, run),
         Command::Open(args) => sn::cli::open_record::run(&global, args),
         Command::Raw(args) => sn::cli::raw::run(&global, args),
         Command::Gr(args) => sn::cli::gr::run(&global, args),

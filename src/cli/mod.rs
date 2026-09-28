@@ -14,6 +14,7 @@ pub mod get_record;
 pub mod gr;
 pub mod graphql;
 pub mod identify;
+pub mod impersonate;
 pub mod import;
 pub mod init;
 pub mod introspect;
@@ -64,6 +65,7 @@ pub use get_record::GetRecordArgs;
 pub use gr::GrArgs;
 pub use graphql::GraphqlArgs;
 pub use identify::{IdentifyArgs, IdentifyEnhancedArgs, IdentifySub};
+pub use impersonate::ImpersonateArgs;
 pub use import::{ImportBulkArgs, ImportCreateArgs, ImportGetArgs, ImportSub};
 pub use init::InitArgs;
 pub use journal::{JournalArgs, JournalSource};
@@ -112,7 +114,13 @@ const IMPLIED_VERB_GROUPS: [&str; 2] = ["table", "cmdb"];
 /// Parse argv through [`command`] so error messages carry the same usage lines
 /// as `--help`, recovering an omitted read verb where that is unambiguous.
 pub fn parse() -> Result<Cli, clap::Error> {
-    let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    parse_from(std::env::args_os().collect())
+}
+
+/// [`parse`] over an explicit argv (`argv[0]` is the binary name) — how
+/// `sn impersonate` parses the command it wraps, with the same shorthand and
+/// the same usage lines as a top-level invocation.
+pub fn parse_from(argv: Vec<std::ffi::OsString>) -> Result<Cli, clap::Error> {
     let err = match command().try_get_matches_from(argv.clone()) {
         Ok(matches) => return Cli::from_arg_matches(&matches),
         Err(err) => err,
@@ -253,6 +261,10 @@ fn usage_line(path: &str, cmd: &clap::Command) -> String {
             .map(|n| n.to_string())
             .unwrap_or_else(|| arg.get_id().as_str().to_uppercase());
         usage.push(' ');
+        // A trailing `last` positional is only reachable after `--`.
+        if arg.is_last_set() {
+            usage.push_str("-- ");
+        }
         if arg.is_required_set() {
             usage.push_str(&format!("<{name}>"));
         } else {
@@ -455,6 +467,9 @@ pub enum Command {
     },
     /// Health check the configured instance (auth + latency + build version).
     Ping,
+    /// Run one sn command as another user, then end the impersonation
+    /// (`sn impersonate <USER> -- <COMMAND>...`).
+    Impersonate(ImpersonateArgs),
     /// Open a record in the ServiceNow web UI (`sn open <table> <sys_id>`).
     Open(OpenArgs),
     /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).

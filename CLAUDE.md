@@ -33,14 +33,14 @@ src/
   output.rs         → write_value (batched JSON), write_jsonl_line (one record, flushed), emit_value/emit_error (raw writers)
   output_table.rs   → write_table (renders JSON as a comfy-table columnar view for `--output table`)
   config.rs         → Config/Credentials TOML types, load/save, resolve_profile(); OAuth types (AuthMethod, OAuthConfig, OAuthGrant, TokenSet) + token persistence
-  client.rs         → reqwest blocking client (proxy/TLS), Auth enum (Basic/Bearer/None), Paginator iterator
+  client.rs         → reqwest blocking client (proxy/TLS), Auth enum (Basic/Bearer/ApiKey/Session/None), SessionJar, Paginator iterator
   oauth.rs          → OAuth 2.0 for SSO: PKCE, loopback redirect server, token exchange (authorization_code/refresh/client_credentials), ensure_access_token()
   query.rs          → ListQuery/GetQuery/WriteQuery/DeleteQuery → Vec<(String,String)>
   body.rs           → --data / --field parsing into serde_json::Value
   observability.rs  → global AtomicU8 verbosity, log helpers (set_level called in main; log_request/response/body wired into client.rs)
   cli/
     mod.rs          → Cli struct, GlobalFlags, all Subcommand enums + arg structs
-    kernel.rs       → the shared command kernel: connect()/emit(), build_profile/build_client/build_client_with_headers, write_response/unwrap_or_raw/take_field/bool_opt, confirm_destructive/confirm_delete
+    kernel.rs       → the shared command kernel: connect()/emit(), build_profile/build_client/build_client_with_headers, write_response/unwrap_or_raw/take_field/bool_opt, confirm_destructive/confirm_delete, SessionScope (the `sn impersonate` client override)
     args.rs         → shared clap arg vocabulary, flattened into the command modules' arg structs: BodyArgs (--data/--field), WaitArgs (--wait/--wait-timeout), DisplayValueOpt, SetLimit/Paging (const-generic per-site defaults), DisplayValueArg. Flatten position is help order; a site whose help text differs keeps its own declaration
     init.rs         → sn init (onboarding wizard: profile setup + verification, and ALWAYS claims default_profile); a thin policy layer over profile.rs's core
     auth.rs         → session/identity core behind `sn profile login/logout/status/refresh` (no clap surface of its own; login runs the flow for a configured oauth profile, no config mutation) + whoami (authenticated-identity read, shared with profile.rs)
@@ -64,6 +64,7 @@ src/
     identify.rs     → sn identify create-update/query + enhanced variants (CI reconciliation)
     user.rs         → sn user me (authenticated user: `ui/user/current_user` names the sys_id, then a direct `sys_user/{sys_id}` read; the scripted query is only the fallback)
     ping.rs         → sn ping (auth + latency + build version + the instance's own account of who the caller is)
+    impersonate.rs  → sn impersonate <user> -- <cmd> (mints one cookie-only session, hops to the user, verifies, runs the wrapped command in-process via main.rs's `run`, then reverts + logs out on every exit incl. Ctrl-C; see "Impersonation")
     open_record.rs  → sn open <table> <sys_id> (opens the form in the browser)
     raw.rs          → sn raw <method> <path> (REST passthrough for unmodeled endpoints; --header, --query, --data/--field)
     graphql.rs      → sn graphql <query> (GraphQL passthrough: POST /api/now/graphql; in-band errors → exit 2 with the array in sn_error)
@@ -95,6 +96,8 @@ src/
 
 Both exit 2 — this is still the instance failing to serve the request — and both are pinned by tests in `error.rs`.
 
+`Error::Auth` takes the same sentinel for a permission the instance denies *in band*: `sn impersonate` on a session whose `CanImpersonate` is `false` (inside a 200) exits 4 with no `status_code`.
+
 **`status_code: 200` is not this, and is correct where it appears.** `graphql.rs`, `journal.rs` and `variables.rs` detect failures ServiceNow reports *in band* inside a genuinely successful 200, and they build `Error::Api { status: 200 }` on purpose — the HTTP status really was 200, and hiding it would misdescribe the exchange. The rule is only that a status must not be *fabricated*; reporting a real one is never wrong. So `status_code` is diagnostic, and the exit code is what a caller branches on.
 
 ### REST endpoint map
@@ -114,6 +117,19 @@ Base paths and quirks not obvious from the module list:
 | `graphql` | `POST /api/now/graphql` | one endpoint, the whole merged schema: scripted namespaces + generated `GlideRecord_Query`/`GlideRecord_Mutation`/`GlideAggregateRecord_Query` (a field per table). Failure is in-band — HTTP 200 with an `errors` array, sometimes beside partial `data` — so the command maps non-empty `errors` to exit 2 (full array in `sn_error`) and still writes partial `data` to stdout; success unwraps `data` |
 | `watch` (undocumented) | `wss://<instance>/amb` (Bayeux/CometD) | cookie-auth only — `Authorization` is ignored; needs an `Origin` header and a session minted by a prior HTTP call. See "Record watchers" below |
 | `context` (undocumented) | `PUT /api/now/ui/concoursepicker/{application,updateset}` (writes); `POST /api/now/graphql` (the read) | the UI pickers' endpoints. The application PUT takes `{"app_id"}` (its sibling takes `{"sysId"}` — they do not share a body shape) and **never writes `apps.current_app` over REST** — it only stages the per-scope update-set preferences — so `context scope` writes the preference row directly after it. The picker GETs are avoided on the read path because `GET …/updateset` has side effects (it heals a scope/update-set preference mismatch); the GraphQL read mirrors that reconciliation in code (`source`, `preference_stale`) instead. `sys_update_set.state` stores `"in progress"` **with a space**; `state=in_progress` silently matches nothing. Row ACLs make this an admin/delegated-developer surface — an `itil` caller gets empty results, which the canary aliases turn into an explicit error, and every `javascript:`-term alias caps at 2 rows so a dropped term (unfiltered results) is detected rather than reported as the answer |
+
+### Impersonation
+
+`sn impersonate <user> -- <cmd>` is the one command that holds a **server-side session** across requests, because impersonation is session state. Any per-request credential (Basic or bearer — measured for both) re-authenticates as the credential holder on every call and wipes the impersonation, so the flow is: one credentialed `GET /api/now/sg/impersonation/session` (`Client::get_secret_with_cookies`) mints the session and reads its `SessionToken`; from then on every request goes out as `Auth::Session(Arc<SessionJar>)` — `Cookie` + `X-UserToken`, both `set_sensitive`, **no `Authorization`** — and `send()` folds each response's `Set-Cookie` back into the jar. The wrapped command runs **in-process** (parsed with `cli::parse_from`, dispatched through the `run` fn pointer `main.rs` passes down), and `kernel::SessionScope` makes every `build_client` in that window return a session client (no OAuth refresh, no API key) and clears on drop. Connection globals must precede `--` (they are copied onto the inner `GlobalFlags` so it resolves the same profile); presentation globals merge.
+
+Measured on dev421992 (Australia), and why the code looks the way it does:
+
+- **`POST /api/now/ui/impersonate/{sys_id}` answers `201` when it did nothing** — a caller without the role gets 201 and an unchanged session. So `CanImpersonate: false` is refused up front (exit 4, `NO_HTTP_STATUS`), and after the POST the session is re-read and must name the target *and* the original user, or the command never runs (`Error::Instance`).
+- The POST did **not** require `X-UserToken`, and the token did **not** rotate across a hop (the issue reported both). The token is sent anyway and re-read after the hop; nothing relies on either observation.
+- **Ending** = POST back to the original user's sys_id, `GET /logout.do` (302 → `logout_success.do`; the cookies answer 401 afterwards), then re-read the session and require the 401. `Hop::end` is idempotent under a mutex shared by an `EndOnDrop` guard (early returns, panics) and a `ctrlc` handler (ends, then exits 130) — a signal mid-request waits for nothing. The session's cookies live only in memory, so a SIGKILL leaves an unreachable session that lapses at the idle timeout. The ctrlc handler is process-wide and single, so a wrapped `attachment download` loses its staging-file unlink on Ctrl-C; ending the impersonation is the one that wins.
+- The API-only-session reaper that `sn watch` fights does **not** touch this: an impersonated session polled over REST every 15s stayed alive and impersonating for 137s.
+- A cookie-authenticated response carries `x-usertoken-request` (echoing the token sent) and `x-usertoken-response`; `observability::header_display_value` masks every `x-usertoken*` header at `-dd`, and `get_secret*` never logs the session body.
+- Refused as wrapped commands before any request: `init`, `profile` (local state), `watch` (its own websocket session), `open` (the browser's session is not this one), `completion`/`introspect` (no instance), `impersonate` (no nesting).
 
 ### CICD async pattern
 

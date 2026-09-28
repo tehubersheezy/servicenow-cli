@@ -40,7 +40,10 @@ pub enum Error {
         sn_error: Option<serde_json::Value>,
     },
 
-    #[error("auth error ({status}): {message}")]
+    /// A 401/403 — or, with [`NO_HTTP_STATUS`], a permission the instance
+    /// reported *in band* as absent (`CanImpersonate: false` inside a 200),
+    /// where publishing a status would invent one.
+    #[error("auth error{}: {message}", status_suffix(*status))]
     Auth {
         status: u16,
         message: String,
@@ -125,7 +128,7 @@ impl Error {
             } => (
                 message.clone(),
                 None,
-                Some(*status),
+                (*status != NO_HTTP_STATUS).then_some(*status),
                 transaction_id.as_deref(),
                 None,
             ),
@@ -240,6 +243,28 @@ mod tests {
             v["error"].get("status_code").is_none(),
             "a non-HTTP failure must not report an HTTP status: {v}"
         );
+    }
+
+    #[test]
+    fn statusless_auth_errors_keep_exit_4_but_publish_no_status() {
+        // `sn impersonate` refusing on `CanImpersonate: false`: a permission
+        // verdict (exit 4) that arrived inside a 200.
+        let e = Error::Auth {
+            status: NO_HTTP_STATUS,
+            message: "not allowed to impersonate".into(),
+            transaction_id: None,
+        };
+        assert_eq!(e.exit_code(), 4);
+        assert!(e.to_stderr_json()["error"].get("status_code").is_none());
+        assert_eq!(e.to_string(), "auth error: not allowed to impersonate");
+
+        let real = Error::Auth {
+            status: 401,
+            message: "x".into(),
+            transaction_id: None,
+        };
+        assert_eq!(real.to_stderr_json()["error"]["status_code"], 401);
+        assert_eq!(real.to_string(), "auth error (401): x");
     }
 
     #[test]

@@ -43,9 +43,13 @@ pub fn log_response_headers(headers: &reqwest::header::HeaderMap) {
 /// Map a header (name, value) pair to the string that is safe to print in a
 /// `-dd` log. Secret-bearing headers are masked to a generic `****`:
 /// `authorization` carries the Basic/Bearer credential and `set-cookie` carries
-/// the session token ServiceNow mints on login. All other headers pass through.
+/// the session token ServiceNow mints on login, and `x-usertoken-*` carry a
+/// session's CSRF token (`-request` echoes the one a cookie-authenticated
+/// request sent, `-response` hands out the next). All other headers pass
+/// through.
 fn header_display_value(name: &str, value: &str) -> String {
-    if name.eq_ignore_ascii_case("authorization") || name.eq_ignore_ascii_case("set-cookie") {
+    let lower = name.to_ascii_lowercase();
+    if lower == "authorization" || lower == "set-cookie" || lower.starts_with("x-usertoken") {
         "****".to_string()
     } else {
         value.to_string()
@@ -94,6 +98,20 @@ mod tests {
         );
         assert_eq!(
             header_display_value("Set-Cookie", "glide_session_store=SECRET"),
+            "****"
+        );
+    }
+
+    #[test]
+    fn csrf_token_headers_are_masked() {
+        // Measured: a cookie-authenticated request's response echoes the token
+        // it sent and issues the next one.
+        assert_eq!(
+            header_display_value("x-usertoken-request", "9b18abc"),
+            "****"
+        );
+        assert_eq!(
+            header_display_value("X-UserToken-Response", "1128def"),
             "****"
         );
     }
