@@ -146,6 +146,19 @@ sn table list incident --all | jq -r '.number'
 
 `--max-records` defaults to 100,000; use `--max-records 0` to remove that cap.
 `--setlimit` controls page size, and `--offset` is ignored with `--all`.
+
+`--all` walks by `sys_id` (keyset). Each page is "rows after the last sys_id seen", with no
+per-page count, so a table that changes during the walk never makes it skip or repeat a row.
+Records arrive in `sys_id` order. A query with its own `ORDERBY`, `--paginate offset`, and
+tables with no plain `sys_id` (database views) page by offset instead. If a stream fails
+part-way, the error's `resume_from` names the last record written. Rerun with
+`--resume-from <sys_id>` and append to continue with no gap and no overlap:
+
+```bash
+sn table list syslog -q "$Q" --all > out.jsonl         # fails part-way: exit 3, resume_from "…"
+sn table list syslog -q "$Q" --all --resume-from 8b03… >> out.jsonl
+```
+
 `--all` streams JSONL unless you add `--array`. Streaming refuses other output modes
 with exit 1. For columns, buffer first: `--all --array --output table`.
 `--output raw` has no equivalent: pagination flattens every page's `{"result": ...}` envelope into
@@ -738,7 +751,8 @@ Errors go to stderr in this shape:
 ```
 
 Only `message` is guaranteed. Optional keys are `detail`, `status_code`,
-`transaction_id`, and `sn_error` (the instance's error payload). `status_code` is absent
+`transaction_id`, `sn_error` (the instance's error payload), and `resume_from` (only
+on an interrupted `table list --all` stream). `status_code` is absent
 when no HTTP status describes the failure, and it can be `200` for a failure reported
 inside a successful HTTP response. Branch on the exit code first.
 

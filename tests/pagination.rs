@@ -44,7 +44,16 @@ async fn paginates_following_link_header() {
         );
         let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args(["table", "list", "incident", "--setlimit", "2", "--all"])
+            .args([
+                "table",
+                "list",
+                "incident",
+                "--setlimit",
+                "2",
+                "--all",
+                "--paginate",
+                "offset",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();

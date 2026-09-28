@@ -68,6 +68,17 @@ pub enum Error {
         message: String,
         detail: Option<String>,
     },
+
+    /// A keyset `--all` stream that failed part-way, after some records were
+    /// already written. Wraps the underlying failure (whose exit code and
+    /// envelope fields it keeps) and adds the `sys_id` to continue after, so a
+    /// truncated stream is distinguishable from a complete one *and* comes with
+    /// the way to finish it: `--resume-from <resume_from>`.
+    #[error("{source} (resume with --resume-from {resume_from})")]
+    Interrupted {
+        source: Box<Error>,
+        resume_from: String,
+    },
 }
 
 impl Error {
@@ -80,11 +91,21 @@ impl Error {
             Error::Transport(_) => 3,
             Error::Auth { .. } => 4,
             Error::Instance { .. } => 2,
+            Error::Interrupted { source, .. } => source.exit_code(),
         }
     }
 
     /// JSON envelope matching spec §6.4.
     pub fn to_stderr_json(&self) -> serde_json::Value {
+        if let Error::Interrupted {
+            source,
+            resume_from,
+        } = self
+        {
+            let mut v = source.to_stderr_json();
+            v["error"]["resume_from"] = serde_json::Value::String(resume_from.clone());
+            return v;
+        }
         #[derive(Serialize)]
         struct Envelope<'a> {
             error: Inner<'a>,
@@ -134,6 +155,7 @@ impl Error {
             Error::Instance { message, detail } => {
                 (message.clone(), detail.as_deref(), None, None, None)
             }
+            Error::Interrupted { .. } => unreachable!("returned early above"),
         };
         serde_json::to_value(Envelope {
             error: Inner {
@@ -194,6 +216,35 @@ mod tests {
         assert_eq!(v["error"]["status_code"], 404);
         assert_eq!(v["error"]["transaction_id"], "tx1");
         assert_eq!(v["error"]["sn_error"]["message"], "nope");
+    }
+
+    /// An interrupted stream keeps the underlying failure's exit code and
+    /// fields, and adds only the token to continue from.
+    #[test]
+    fn interrupted_keeps_the_source_and_adds_resume_from() {
+        let e = Error::Interrupted {
+            source: Box::new(Error::Api {
+                status: 503,
+                message: "unavailable".into(),
+                detail: None,
+                transaction_id: Some("tx9".into()),
+                sn_error: None,
+            }),
+            resume_from: "abc".into(),
+        };
+        assert_eq!(e.exit_code(), 2);
+        let v = e.to_stderr_json();
+        assert_eq!(v["error"]["message"], "unavailable");
+        assert_eq!(v["error"]["status_code"], 503);
+        assert_eq!(v["error"]["transaction_id"], "tx9");
+        assert_eq!(v["error"]["resume_from"], "abc");
+
+        let t = Error::Interrupted {
+            source: Box::new(Error::Transport("reset".into())),
+            resume_from: "abc".into(),
+        };
+        assert_eq!(t.exit_code(), 3);
+        assert!(t.to_string().contains("--resume-from abc"));
     }
 
     #[test]

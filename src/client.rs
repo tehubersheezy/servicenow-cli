@@ -1,10 +1,12 @@
 use crate::config::ResolvedProfile;
 use crate::error::{Error, Result};
 use crate::observability::{log_body, log_request, log_response, log_response_headers};
+use crate::query::{is_cursor_safe, keyset_query};
 use reqwest::blocking::{Client as ReqwestClient, Response};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
+use std::collections::{HashSet, VecDeque};
 use std::io::{ErrorKind, Read, Write};
 use std::time::{Duration, Instant};
 
@@ -581,52 +583,141 @@ fn stream_body<R: Read, W: Write>(
 }
 
 impl Client {
-    /// Stream records from a paginated list endpoint, following Link: rel="next" headers.
+    /// Stream records by offset, following `Link: rel="next"` headers.
+    ///
+    /// The Link header is only emitted while the instance counts: measured on a
+    /// Zurich PDI, `sysparm_no_count=true` or `sysparm_suppress_pagination_header=true`
+    /// removes `rel="next"`, so a walk under either stops after page one. The
+    /// caller must not set them here (`table list --all` refuses the combination).
     pub fn paginate(
         &self,
         initial_path: &str,
         initial_query: &[(String, String)],
         max_records: Option<u32>,
     ) -> Paginator<'_> {
-        Paginator::new(
-            self,
-            initial_path.to_string(),
-            initial_query.to_vec(),
-            max_records,
-        )
+        Paginator {
+            client: self,
+            mode: Mode::Link {
+                next_url: Some(self.url(initial_path)),
+                next_query: initial_query.to_vec(),
+            },
+            buffer: VecDeque::new(),
+            emitted: 0,
+            cap: max_records,
+            finished: false,
+        }
     }
+
+    /// Stream records by keyset: every page is "rows after the last `sys_id`
+    /// seen, sorted by `sys_id`". See [`KeysetPlan`] and CLAUDE.md "Pagination".
+    pub fn paginate_keyset(
+        &self,
+        path: &str,
+        plan: KeysetPlan,
+        max_records: Option<u32>,
+    ) -> Paginator<'_> {
+        Paginator {
+            client: self,
+            mode: Mode::Keyset(Box::new(KeysetState {
+                url: self.url(path),
+                cursor: plan.resume_from.clone(),
+                plan,
+                skip: 0,
+                prev_page: HashSet::new(),
+            })),
+            buffer: VecDeque::new(),
+            emitted: 0,
+            cap: max_records,
+            finished: false,
+        }
+    }
+}
+
+/// Everything a keyset walk needs besides the path.
+#[derive(Debug, Clone)]
+pub struct KeysetPlan {
+    /// The caller's encoded query; the cursor and sort are layered onto it per
+    /// page by [`keyset_query`].
+    pub query: Option<String>,
+    /// `sysparm_limit` for every page.
+    pub page_size: u32,
+    /// Every other request parameter (fields, display value, view, …). Must not
+    /// carry `sysparm_query`/`limit`/`offset`/`no_count`/
+    /// `suppress_pagination_header` — the walk owns those.
+    pub pairs: Vec<(String, String)>,
+    /// Start after this `sys_id` instead of at the beginning.
+    pub resume_from: Option<String>,
+    /// `sys_id` was added to `sysparm_fields` only so the cursor can advance;
+    /// remove it from each record before it is handed out.
+    pub strip_sys_id: bool,
+    /// Offset-mode parameters to restart with when the first page's records
+    /// carry no `sys_id` (a database view, a `sysparm_view` without it). Only
+    /// honored before anything has been handed out; `None` makes it an error.
+    pub fallback: Option<Vec<(String, String)>>,
+}
+
+enum Mode {
+    Link {
+        next_url: Option<String>,
+        next_query: Vec<(String, String)>,
+    },
+    Keyset(Box<KeysetState>),
+}
+
+struct KeysetState {
+    url: String,
+    plan: KeysetPlan,
+    /// `sys_id` of the last record handed to the buffer; `sys_id>cursor` bounds
+    /// the next page.
+    cursor: Option<String>,
+    /// Rows past `cursor` the instance scanned but returned none of (row ACLs
+    /// filter a page *after* the database fetched it, so a whole page can come
+    /// back empty with more rows behind it). Sent as `sysparm_offset` within
+    /// the cursor-bounded set; reset to 0 whenever the cursor moves.
+    skip: u64,
+    /// The previous non-empty page's `sys_id`s: a page that repeats one proves
+    /// the instance dropped the cursor term (see [`Paginator::fetch_keyset`]).
+    prev_page: HashSet<String>,
 }
 
 pub struct Paginator<'a> {
     client: &'a Client,
-    next_url: Option<String>,
-    next_query: Vec<(String, String)>,
-    buffer: std::collections::VecDeque<Value>,
+    mode: Mode,
+    buffer: VecDeque<Value>,
     emitted: u32,
     cap: Option<u32>,
     finished: bool,
 }
 
 impl<'a> Paginator<'a> {
-    fn new(
-        client: &'a Client,
-        path: String,
-        query: Vec<(String, String)>,
-        cap: Option<u32>,
-    ) -> Self {
-        Self {
-            client,
-            next_url: Some(format!("{}{path}", client.base_url)),
-            next_query: query,
-            buffer: std::collections::VecDeque::new(),
-            emitted: 0,
-            cap,
-            finished: false,
+    /// The `sys_id` a keyset walk would continue after — `--resume-from`'s
+    /// value. Every record up to and including it has already been handed out
+    /// whenever a page fetch fails, because the buffer is drained before the
+    /// next fetch is attempted. `None` for an offset walk: an offset is a
+    /// position, not a token, and does not survive the table changing.
+    pub fn resume_token(&self) -> Option<&str> {
+        match &self.mode {
+            Mode::Keyset(ks) => ks.cursor.as_deref(),
+            Mode::Link { .. } => None,
         }
     }
 
     fn fetch_next_page(&mut self) -> Result<()> {
-        let Some(url) = self.next_url.take() else {
+        match self.mode {
+            Mode::Link { .. } => self.fetch_link(),
+            Mode::Keyset(_) => self.fetch_keyset(),
+        }
+    }
+
+    fn fetch_link(&mut self) -> Result<()> {
+        let Mode::Link {
+            next_url,
+            next_query,
+        } = &mut self.mode
+        else {
+            unreachable!("fetch_link outside link mode");
+        };
+        let Some(url) = next_url.take() else {
             self.finished = true;
             return Ok(());
         };
@@ -634,15 +725,156 @@ impl<'a> Paginator<'a> {
             .client
             .http
             .request(Method::GET, &url)
-            .query(&self.next_query);
-        let resp = self.client.send(req, "GET", &url)?;
+            .query(&*next_query);
+        let page = self.client.fetch_page(req, &url)?;
+        next_query.clear(); // next link carries all params
+        *next_url = page.link.and_then(parse_next_link);
+        if next_url.is_none() {
+            self.finished = true;
+        }
+        self.buffer.extend(page.records);
+        Ok(())
+    }
+
+    /// One keyset page. Termination is decided by what the database *scanned*,
+    /// never by how many records came back:
+    ///
+    /// - Row ACLs filter a page after the database fetched it (measured: an
+    ///   `itil` user reading `sys_properties` gets 3 of 50 rows per page, and
+    ///   whole pages of 0), so "fewer records than the limit" is not the end.
+    /// - Under `sysparm_no_count=true`, `X-Total-Count` is the number of rows
+    ///   the database fetched for *this* page, before ACLs (50 on that 3-row
+    ///   page, 8 on the table's last partial page, 0 past its end; and exactly
+    ///   the limit on a full page, up to 30,000 tried — no server-side cap).
+    ///   A page that scanned fewer rows than the limit is the last one.
+    /// - Ending there, rather than probing for an empty page, is a performance
+    ///   decision: a `sys_id>` range beside a selective filter lets the database
+    ///   walk the primary key to the end of the table, and that final probe took
+    ///   46s on `syslog` for a walk whose one real page took 0.7s.
+    ///
+    /// Records came back → advance the cursor to the last one. None came back
+    /// but rows were scanned → all hidden; step over them with `sysparm_offset`
+    /// inside the cursor-bounded set. Without the header, only an empty page
+    /// ends the walk.
+    fn fetch_keyset(&mut self) -> Result<()> {
+        let Mode::Keyset(ks) = &mut self.mode else {
+            unreachable!("fetch_keyset outside keyset mode");
+        };
+        let mut query = ks.plan.pairs.clone();
+        query.push((
+            "sysparm_query".into(),
+            keyset_query(ks.plan.query.as_deref(), ks.cursor.as_deref()),
+        ));
+        query.push(("sysparm_limit".into(), ks.plan.page_size.to_string()));
+        if ks.skip > 0 {
+            query.push(("sysparm_offset".into(), ks.skip.to_string()));
+        }
+        query.push(("sysparm_no_count".into(), "true".into()));
+        query.push(("sysparm_suppress_pagination_header".into(), "true".into()));
+        let req = self.client.http.request(Method::GET, &ks.url).query(&query);
+        let page = self.client.fetch_page(req, &ks.url)?;
+
+        // Every record needs a sys_id that can be spliced into `sys_id>…`. A
+        // database view has none to seek on — it answers with a synthetic
+        // `__ENC__<base64>=-<base64>=…` id (measured) — and a `--view` can omit
+        // the column entirely.
+        let ids: Option<Vec<String>> = page
+            .records
+            .iter()
+            .map(|r| record_sys_id(r).filter(|id| is_cursor_safe(id)))
+            .collect();
+        let Some(ids) = ids else {
+            let untouched = ks.cursor.is_none() && ks.skip == 0 && self.emitted == 0;
+            if untouched && let Some(fallback) = ks.plan.fallback.take() {
+                crate::observability::log_note(
+                    "keyset: records carry no seekable sys_id; restarting in offset mode",
+                );
+                self.mode = Mode::Link {
+                    next_url: Some(ks.url.clone()),
+                    next_query: fallback,
+                };
+                return self.fetch_link();
+            }
+            // Past the first page this is a malformed page, not a property of
+            // the table (that would have shown on page one): seen once live, on
+            // a `sys_properties` walk while the instance was badly overloaded,
+            // and not reproducible in four clean reruns. Transport, like any
+            // other mangled body, so the stream stays resumable from the last
+            // good record.
+            return Err(Error::Transport(
+                "keyset page returned a record without a plain sys_id; resume, or rerun with \
+                 --paginate offset if it recurs (a database view, or a --view that omits \
+                 sys_id, has no sys_id to seek on)"
+                    .into(),
+            ));
+        };
+
+        // A dropped `sys_id>` term (ServiceNow silently discards terms it
+        // cannot evaluate) would return the same page forever. Pages are
+        // disjoint by construction, so any repeat is proof — fail instead of
+        // looping.
+        if let Some(dup) = ids.iter().find(|id| ks.prev_page.contains(*id)) {
+            return Err(Error::Instance {
+                message: format!(
+                    "the instance ignored the keyset cursor: a page after sys_id>{} repeated \
+                     record {dup}",
+                    ks.cursor.as_deref().unwrap_or("")
+                ),
+                detail: Some("rerun with --paginate offset".into()),
+            });
+        }
+
+        match (ids.last(), page.total_count) {
+            (Some(last), _) => {
+                ks.cursor = Some(last.clone());
+                ks.skip = 0;
+            }
+            (None, Some(scanned)) => ks.skip += scanned,
+            (None, None) => {}
+        }
+        // The last page is the one the database could not fill. Without the
+        // header, only an empty page can say so.
+        let last_page = match page.total_count {
+            Some(scanned) => scanned < u64::from(ks.plan.page_size),
+            None => ids.is_empty(),
+        };
+        if last_page {
+            self.finished = true;
+        }
+        if !ids.is_empty() {
+            ks.prev_page = ids.into_iter().collect();
+        }
+        let strip = ks.plan.strip_sys_id;
+        self.buffer.extend(page.records.into_iter().map(|mut r| {
+            if strip && let Some(obj) = r.as_object_mut() {
+                obj.remove("sys_id");
+            }
+            r
+        }));
+        Ok(())
+    }
+}
+
+/// One list page: its records plus the two headers pagination reads.
+struct Page {
+    records: Vec<Value>,
+    link: Option<String>,
+    total_count: Option<u64>,
+}
+
+impl Client {
+    fn fetch_page(&self, req: reqwest::blocking::RequestBuilder, url: &str) -> Result<Page> {
+        let resp = self.send(req, "GET", url)?;
         let status = resp.status();
         let tx = transaction_id(&resp);
-        let link = resp
-            .headers()
-            .get("Link")
-            .and_then(|v| v.to_str().ok())
-            .map(ToString::to_string);
+        let header = |name: &str| {
+            resp.headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(ToString::to_string)
+        };
+        let link = header("Link");
+        let total_count = header("X-Total-Count").and_then(|v| v.trim().parse().ok());
         log_response_headers(resp.headers());
         let text = resp
             .text()
@@ -653,17 +885,39 @@ impl<'a> Paginator<'a> {
         }
         let mut body: Value = serde_json::from_str(&text)
             .map_err(|e| Error::Transport(format!("parse response: {e}")))?;
-        if let Some(Value::Array(records)) = body.get_mut("result").map(Value::take) {
-            for r in records {
-                self.buffer.push_back(r);
+        // A list page with no `result` array is not an empty page: both walks
+        // end on "no more records", so reading it as one would turn a body the
+        // instance (or a proxy in front of it) mangled into a silently short
+        // export with exit 0. Transport, like the unparseable body above: it is
+        // the same class of failure, and a keyset walk can resume past it.
+        let records = match body.get_mut("result").map(Value::take) {
+            Some(Value::Array(records)) => records,
+            _ => {
+                return Err(Error::Transport(format!(
+                    "parse response: list response carried no `result` array: {}",
+                    truncate_body(&text, 300)
+                )));
             }
-        }
-        self.next_query.clear(); // next link carries all params
-        self.next_url = link.and_then(parse_next_link);
-        if self.next_url.is_none() {
-            self.finished = true;
-        }
-        Ok(())
+        };
+        Ok(Page {
+            records,
+            link,
+            total_count,
+        })
+    }
+}
+
+/// A record's `sys_id` as a plain string: bare under `--display-value
+/// true|false`, `{display_value, value}` under `all`.
+fn record_sys_id(record: &Value) -> Option<String> {
+    match record.get("sys_id")? {
+        Value::String(s) if !s.is_empty() => Some(s.clone()),
+        Value::Object(o) => o
+            .get("value")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string),
+        _ => None,
     }
 }
 
@@ -694,12 +948,13 @@ impl<'a> Iterator for Paginator<'a> {
         {
             return None;
         }
-        if self.buffer.is_empty()
-            && !self.finished
-            && let Err(e) = self.fetch_next_page()
-        {
-            self.finished = true;
-            return Some(Err(e));
+        // Loop, not `if`: a keyset page can legitimately hold zero visible
+        // records (all hidden by row ACLs) without being the last page.
+        while self.buffer.is_empty() && !self.finished {
+            if let Err(e) = self.fetch_next_page() {
+                self.finished = true;
+                return Some(Err(e));
+            }
         }
         match self.buffer.pop_front() {
             Some(v) => {

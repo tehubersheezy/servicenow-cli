@@ -2,8 +2,10 @@ use crate::body::{BodyInput, build_body};
 use crate::cli::kernel::{bool_opt, confirm_delete, connect, emit, write_response};
 use crate::cli::record_ref;
 use crate::cli::{ADVANCED, BodyArgs, DisplayValueOpt, GlobalFlags, OutputMode};
+use crate::client::{Client, KeysetPlan, Paginator};
 use crate::error::{Error, Result};
 use crate::query::{DeleteQuery, GetQuery, ListQuery, WriteQuery};
+use crate::query::{has_orderby, is_cursor_safe};
 use clap::Subcommand;
 use serde_json::Value;
 use std::io;
@@ -82,6 +84,25 @@ pub struct TableListArgs {
     /// Cap total records returned (default 100000; 0 = unlimited).
     #[arg(long, default_value_t = 100_000)]
     pub max_records: u32,
+    /// With --all, how to walk pages. `keyset` (the default unless the query has its own
+    /// ORDERBY) seeks past the last sys_id seen: no row is skipped or repeated when the table
+    /// changes mid-walk, and no per-page count is run. `offset` follows the Link header, and
+    /// is what a query with ORDERBY gets automatically.
+    #[arg(long, value_enum, requires = "all", help_heading = ADVANCED)]
+    pub paginate: Option<PaginateMode>,
+    /// With --all, continue a keyset walk after this sys_id — the `resume_from` value an
+    /// interrupted run printed in its error. Use the same query and fields as that run.
+    #[arg(long, value_name = "SYS_ID", requires = "all")]
+    pub resume_from: Option<String>,
+}
+
+/// `--paginate` values.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaginateMode {
+    /// `sys_id>last^ORDERBYsys_id` per page.
+    Keyset,
+    /// Follow `Link: rel="next"` (sysparm_offset).
+    Offset,
 }
 
 #[derive(clap::Args, Debug)]
@@ -208,11 +229,18 @@ pub fn list(global: &GlobalFlags, args: TableListArgs) -> Result<()> {
     // token, so a guard placed after it turns an unreachable instance or an
     // IdP outage into exit 3 for what is a fixable typo in the caller's own
     // command line — the usage error (exit 1) never gets a chance to print.
-    if paginate {
+    let mode = if paginate {
         reject_unstreamable_output(global.output, array)?;
-    }
+        Some(choose_mode(&args)?)
+    } else {
+        None
+    };
 
     let client = connect(global)?;
+
+    if mode == Some(PaginateMode::Keyset) {
+        return list_keyset(global, &client, args);
+    }
 
     let q = ListQuery {
         query: args.query,
@@ -235,26 +263,146 @@ pub fn list(global: &GlobalFlags, args: TableListArgs) -> Result<()> {
         } else {
             Some(max_records)
         };
-        let it = client.paginate(&path, &q.to_pairs(), cap);
-
-        if array {
-            let mut out = Vec::new();
-            for r in it {
-                out.push(r?);
-            }
-            write_response(global, &Value::Array(out))?;
-        } else {
-            let mut stdout = io::stdout().lock();
-            for r in it {
-                let v = r?;
-                crate::output::write_jsonl_line(&mut stdout, &v)?;
-            }
-        }
-        return Ok(());
+        return drain(global, client.paginate(&path, &q.to_pairs(), cap), array);
     }
 
     let resp: Value = client.get(&path, &q.to_pairs())?;
     emit(global, resp)
+}
+
+/// Decide `--all`'s strategy from argv alone (so a conflict is exit 1 before
+/// any connection), and refuse the combinations that would silently truncate.
+fn choose_mode(args: &TableListArgs) -> Result<PaginateMode> {
+    let sorted = args.query.as_deref().is_some_and(has_orderby);
+    let mode = match (args.paginate, sorted) {
+        (Some(PaginateMode::Keyset), true) => {
+            return Err(Error::Usage(
+                "--paginate keyset sorts by sys_id, and the query has its own ORDERBY; drop the \
+                 ORDERBY or use --paginate offset"
+                    .into(),
+            ));
+        }
+        (Some(m), _) => m,
+        (None, true) => PaginateMode::Offset,
+        (None, false) => PaginateMode::Keyset,
+    };
+    if mode == PaginateMode::Offset {
+        if args.resume_from.is_some() {
+            return Err(Error::Usage(if sorted {
+                "--resume-from needs a keyset walk, and a query with ORDERBY pages by offset; \
+                 drop the ORDERBY to resume"
+                    .into()
+            } else {
+                "--resume-from needs a keyset walk; drop --paginate offset".into()
+            }));
+        }
+        // Measured: either flag removes the `Link: rel="next"` header an offset
+        // walk follows, so the walk would end after the first page, exit 0.
+        for (set, flag) in [
+            (args.no_count, "--no-count"),
+            (
+                args.suppress_pagination_header,
+                "--suppress-pagination-header",
+            ),
+        ] {
+            if set {
+                return Err(Error::Usage(format!(
+                    "{flag} removes the Link header an offset --all walk follows, so it would \
+                     stop after the first page; drop {flag}"
+                )));
+            }
+        }
+    }
+    if let Some(token) = &args.resume_from
+        && !is_cursor_safe(token)
+    {
+        return Err(Error::Usage(format!(
+            "--resume-from {token:?} is not a sys_id (1-32 letters, digits, '_' or '-')"
+        )));
+    }
+    Ok(mode)
+}
+
+fn list_keyset(global: &GlobalFlags, client: &Client, args: TableListArgs) -> Result<()> {
+    // The cursor advances on each record's sys_id, so it has to be in the
+    // response; add it when `--fields` left it out, and take it back off each
+    // record so the output is still exactly the fields asked for.
+    let (fields, strip_sys_id) = match &args.fields {
+        Some(f) if !f.split(',').any(|x| x.trim() == "sys_id") => {
+            (Some(format!("{f},sys_id")), true)
+        }
+        other => (other.clone(), false),
+    };
+    let common = ListQuery {
+        display_value: args.display_value.display_value.map(Into::into),
+        exclude_reference_link: bool_opt(args.exclude_reference_link),
+        view: args.view.clone(),
+        query_category: args.query_category.clone(),
+        query_no_domain: bool_opt(args.query_no_domain),
+        ..Default::default()
+    };
+    let pairs = ListQuery {
+        fields,
+        ..common.clone()
+    }
+    .to_pairs();
+    // What an offset walk would have sent, for a table with no sys_id to seek
+    // on (a database view): same filter and fields, no keyset flags.
+    let fallback = args.resume_from.is_none().then(|| {
+        ListQuery {
+            query: args.query.clone(),
+            fields: args.fields.clone(),
+            page_size: Some(args.setlimit),
+            ..common
+        }
+        .to_pairs()
+    });
+    let plan = KeysetPlan {
+        query: args.query,
+        page_size: args.setlimit,
+        pairs,
+        resume_from: args.resume_from,
+        strip_sys_id,
+        fallback,
+    };
+    let cap = (args.max_records != 0).then_some(args.max_records);
+    let path = format!("/api/now/table/{}", args.table);
+    drain(global, client.paginate_keyset(&path, plan, cap), args.array)
+}
+
+/// Write a paginated walk: JSONL a record at a time, or one buffered array.
+///
+/// A fetch that fails part-way through a JSONL keyset walk is wrapped in
+/// [`Error::Interrupted`], naming the sys_id to resume after — every record up
+/// to it is already on stdout. `--array` writes nothing until the walk ends, so
+/// its failures are not resumable and are returned as they are. Neither is an
+/// [`Error::Instance`]: that is the walk's dropped-cursor canary, which a resume
+/// would only trip again.
+fn drain(global: &GlobalFlags, mut it: Paginator<'_>, array: bool) -> Result<()> {
+    if array {
+        let mut out = Vec::new();
+        for r in it.by_ref() {
+            out.push(r?);
+        }
+        return write_response(global, &Value::Array(out));
+    }
+    let mut stdout = io::stdout().lock();
+    while let Some(r) = it.next() {
+        let v = match r {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(match it.resume_token() {
+                    Some(token) if !matches!(e, Error::Instance { .. }) => Error::Interrupted {
+                        source: Box::new(e),
+                        resume_from: token.to_string(),
+                    },
+                    _ => e,
+                });
+            }
+        };
+        crate::output::write_jsonl_line(&mut stdout, &v)?;
+    }
+    Ok(())
 }
 
 /// Refuse the `--output` modes that `--all` cannot honor, instead of accepting

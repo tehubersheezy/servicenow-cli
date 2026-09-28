@@ -67,7 +67,8 @@ that all of stderr is one JSON document. A typical error is:
 
 `sn_error` contains the instance's error payload when available. It is usually
 absent for transport or CLI errors; check `.error.message` first. `transaction_id` is SN's correlation id,
-useful for support requests.
+useful for support requests. `resume_from` appears only on a
+`table list --all` stream that failed part-way (see [Pagination](#pagination--bulk-processing)).
 
 **Every key but `message` may be absent**, and `status_code` in particular. Two
 examples that omit it because no HTTP status describes the failure are: a CICD
@@ -497,9 +498,9 @@ has no such flag — an event's `record` already carries each field as a
 
 ### Pagination & bulk processing
 
-On `sn table list`, `--all` follows `Link: rel="next"` headers and streams matches
-as JSONL, one object per line. It stops at `--max-records` (100,000 by default;
-`0` removes the cap). Other command groups do not support `--all`:
+On `sn table list`, `--all` streams every match as JSONL, one object per line,
+walking by `sys_id` (keyset) by default. It stops at `--max-records` (100,000 by
+default; `0` removes the cap). Other command groups do not support `--all`:
 
 ```bash
 sn table list incident --query "active=true" --all
@@ -511,6 +512,26 @@ sn table list incident --query "active=true" --all --setlimit 5000    # larger p
 `--setlimit` is the per-API-call batch size under `--all`; `--offset` is ignored
 in `--all` mode. Don't compute offsets by hand. For a single manual page, use
 `--setlimit`+`--offset` without `--all`.
+
+**How `--all` pages.** By default it is a keyset walk. Each page asks for "rows
+after the last `sys_id` seen, sorted by `sys_id`", with no per-page count. Rows
+that exist for the whole walk each appear exactly once, even while the table
+changes. Output is therefore in `sys_id` order. A query with its own `ORDERBY`
+keeps its sort and pages by offset (the `Link` header) instead; so does
+`--paginate offset`. A table with no plain `sys_id` to seek on, such as a
+database view, switches to offset by itself. `^OR` and `^NQ` queries both work
+under keyset.
+
+**Resuming.** If a keyset stream fails part-way, stdout holds every record up to
+the failure and the error names where to continue:
+
+```json
+{"error":{"message":"…","status_code":503,"resume_from":"8b031135474321009db4b5b08b9a7152"}}
+```
+
+Rerun the same command with `--resume-from <that sys_id>` and append. The rest
+of the walk arrives with no gap and no overlap. `--array` writes nothing until
+the end, so its failures carry no `resume_from`.
 
 **`--all` refuses `--output raw` and `--output table`** (exit 1, before any
 request goes out). Both were accepted and ignored in earlier releases, which is
@@ -740,6 +761,7 @@ support subsets, so check their `--help` instead of assuming every flag applies.
 | `--no-count` / `--suppress-pagination-header` | `sysparm_no_count` / `sysparm_suppress_pagination_header` | list | Skip count query (faster on big tables) |
 | `--suppress-auto-sys-field` | `sysparm_suppress_auto_sys_field` | create/update | Skip system-field auto-gen |
 | `--all` / `--array` / `--max-records <N>` | (CLI only) | table list only | Auto-paginate / array output / cap |
+| `--paginate keyset\|offset` / `--resume-from <sys_id>` | (CLI only) | `table list --all` | Walk strategy (keyset by default) / continue an interrupted keyset stream |
 | `--query-category <cat>` | `sysparm_query_category` | list | Index selection |
 | `--output`, `--profile`, `-d`/`-dd`/`-ddd` | (CLI only) | all | See relevant sections |
 | `--yes` / `-y` | (CLI only) | **destructive subcommands only** — not global | Skip the confirmation; required on a non-TTY. Every `delete`, plus `change conflict remove`, `catalog cart-remove`/`cart-empty`, `updateset back-out`, `app rollback`, `profile remove` |

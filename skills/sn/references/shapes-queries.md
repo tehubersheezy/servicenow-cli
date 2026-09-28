@@ -10,9 +10,10 @@ This produces wrong results rather than errors:
 - A trailing `^` term after `^NQ` applies **only to the last segment**.
 
 So `active=true^ORstate=2^priority=1` filters everything by `priority=1`, while
-`active=true^NQstate=2^priority=1` leaves the first segment unfiltered. If you use `^NQ` for
-keyset iteration, that unfiltered segment can return the same rows forever. Prefer `^OR`, and
-verify with a count.
+`active=true^NQstate=2^priority=1` leaves the first segment unfiltered. Prefer `^OR`, and
+verify with a count. Don't hand-roll a `sys_id>` paging loop: a cursor appended to an `^NQ`
+query never constrains the earlier segments and returns the same rows forever. `--all` already
+pages by `sys_id` and puts its cursor into every segment.
 
 ## Dot-walking is the usual reason a term vanishes
 
