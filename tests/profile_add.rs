@@ -560,6 +560,98 @@ fn add_oauth_authorization_code_saves_unverified_with_no_verify() {
     assert_eq!(p.oauth.as_ref().unwrap().client_id, "cid");
 }
 
+#[test]
+fn add_oauth_without_client_id_defaults_to_the_sdk_client_and_warns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = sn_cmd(tmp.path())
+        .args([
+            "profile",
+            "add",
+            "sso",
+            "--instance",
+            "https://example.invalid",
+            "--auth",
+            "oauth",
+            "--no-verify",
+        ])
+        .assert()
+        .success();
+    let v: Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    // A borrowed client must say so, and say what to do instead.
+    let warning = v["warning"].as_str().unwrap();
+    assert!(warning.contains("now-sdk"), "warning was: {warning}");
+    assert!(warning.contains("--client-id"), "warning was: {warning}");
+
+    let o = load_config(tmp.path()).profiles["sso"]
+        .oauth
+        .clone()
+        .unwrap();
+    assert_eq!(o.client_id, sn::config::SDK_OAUTH_CLIENT_ID);
+
+    // The SDK client is registered for its own instance-hosted redirect only;
+    // the loopback default would be rejected by the instance.
+    let (v, _) = {
+        let out = sn_cmd(tmp.path())
+            .args(["profile", "show", "sso"])
+            .assert()
+            .success();
+        let text = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        (serde_json::from_str::<Value>(&text).unwrap(), text)
+    };
+    assert_eq!(v["redirect_uri"], sn::config::SDK_OAUTH_REDIRECT_PATH);
+}
+
+#[test]
+fn add_oauth_with_own_client_id_carries_no_warning() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = sn_cmd(tmp.path())
+        .args([
+            "profile",
+            "add",
+            "sso",
+            "--instance",
+            "https://example.invalid",
+            "--auth",
+            "oauth",
+            "--client-id",
+            "cid",
+            "--no-verify",
+        ])
+        .assert()
+        .success();
+    let v: Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    assert!(v.get("warning").is_none(), "unexpected warning: {v}");
+}
+
+#[test]
+fn add_oauth_client_credentials_still_requires_a_client_id() {
+    // The SDK client is public — it has no secret — so it cannot stand in for
+    // a client_credentials client.
+    let tmp = tempfile::tempdir().unwrap();
+    let out = sn_cmd(tmp.path())
+        .args([
+            "profile",
+            "add",
+            "svc",
+            "--instance",
+            "https://example.invalid",
+            "--auth",
+            "oauth",
+            "--grant",
+            "client_credentials",
+            "--client-secret",
+            "s",
+            "--no-verify",
+        ])
+        .assert()
+        .code(1);
+    let msg = stderr_envelope(&out)["error"]["message"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(msg.contains("--client-id"), "message was: {msg}");
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn add_oauth_client_credentials_mints_a_token_headlessly() {
     let server = wiremock::MockServer::start().await;

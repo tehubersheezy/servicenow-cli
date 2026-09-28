@@ -99,8 +99,8 @@ fn is_true(b: &bool) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OAuthConfig {
     pub client_id: String,
-    /// Loopback redirect registered in ServiceNow's Application Registry.
-    /// Defaults to `http://localhost:8400/callback`.
+    /// Redirect registered in ServiceNow's Application Registry. Defaults to
+    /// `/sdk-oauth.do` for the SDK client, else `http://localhost:8400/callback`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redirect_uri: Option<String>,
     /// Authorization endpoint path. Defaults to `/oauth_auth.do`.
@@ -153,6 +153,30 @@ pub fn now_unix() -> u64 {
 /// Default loopback redirect URI for the authorization-code flow.
 pub fn default_redirect_uri() -> String {
     "http://localhost:8400/callback".to_string()
+}
+
+/// The ServiceNow SDK's public OAuth client — the `oauth_entity` named
+/// "ServiceNow SDK" that `now-sdk auth --type oauth` logs in through
+/// (`DEFAULT_SDK_OAUTH_APP_CLIENT_ID` in `@servicenow/sdk-cli`). It is the
+/// default `client_id` for authorization-code profiles, so SSO login works
+/// without registering an Application Registry entry first.
+pub const SDK_OAUTH_CLIENT_ID: &str = "543e5655f77746a28228c6009a599dfb";
+
+/// The only redirect the SDK client is registered with. It is a path on the
+/// instance itself, which renders the authorization code for the user to paste
+/// back — there is no loopback listener on this path (see
+/// `oauth::is_instance_redirect`).
+pub const SDK_OAUTH_REDIRECT_PATH: &str = "/sdk-oauth.do";
+
+/// Default redirect for a client: the SDK client's own registered path, else
+/// the loopback. Keyed on the client so a profile written without an explicit
+/// `redirect_uri` resolves to one its client can actually accept.
+pub fn default_redirect_uri_for(client_id: &str) -> String {
+    if client_id == SDK_OAUTH_CLIENT_ID {
+        SDK_OAUTH_REDIRECT_PATH.to_string()
+    } else {
+        default_redirect_uri()
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -931,7 +955,7 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
                 redirect_uri: cfg
                     .redirect_uri
                     .clone()
-                    .unwrap_or_else(default_redirect_uri),
+                    .unwrap_or_else(|| default_redirect_uri_for(&cfg.client_id)),
                 auth_path: cfg
                     .auth_path
                     .clone()

@@ -2,9 +2,9 @@ use crate::cli::GlobalFlags;
 use crate::cli::auth::{complete_oauth_login, whoami};
 use crate::cli::kernel::{build_client, build_profile, confirm_destructive, write_response};
 use crate::config::{
-    self, AuthMethod, OAuthConfig, OAuthGrant, ProfileConfig, ProfileCredentials, config_path,
-    credentials_path, default_redirect_uri, load_config_from, load_credentials_from,
-    resolve_profile_name, save_config_to, save_credentials_to,
+    self, AuthMethod, OAuthConfig, OAuthGrant, ProfileConfig, ProfileCredentials,
+    SDK_OAUTH_CLIENT_ID, config_path, credentials_path, default_redirect_uri_for, load_config_from,
+    load_credentials_from, resolve_profile_name, save_config_to, save_credentials_to,
 };
 use crate::error::{Error, Result};
 use clap::Subcommand;
@@ -75,7 +75,9 @@ pub struct ProfileAddArgs {
     /// Read the REST API key from stdin (apikey auth only).
     #[arg(long, conflicts_with_all = ["password_stdin", "client_secret_stdin"])]
     pub api_key_stdin: bool,
-    /// OAuth client_id (oauth only).
+    /// OAuth client_id (oauth only). Defaults, for authorization_code, to the
+    /// ServiceNow SDK's (now-sdk) public client 543e5655f77746a28228c6009a599dfb;
+    /// registering your own OAuth client is highly advised.
     #[arg(long)]
     pub client_id: Option<String>,
     /// OAuth client secret (oauth confidential clients). Visible in `ps` output
@@ -85,7 +87,8 @@ pub struct ProfileAddArgs {
     /// Read the OAuth client secret from stdin.
     #[arg(long)]
     pub client_secret_stdin: bool,
-    /// OAuth loopback redirect URI (oauth only). Defaults to http://localhost:8400/callback.
+    /// OAuth redirect URI (oauth only). Defaults to /sdk-oauth.do for the SDK
+    /// client (paste the code back), else http://localhost:8400/callback.
     #[arg(long, value_name = "URL")]
     pub redirect_uri: Option<String>,
     /// OAuth grant: authorization_code (SSO, default) or client_credentials.
@@ -181,6 +184,19 @@ impl Caller {
             Caller::ProfileAdd => "--api-key (or --api-key-stdin)",
         }
     }
+}
+
+/// Reported whenever a profile ends up on the now-sdk's client_id, which is
+/// borrowed rather than registered for `sn`: an instance admin can deactivate or
+/// re-scope it for the SDK's sake, and its logins are indistinguishable from
+/// now-sdk's in the instance's OAuth audit trail.
+pub(crate) const SDK_CLIENT_ADVISORY: &str = "this profile uses the ServiceNow SDK (now-sdk) \
+     OAuth client_id; it is highly advised to register your own OAuth client in the \
+     Application Registry and pass it with --client-id";
+
+/// Whether a resolved profile input is on the borrowed now-sdk client.
+pub(crate) fn uses_sdk_client(input: &ProfileInput) -> bool {
+    matches!(input.auth, AuthMethod::Oauth) && input.client_id == SDK_OAUTH_CLIENT_ID
 }
 
 /// One profile's worth of settings, with every prompt and flag already resolved.
@@ -354,20 +370,30 @@ pub(crate) fn resolve_input(
             }
         }
         AuthMethod::Oauth => {
+            input.grant = args.grant.unwrap_or_default();
+            // The browser flow defaults to the ServiceNow SDK's public client,
+            // so SSO works with no Application Registry entry. It has no secret,
+            // so client_credentials still needs the caller's own client.
+            let default_client = match input.grant {
+                OAuthGrant::AuthorizationCode => Some(SDK_OAUTH_CLIENT_ID.to_string()),
+                OAuthGrant::ClientCredentials => None,
+            };
             input.client_id = match &args.client_id {
                 Some(v) => v.clone(),
-                None => ask(
-                    interactive,
-                    "OAuth client_id: ",
-                    None,
-                    "--client-id",
-                    caller,
-                )?,
+                None => {
+                    let prompt = match &default_client {
+                        Some(d) => format!(
+                            "OAuth client_id — Enter uses the now-sdk's client; \
+                             registering your own is highly advised [{d}]: "
+                        ),
+                        None => "OAuth client_id: ".to_string(),
+                    };
+                    ask(interactive, &prompt, default_client, "--client-id", caller)?
+                }
             };
             if input.client_id.trim().is_empty() {
                 return Err(Error::Usage("client_id is required for oauth".into()));
             }
-            input.grant = args.grant.unwrap_or_default();
 
             // authorization_code registers a PUBLIC client (PKCE, no secret), so
             // never prompt for a secret on that path — pass --client-secret
@@ -397,14 +423,14 @@ pub(crate) fn resolve_input(
                 (None, false, OAuthGrant::AuthorizationCode, _) => None,
             };
 
-            // The loopback redirect only exists in the browser flow; don't ask
-            // for one under client_credentials. Left unset, `resolve_profile`
-            // applies `default_redirect_uri()`.
+            // The redirect only exists in the browser flow; don't ask for one
+            // under client_credentials. Left unset, `resolve_profile` applies
+            // `default_redirect_uri_for(client_id)`.
             input.redirect_uri = match (&args.redirect_uri, input.grant) {
                 (Some(u), _) => Some(u.clone()),
                 (None, OAuthGrant::ClientCredentials) => None,
                 (None, OAuthGrant::AuthorizationCode) if interactive => {
-                    let d = default_redirect_uri();
+                    let d = default_redirect_uri_for(&input.client_id);
                     Some(ask(
                         true,
                         &format!("Redirect URI [{d}]: "),
@@ -802,6 +828,9 @@ fn add(global: &GlobalFlags, args: ProfileAddArgs) -> Result<()> {
     if let Some(u) = user {
         out["user"] = json!(u);
     }
+    if uses_sdk_client(&input) {
+        out["warning"] = json!(SDK_CLIENT_ADVISORY);
+    }
 
     // `add` doesn't touch the default profile, so say when nothing is selected —
     // otherwise the very next command fails with "no profile selected". A pending
@@ -865,8 +894,11 @@ fn show(global: &GlobalFlags, name: Option<String>) -> Result<()> {
             if let Some(o) = &p.oauth {
                 out["client_id"] = json!(o.client_id);
                 out["grant"] = json!(o.grant.as_str());
-                out["redirect_uri"] =
-                    json!(o.redirect_uri.clone().unwrap_or_else(default_redirect_uri));
+                out["redirect_uri"] = json!(
+                    o.redirect_uri
+                        .clone()
+                        .unwrap_or_else(|| default_redirect_uri_for(&o.client_id))
+                );
                 out["pkce"] = json!(o.pkce);
             }
             let tokens = cred.and_then(|c| c.oauth_tokens.as_ref());

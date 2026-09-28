@@ -1,6 +1,7 @@
 use crate::cli::GlobalFlags;
 use crate::cli::profile::{
-    Caller, ProfileAddArgs, SavePolicy, resolve_input, resolve_name, save_and_verify,
+    Caller, ProfileAddArgs, SDK_CLIENT_ADVISORY, SavePolicy, resolve_input, resolve_name,
+    save_and_verify, uses_sdk_client,
 };
 use crate::config::{AuthMethod, OAuthGrant};
 use crate::error::Result;
@@ -29,13 +30,16 @@ pub struct InitArgs {
     /// history.
     #[arg(long)]
     pub api_key: Option<String>,
-    /// OAuth client_id (oauth only).
+    /// OAuth client_id (oauth only). Defaults, for authorization_code, to the
+    /// ServiceNow SDK's (now-sdk) public client 543e5655f77746a28228c6009a599dfb;
+    /// registering your own OAuth client is highly advised.
     #[arg(long)]
     pub client_id: Option<String>,
     /// OAuth client secret (oauth confidential clients).
     #[arg(long)]
     pub client_secret: Option<String>,
-    /// OAuth loopback redirect URI (oauth only). Defaults to http://localhost:8400/callback.
+    /// OAuth redirect URI (oauth only). Defaults to /sdk-oauth.do for the SDK
+    /// client (paste the code back), else http://localhost:8400/callback.
     #[arg(long, value_name = "URL")]
     pub redirect_uri: Option<String>,
     /// OAuth grant: authorization_code (SSO, default) or client_credentials.
@@ -109,5 +113,8 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
         }
     }
     eprintln!("'{name}' is now the default profile.");
+    if uses_sdk_client(&input) {
+        eprintln!("warning: {SDK_CLIENT_ADVISORY}.");
+    }
     Ok(())
 }
