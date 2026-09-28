@@ -1092,6 +1092,7 @@ sn ping                                  # health check (auth + latency + identi
 sn user me                               # the caller's own sys_user record, read by sys_id
 sn api list|search|spec                  # which REST APIs this instance publishes; see Finding an API
 sn open incident a1b2c3 [--print-url]    # open the record's form in a browser; --print-url prints the URL instead
+sn open incident -q "active=true"        # open the (filtered) list view; -q is refused with a record
 sn raw GET /api/now/table/incident --query sysparm_limit=5      # REST passthrough for unmodeled endpoints
 sn raw POST /api/now/table/incident --data '{"short_description":"via raw"}'
 sn raw GET /api/now/table/incident -H 'X-no-response-body: true'   # repeatable request headers
@@ -1225,7 +1226,7 @@ add tehubersheezy/servicenow-cli`, or a local clone path), then
 sn init [--profile NAME]                          sn ping [--profile NAME]
 sn profile add NAME --instance X --username Y --password-stdin [--force|--no-verify|--set-default]
 sn profile list|show NAME|use NAME|remove NAME|login|logout|status|refresh
-sn user me     sn open TABLE [SYS_ID] [--print-url]     sn completion SHELL
+sn user me     sn open TABLE [SYS_ID | -q QUERY] [--print-url]     sn completion SHELL
 
 # Record references: everywhere below that takes TABLE SYS_ID (or CLASS SYS_ID),
 # one token `table:sys_id` / `table:number` works instead; a number costs one

@@ -78,7 +78,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
 | [`sn raw`](docs/usage.md#raw-rest-passthrough) | Call REST endpoints directly |
-| [`sn ping` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection or open a record in your browser |
+| [`sn ping` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection or open a record or list view in your browser |
 
 ## Using it in scripts
 

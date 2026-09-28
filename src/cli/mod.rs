@@ -455,7 +455,7 @@ pub enum Command {
     },
     /// Health check the configured instance (auth + latency + build version).
     Ping,
-    /// Open a record in the ServiceNow web UI (`sn open <table> <sys_id>`).
+    /// Open a record form or a list view in the web UI (`sn open <table> [<sys_id> | -q <query>]`).
     Open(OpenArgs),
     /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).
     Raw(RawArgs),
