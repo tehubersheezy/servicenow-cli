@@ -66,6 +66,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn aggregate`](docs/usage.md#aggregate-queries) | Get counts, sums, and averages without downloading every record |
 | [`sn graphql`](docs/usage.md#graphql) | Run GraphQL queries and mutations |
 | [`sn gr`](docs/usage.md#dot-walked-reads-sn-gr) | Read fields from related records using dot-walked references |
+| [`sn playbook`](docs/usage.md#playbooks) | List, trigger, and launch playbook executions on a record |
 | [`sn change`](docs/usage.md#change-management) | Manage change requests, tasks, affected CIs, conflicts, and approvals |
 | [`sn attachment`](docs/usage.md#attachments) | Upload and download record attachments |
 | [`sn cmdb`](docs/usage.md#cmdb) | Manage configuration items and their relationships; inspect class schemas |

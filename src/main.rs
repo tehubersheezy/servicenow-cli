@@ -2,8 +2,8 @@ use clap::error::ErrorKind;
 use is_terminal::IsTerminal;
 use sn::cli::{
     ApiSub, AppSub, AtfSub, AttachmentSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
-    ContextSub, IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub, UserSub,
-    VariablesSub,
+    ContextSub, IdentifySub, ImportSub, PlaybookSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub,
+    UserSub, VariablesSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -191,6 +191,11 @@ fn run(cli: Cli) -> Result<()> {
                 sn::cli::identify::create_update_enhanced(&global, args)
             }
             IdentifySub::QueryEnhanced(args) => sn::cli::identify::query_enhanced(&global, args),
+        },
+        Command::Playbook { sub } => match sub {
+            PlaybookSub::List(args) => sn::cli::playbook::list(&global, args),
+            PlaybookSub::Trigger(args) => sn::cli::playbook::trigger(&global, args),
+            PlaybookSub::Launch(args) => sn::cli::playbook::launch(&global, args),
         },
         Command::User { sub } => match sub {
             UserSub::Me => sn::cli::user::me(&global),
