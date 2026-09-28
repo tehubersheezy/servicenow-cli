@@ -375,6 +375,35 @@ combined with `--fields`. Reads default to 100 records; use `--limit` and `--off
 to page manually. `sn gr` has no `--all` flag. On GraphQL errors it exits 2 without
 emitting partial records; use `sn graphql` when you need the partial response data.
 
+## Playbooks
+
+`sn playbook` drives the workspace Playbook panel's own API (the `snPlaybookExp` GraphQL
+schema, shipped with the Playbook Experience application). Records take the usual
+`table sys_id` pair or a `table:sys_id` / `table:number` reference.
+
+```bash
+sn playbook list incident:INC0010001        # [{sys_id, title, scoped_name, playbook_id, state: {value, displayValue}, …}]
+sn playbook trigger incident:INC0010001 --scoped-name sn_app.my_playbook
+sn playbook trigger incident:INC0010001 --scoped-name sn_app.my_playbook --only-if-none
+sn playbook launch <process_definition_sys_id> --record <sys_id> --input priority=high --input note="a&b"
+```
+
+`trigger` prints `{"triggered": true, "sys_id": "<execution>", …}`. With `--only-if-none`
+it starts nothing — and prints `"triggered": false`, exit 0 — when the record already has
+*any* playbook execution, of any playbook and in any state (a cancelled one counts), so a
+retry never stacks a second run. `launch` prints `{"launched": true, …}`; its `--input`
+pairs are encoded for the instance's query-string parser, so `&`, `=` and `%` in values are
+safe. `list` shows each execution's `playbook_id`, the process definition sys_id `launch`
+takes.
+
+Failures the API reports as typed errors (`PARENT_TABLE_NOT_VALID`,
+`PARENT_RECORD_NOT_FOUND`, `PROCESS_DEFINITION_ID_NOT_VALID`, `INSUFFICIENT_PERMISSIONS`,
+`TRIGGER_PLAYBOOK_FAILED`, `LAUNCH_PLAYBOOK_FAILED`) exit 2 with the error object in
+`sn_error` — branch on `sn_error.errorType`. A record the profile cannot read and one that
+does not exist are the same answer to `list` (exit 2, "or not readable by this profile").
+An instance without the application exits 2 naming it. The API does not check that a
+playbook was built for the record's table.
+
 ## Change Management
 
 Normal, emergency, and standard change requests across their lifecycle:

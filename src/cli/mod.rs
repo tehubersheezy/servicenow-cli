@@ -25,6 +25,7 @@ pub mod journal;
 pub(crate) mod kernel;
 pub mod open_record;
 pub mod ping;
+pub mod playbook;
 pub mod profile;
 pub mod progress;
 pub mod raw;
@@ -77,6 +78,7 @@ pub use import::{ImportBulkArgs, ImportCreateArgs, ImportGetArgs, ImportSub};
 pub use init::InitArgs;
 pub use journal::{JournalArgs, JournalSource};
 pub use open_record::OpenArgs;
+pub use playbook::{PlaybookLaunchArgs, PlaybookListArgs, PlaybookSub, PlaybookTriggerArgs};
 pub use profile::{ProfileAddArgs, ProfileSub};
 pub use progress::ProgressArgs;
 pub use raw::RawArgs;
@@ -480,6 +482,11 @@ pub enum Command {
     Decision {
         #[command(subcommand)]
         sub: DecisionSub,
+    },
+    /// Playbook executions on a record: list, trigger by scoped name, launch by definition.
+    Playbook {
+        #[command(subcommand)]
+        sub: PlaybookSub,
     },
     /// Identification and Reconciliation (CI create/update/query).
     Identify {
