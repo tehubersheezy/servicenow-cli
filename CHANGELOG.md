@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.14.0 (unreleased)
+
+This release brings Flow Designer troubleshooting, code search, and background scripts to the terminal, along with more login options and resumable record exports.
+
+### New commands
+
+- **`sn flow`** — browse flows, inspect their steps and version history, and investigate executions with logs, live updates, and checks for why a flow did not run.
+- **`sn codesearch`** — search scripts and code across your instance, with filters for a table or application scope.
+- **`sn script run`** — run server-side JavaScript from a file, stdin, or the command line and get its output and errors as JSON. Supports application scopes and recording changes for rollback.
+- **`sn impersonate`** — run one command as another user to investigate what their permissions allow.
+- **`sn doctor`** — check your connection, identity, and required roles, plugins, or properties before starting a job.
+- **`sn decision` / `sn playbook`** — inspect and evaluate decision tables, or list and start playbook executions. Playbook `launch` has not yet been verified successfully on a live instance.
+- **`sn cache`** — save table and column names locally for offline lookups and optional shell completion with `sn completion <shell> --dynamic`.
+- **More ways to sign in:** use JWT-based OAuth or tokens supplied by another tool. Browser login can use the ServiceNow SDK's client when available; your own OAuth client is still recommended.
+- **Resumable exports:** interrupted `sn table list --all` JSONL exports can return a `resume_from` value to continue with `--resume-from`.
+- **Everyday shortcuts:** `sn open <table>` opens a list view, `sn get` looks up custom record-number prefixes when permitted, and profile output shows stored proxy and TLS settings.
+
+### Breaking
+
+- `sn table list --all` now exports in `sys_id` order. Add an `ORDERBY` query clause or use `--paginate offset` if you need offset pagination.
+- Offset exports with `--all` reject `--no-count` and `--suppress-pagination-header`; remove those flags or use the default pagination.
+- A bulk-export response missing its record array now exits 3 instead of ending successfully. Error objects may also include `resume_from`.
+- `sn profile add --force` resets stored proxy and TLS options to the flags supplied. Repeat any proxy or certificate options you want to keep; omitting `--insecure` restores verification unless it is enabled elsewhere.
+- Replacing an OAuth profile clears its cached tokens. For browser-based OAuth, run `sn profile login` again.
+- A bare-number `sn get` lookup can now report the record's child table in its `table` field. Use `table:number` to keep the table explicit.
+
+### Fixed
+
+- Bulk exports continue past pages emptied by record permissions and use pagination that avoids shifts caused by inserting or deleting earlier rows.
+
+### Security
+
+- Diagnostic output masks `X-UserToken` headers and passwords embedded in proxy URLs.
+
+See the [release guide](https://github.com/tehubersheezy/servicenow-cli/blob/v0.14.0/docs/releases/0.14.0.md) for examples, requirements, and limitations.
+
 ## 0.13.2 (2026-08-31)
 
 ### Added
