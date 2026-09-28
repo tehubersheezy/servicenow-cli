@@ -249,6 +249,53 @@ ACLs filter them all, the error says so and points back at `--source record`. Ad
 entry needs no dedicated command: `sn table update incident <sys_id> --field
 work_notes="..."` writes one.
 
+## Debugging flows
+
+The execution side of Flow Designer, read from the flow engine's own tables
+(`sys_flow_context`, `sys_flow_report`, `sys_flow_log`) instead of clicking through
+execution details. A flow is named by sys_id, display name or internal name; an
+execution by its `sys_flow_context` sys_id, which `runs` lists.
+
+```bash
+sn flow runs "Change - Normal - Assess" --errors --since 24h    # executions, newest first
+sn flow runs --record incident:INC0010001                       # what ran for this record?
+sn flow debug <context_sys_id>      # context + first failed step (with values) + log tail + notes
+sn flow steps <context_sys_id> --failed --values                # per-step timeline
+sn flow logs <context_sys_id> --level warn                      # engine log lines
+sn flow why-not "Delegate Roles in Group" --record change_request:CHG0030421
+sn flow tail "Change - Normal - Assess" --errors --duration 600 # live, JSONL
+```
+
+Output uses raw values (`ERROR`, not `Error`) and UTC timestamps, so a value can be fed
+straight back into a query.
+
+**Steps exist only when the run was reported.** Per-step rows are written only when
+the system property `com.snc.process_flow.reporting.level` is `BASIC` (states and
+timings) or `FULL` (adds input/output values) at the time the flow runs, and it ships
+as `OFF`. `steps` on an unreported run is an error that says so, and `debug` carries
+the same explanation in its `notes` — an empty step list would read as "nothing ran".
+Newer releases may not use `sys_flow_report` even then: on an Australia instance a run
+recorded at `FULL` left it empty and wrote its values to `sys_flow_report_value`, which
+REST cannot read even as admin. For such a run the message points at the UI
+(`sn open sys_flow_context <sys_id>`) instead of at the property.
+Log lines at error level are shown by `debug` even when the run ended `COMPLETE`: a
+script step that catches and logs its own failure leaves exactly that shape.
+
+**`why-not`** reads the flow's published runtime trigger (`sys_hub_flow.remote_trigger_id`
+→ `sys_flow_record_trigger`: table, condition, insert/update/delete, active) and
+checks, in order: the flow is active and published, the trigger is active, the record
+is in the trigger's table (or an extension of it, when the trigger runs on extended
+tables), and the condition matches — clause by clause, so the output names the clause
+that fails. It also lists any runs the flow *did* have for the record. Its limits are
+reported, not hidden: change operators (`CHANGESTO`, `VALCHANGES`, `CHANGESFROM`) test
+the triggering write and cannot be evaluated against stored values; the condition is
+checked against the record as it is now, not as it was at the write; and a clause that
+matches every row of the table is flagged, because ServiceNow silently drops a query
+term it cannot parse.
+
+All of these tables are row-ACL protected: a profile without `flow_operator`/`admin`
+sees no executions (and a 404 for one read by sys_id).
+
 ## Aggregate queries
 
 Server-side statistics, without fetching individual records:

@@ -120,6 +120,7 @@ fn run(cli: Cli) -> Result<()> {
             Some(ContextSub::Scope(args)) => sn::cli::context::set_scope(&global, args),
             Some(ContextSub::Updateset(args)) => sn::cli::context::set_updateset(&global, args),
         },
+        Command::Flow { sub } => sn::cli::flow::run(&global, sub),
         Command::Atf { sub } => match sub {
             AtfSub::Run(args) => sn::cli::atf::run(&global, args),
             AtfSub::Results(args) => sn::cli::atf::results(&global, args),

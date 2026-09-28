@@ -1256,6 +1256,10 @@ sn table TABLE [SYS_ID]                                       # verb optional: =
 sn journal TABLE [SYS_ID] [--comments|--work-notes] [--limit N] [--raw] [--source record|table]
 sn variables get TABLE [SYS_ID]                     sn variables set TABLE [SYS_ID] (--data JSON|@FILE|@- | --field K=V ...)
 
+sn flow runs [FLOW] [--record REF] [--errors|--state S] [--since 24h] [--setlimit N]   # FLOW = sys_id|name|internal_name
+sn flow debug CTX [--log-lines N]    sn flow steps CTX [--failed] [--values]    sn flow logs CTX [--level debug|info|warn|error]
+sn flow why-not FLOW --record TABLE:ID              sn flow tail FLOW [--errors] [--max-events N] [--duration S] [--idle-timeout S]
+
 sn change list [--type normal|emergency|standard] [shared list flags]
 sn change get|update|delete SYS_ID [--type ...] [--yes]     sn change create [--type ...] [--template ID] (--data|--field)
 sn change nextstates|schedule SYS_ID                sn change approvals|risk SYS_ID (--data|--field)
