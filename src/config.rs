@@ -672,7 +672,7 @@ fn new_temp_file(dir: &Path) -> Result<tempfile::NamedTempFile> {
 ///
 /// The replacement carries the temp file's 0600 mode onto the destination, which
 /// also repairs a `credentials.toml` left 0644 by an older release.
-fn write_atomic(path: &Path, contents: &str) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, contents: &str) -> Result<()> {
     let dir = lock_dir_of(path);
     fs::create_dir_all(dir).map_err(|e| Error::Config(format!("mkdir {}: {e}", dir.display())))?;
     let mut tmp = new_temp_file(dir)?;

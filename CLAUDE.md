@@ -27,7 +27,7 @@ Integration tests use `wiremock` to mock ServiceNow and `assert_cmd` to drive th
 ```
 src/
   main.rs           → parse Cli, set verbosity, dispatch, map Error → ExitCode
-  lib.rs            → pub mod {amb, body, cli, client, config, error, oauth, observability, output, output_table, query} — register new modules here
+  lib.rs            → pub mod {amb, body, cli, client, config, error, oauth, observability, output, output_table, query, schema_cache} — register new modules here
   amb.rs            → AMB/Bayeux websocket client (record watchers): channel encoding, handshake, long-poll, TLS
   error.rs          → Error enum (7 variants: Usage/Config/Api/Auth/Transport/BrokenPipe/Instance), NO_HTTP_STATUS, exit_code(), to_stderr_json()
   output.rs         → write_value (batched JSON), write_jsonl_line (one record, flushed), emit_value/emit_error (raw writers)
@@ -37,6 +37,7 @@ src/
   oauth.rs          → OAuth 2.0 for SSO: PKCE, loopback redirect server, token exchange (authorization_code/refresh/client_credentials), ensure_access_token()
   query.rs          → ListQuery/GetQuery/WriteQuery/DeleteQuery → Vec<(String,String)>
   body.rs           → --data / --field parsing into serde_json::Value
+  schema_cache.rs   → the offline schema index (tables, parents, own columns; inherited columns resolved at lookup): per-instance path under config_dir, atomic 0600 load/save, and the sharded Aggregate-API build behind `sn cache refresh`
   observability.rs  → global AtomicU8 verbosity, log helpers (set_level called in main; log_request/response/body wired into client.rs)
   cli/
     mod.rs          → Cli struct, GlobalFlags, all Subcommand enums + arg structs
@@ -48,6 +49,7 @@ src/
     table.rs        → sn table list/get/create/update/delete
     watch.rs        → sn watch <table> (live record watcher; streams JSONL)
     schema.rs       → sn schema tables/columns/choices (undocumented SN endpoints)
+    cache.rs        → sn cache refresh/status/tables/columns (refresh is the only networked verb; the rest read schema_cache's file) + profile_instance (config-only instance lookup shared with the completers)
     api.rs          → sn api list/search/spec (instance API discovery over the REST API Explorer's undocumented doc endpoints)
     introspect.rs   → sn introspect (dumps clap command tree as JSON; see "The introspect contract")
     progress.rs     → sn progress + finish_cicd (poll async CICD ops)
@@ -73,7 +75,7 @@ src/
     journal.rs      → sn journal <table> <sys_id> (comments/work notes parsed into entries; record-stream source by default, sys_journal_field rows via --source table)
     variables.rs    → sn variables get/set (catalog variables on a record; set pre-validates names, writes via the undocumented sn_sc variables PUT — the one path open to itil — and re-reads to verify, since the endpoint 200s on silently-skipped names)
     context.rs      → sn context [scope|updateset] (instance-side session context: the application scope + update set the caller's tracked writes are captured under; read is one GraphQL round trip resolving the sys_user_preference rows server-side via javascript:gs.getPreference terms, writes go through the concoursepicker PUT plus a direct apps.current_app preference write — the picker's application PUT alone never moves the scope over REST — and verify by re-read)
-    completion.rs   → sn completion <shell> (clap_complete)
+    completion.rs   → sn completion <shell> [--dynamic] (clap_complete static scripts, or the runtime engine behind SN_COMPLETE with cache-backed table/column completers)
 ```
 
 ### Key data flow
@@ -161,6 +163,16 @@ Three properties are load-bearing, and `Stream` (`cli/watch.rs`) exists to make 
 **`--idle-timeout` measures subscribed time only.** The clock starts at the first successful subscribe, and `Stream::resume` pushes it forward by each interval spent off the channel — the same measurement the marker reports as `downtime_ms`, so the two cannot disagree. Nothing could arrive while there was no channel to arrive on, so that time is not idleness. The old wall-clock reading (process start, running through every outage) gave two silent wrong answers, both exit 0 with a stream that just looks quiet: an instance slower to mint a session than the timeout subscribed and returned without ever polling, and any outage longer than the timeout — guaranteed once backoff caps at 60s — made the marker the *last* line of the stream, so the hole it had just announced was never covered. Forgiving is deliberately weaker than resetting per session: silence accumulates across sessions, so a socket flapping faster than the timeout still cannot hold a silent watcher open.
 
 Transport gaps: the socket is opened directly rather than through reqwest, so it does not inherit its settings. `--insecure` and `--ca-cert` are carried across explicitly (`amb::TlsOptions`, rustls with the `ring` provider — the one reqwest already links; a custom CA is *added* to the built-in roots, never swapped for them). **Proxies are not supported** and are refused loudly rather than silently bypassed, since ignoring one would send the session cookie outside the caller's sanctioned egress path.
+
+### Offline schema cache and dynamic completion
+
+`sn cache refresh` builds one index per instance at `<config_dir>/cache/<host>/schema.json` (under the config dir, not the platform cache dir, so `SN_CONFIG_DIR` isolates it; keyed by instance, not profile). It stores each table's parent and *own* columns; `SchemaIndex::columns` walks the parent chain, cycle-guarded. Written through `config::write_atomic` (0600) with no `.sn.lock`: it is a whole-file replace, not a read-modify-write.
+
+**The source is the Aggregate API, measured against the alternatives** (dev421992, 7,891 tables, ~140k own columns): `GET /api/now/stats/sys_dictionary` grouped by `name,element` runs ~0.6 ms/row (the `c*` tables, 70,658 rows, in 44s); the Table API over the same rows is ~12 ms/row and a 5,000-row page was cut off at the instance's 60s transaction quota; GraphQL introspection 504'd at 300s on the table list alone, and its bad-faith guard forbids selecting `__Type.fields` twice, so columns would be one request per table. Hierarchy is one `sys_db_object` aggregate grouped by `name,super_class.name` (the dot-walked group is checked for — an instance ignoring it would silently strip every inherited column). A full build was 17 requests, ~56s, 2.4 MB. `sys_dictionary` is admin-only (itil gets 403 from Table and Aggregate APIs alike), so a 403 there degrades to a tables-only index (`columns_indexed: false`) rather than failing.
+
+The dictionary is fetched in ~10k-row shards of table-name ranges (`name>=lo^name<hi`), 4 in flight. Boundaries come from a `GROUP BY name` pass **ordered by the database**, because its collation sorts `_` after letters and a byte sort would misplace them. Coverage does not depend on that order (first range unbounded below, last above — every name lands in at least one range; misordering only overlaps, and the per-table dedup absorbs it). A shard returning more foreign rows than it planned is a dropped range term → `Error::Instance`. A shard that times out (transport error or 502–504) is halved and retried, up to 4 rounds. `var__m_*` pseudo-tables (~32k rows) are excluded server-side and, should that term be dropped, client-side (only `sys_db_object` names are kept).
+
+`sn completion <shell> --dynamic` emits clap_complete's runtime-engine registration (`unstable-dynamic`, hence the `~4.6` pin), keyed on **`SN_COMPLETE`**, not clap's bare `COMPLETE` — a stray generic variable would turn every invocation into a completion request. `main` calls `completion::complete_if_requested()` before anything else. Completers are attached in `completion_command()` (a wrapper over `cli::command()`, so parsing and introspect never see them) by arg id: positional `table`/`class` (CMDB classes: `cmdb_ci` descendants)/`staging_table`, and `fields`/`field`/`query`/`group_by`-style flags (not `variables set --field`, which names catalog variables). A completer learns the profile and table by re-parsing the whole line through `cli::command().ignore_errors(true)`. They read only the cache file and return nothing on any failure — a TAB must never touch the network or print an error. The implied-verb shorthand (`sn table incident -f …`) gets no column completion: the lenient parse doesn't see a `table` there.
 
 ### Client binary methods
 

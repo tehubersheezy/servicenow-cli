@@ -1,7 +1,7 @@
 use clap::error::ErrorKind;
 use is_terminal::IsTerminal;
 use sn::cli::{
-    ApiSub, AppSub, AtfSub, AttachmentSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
+    ApiSub, AppSub, AtfSub, AttachmentSub, CacheSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
     ContextSub, IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub, UserSub,
     VariablesSub,
 };
@@ -11,6 +11,9 @@ use std::io;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // A dynamic-completion request (`SN_COMPLETE=<shell>`) is answered and the
+    // process exits here, before anything else can write to stdout.
+    sn::cli::completion::complete_if_requested();
     let cli = match sn::cli::parse() {
         Ok(cli) => cli,
         Err(err) => return handle_clap_error(err),
@@ -93,6 +96,12 @@ fn run(cli: Cli) -> Result<()> {
             SchemaSub::Tables(args) => sn::cli::schema::tables(&global, args),
             SchemaSub::Columns(args) => sn::cli::schema::columns(&global, args),
             SchemaSub::Choices(args) => sn::cli::schema::choices(&global, args),
+        },
+        Command::Cache { sub } => match sub {
+            CacheSub::Refresh => sn::cli::cache::refresh(&global),
+            CacheSub::Status => sn::cli::cache::status(&global),
+            CacheSub::Tables(args) => sn::cli::cache::tables(&global, args),
+            CacheSub::Columns(args) => sn::cli::cache::columns(&global, args),
         },
         Command::Api { sub } => match sub {
             ApiSub::List(args) => sn::cli::api::list(&global, args),

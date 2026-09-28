@@ -1098,6 +1098,9 @@ sn raw GET /api/now/table/incident -H 'X-no-response-body: true'   # repeatable 
 sn graphql 'query { GlideRecord_Query { incident(pagination: {limit: 5}) { _rowCount _results { number { value } } } } }'
 sn graphql @query.graphql --var id=a1b2c3 --variables '{"limit": 5}'   # document from file; string + typed variables
 sn completion zsh                        # shell completion script (bash|zsh|fish|powershell|elvish) to stdout
+sn cache refresh                         # offline schema index (tables, parents, columns); then:
+sn cache columns incident                # every column incl. inherited — no network
+sn cache tables cmdb_ci_                 # table names by prefix — no network
 sn introspect                            # full command tree as JSON — auto-generate MCP / function-call schemas
 ```
 

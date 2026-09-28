@@ -225,6 +225,25 @@ sn schema columns incident --writable     # writable columns for a table
 sn schema choices incident state          # valid values for a choice field
 ```
 
+### Offline schema cache
+
+`sn schema` asks the instance every time. `sn cache refresh` pulls every table, its parent and
+its columns into one local index (~1 minute and ~2.4 MB on a stock PDI); after that these answer
+instantly with no network — and dynamic shell completion reads the same file:
+
+```bash
+sn cache refresh                          # build/rebuild for the profile's instance (needs admin)
+sn cache status                           # where it lives, when it was built, how big it is
+sn cache tables cmdb_ci_                  # table names by prefix
+sn cache columns incident                 # every column, inherited ones included (task's number, state, …)
+```
+
+The index lives under the config directory at `cache/<instance>/schema.json`, one per instance
+(profiles on the same instance share it). It is a snapshot: rerun `refresh` after schema changes.
+Columns come from `sys_dictionary`, which only admin can read — a non-admin profile gets a
+tables-only index and a warning. `refresh` defaults to a 120s per-request timeout; the work is
+split into ~10,000-row requests, and one that still times out is halved and retried.
+
 ## Journal: comments and work notes
 
 Journal entries live in `sys_journal_field`, one row per entry — but that table is
@@ -640,6 +659,28 @@ sn completion fish > ~/.config/fish/completions/sn.fish
 
 Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`. The `${fpath[1]}` shortcut some tools suggest fails when that directory doesn't exist (common on Apple Silicon Homebrew) — the dir-on-fpath recipe above is portable.
 
+### Dynamic completion: table and column names
+
+`--dynamic` emits a script that asks `sn` itself for candidates on every TAB, so it can also
+complete table names (`sn table list incid<TAB>`, `sn gr`, `sn aggregate`, `sn watch`, …; CMDB
+classes only for `sn cmdb`) and column names (`-f`, `--field`, the field of the last `-q` term,
+`--group-by`) from the [offline schema cache](#offline-schema-cache). Build the cache first with
+`sn cache refresh`; without one, those positions simply offer nothing. Completion never touches the
+network.
+
+```bash
+# zsh / bash — load at shell startup (not saved to a file, so it tracks upgrades).
+# eval, not `source <(…)`: macOS's stock bash 3.2 cannot source a process substitution.
+echo 'eval "$(sn completion zsh --dynamic)"' >> ~/.zshrc
+echo 'eval "$(sn completion bash --dynamic)"' >> ~/.bashrc
+
+# fish
+echo 'sn completion fish --dynamic | source' > ~/.config/fish/completions/sn.fish
+```
+
+The script calls back into `sn` with `SN_COMPLETE=<shell>` set; that variable is what switches the
+binary into completion mode, so don't export it yourself.
+
 ## Output contract
 
 Commands emit JSON on stdout by a few consistent rules:
@@ -651,6 +692,7 @@ Commands emit JSON on stdout by a few consistent rules:
 - `graphql` → the response's `data` value, unwrapped; a non-empty `errors` array means exit 2 with the errors on stderr (partial `data` still reaches stdout).
 - Async CICD (`app`, `updateset`, `atf run`, `progress`) → a progress object carrying `status` — a numeric **string**, not a word: `"0"` pending, `"1"` running, `"2"` successful, `"3"` failed, `"4"` cancelled — alongside `status_message`, `percent_complete`, and the operation's id at `links.progress.id`.
 - `attachment download` → raw bytes (or `{"path","size"}` metadata JSON when you pass `--out <file>`). The destination flag is `--out`/`-o`; `--output` is reserved CLI-wide for the output *mode*.
+- `cache tables` / `cache columns` → an array of names; `cache refresh` / `cache status` → a summary object (`instance`, `path`, `tables`, `columns`, `columns_indexed`, `built_at`).
 - `api list` / `api search` → an array of summary rows; `api spec` → the OpenAPI document (JSON, or YAML verbatim under `--format yaml`).
 - `profile use` → `{"ok","profile","default"}`; `profile remove` → `{"ok","profile","removed","wasDefault"}`, with `removed:false` and exit 0 when there was no such profile.
 - `scores unfavorite` → the endpoint's body, or `{"ok","uuid"}` when there is none; it used to print nothing at all. `scores favorite` passes the body through as-is, which is `null` on an instance that answers the POST with no content.

@@ -5,6 +5,7 @@ pub mod args;
 pub mod atf;
 pub mod attachment;
 pub mod auth;
+pub mod cache;
 pub mod catalog;
 pub mod change;
 pub mod cmdb;
@@ -42,6 +43,7 @@ pub use attachment::{
     AttachmentDeleteArgs, AttachmentDownloadArgs, AttachmentGetArgs, AttachmentListArgs,
     AttachmentSub, AttachmentUploadArgs,
 };
+pub use cache::{CacheColumnsArgs, CacheSub, CacheTablesArgs};
 pub use catalog::{
     CatalogCartEmptyArgs, CatalogCartItemArgs, CatalogCartUpdateArgs, CatalogCategoriesArgs,
     CatalogCategoryArgs, CatalogGetArgs, CatalogItemArgs, CatalogItemsArgs, CatalogListArgs,
@@ -380,6 +382,12 @@ pub enum Command {
         #[command(subcommand)]
         sub: SchemaSub,
     },
+    /// Offline schema index: build it once, then list tables and columns (and
+    /// complete them in the shell) with no network.
+    Cache {
+        #[command(subcommand)]
+        sub: CacheSub,
+    },
     /// Discover the instance's REST APIs (namespaces, endpoints, OpenAPI specs).
     Api {
         #[command(subcommand)]
@@ -463,7 +471,8 @@ pub enum Command {
     Gr(GrArgs),
     /// Run a GraphQL query against POST /api/now/graphql (`sn graphql <QUERY>`).
     Graphql(GraphqlArgs),
-    /// Generate a shell completion script (`sn completion <SHELL>`).
+    /// Generate a shell completion script (`sn completion <SHELL>`; `--dynamic`
+    /// adds table and column names from `sn cache`).
     Completion(CompletionArgs),
 }
 
