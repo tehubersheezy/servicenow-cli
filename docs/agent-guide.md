@@ -42,6 +42,7 @@ Non-obvious shapes worth knowing:
 | `progress` | `{status_label, percent_complete, status_message}` |
 | `scores unfavorite` | the endpoint's body, or `{"ok":true,"uuid":"..."}` when there is none — it emitted nothing at all before. `scores favorite` passes its body through unchanged, which is `null` where the instance answers with no content |
 | `ping` | see [`sn ping`](#sn-ping) — 14 keys, and `username` is the *instance's* answer |
+| `doctor` | see [`sn doctor`](#sn-doctor) — the report is on stdout **even on exit 2**; `checks[].status` is `pass`, `fail` or `unavailable` |
 
 **stderr is always a JSON error object on any non-zero exit:**
 
@@ -260,6 +261,40 @@ read of `sys_user` returns whichever row sorts first — a stranger, reported wi
 full confidence. `sn ping` and `sn user me` both ask endpoints that name the
 caller directly (`sn user me` resolves the caller's sys_id, then reads that one
 record), and both refuse to answer rather than hand back an arbitrary row.
+
+### `sn doctor`
+
+A preflight in one GraphQL round trip: who the session is, whether it is admin,
+which checks this account can run at all, and pass/fail for whatever you require.
+
+```bash
+sn doctor --need-role itil,sn_change_write --need-plugin com.snc.change_management \
+          --need-property glide.servlet.uri --need-property glide.ui.escape_text=true
+# {"ok":false,"profile":"prod","instance":"acme.service-now.com","latency_ms":812,
+#  "user":{"user_name":"beth","sys_id":"…"},"admin":false,"build_tag":null,
+#  "capabilities":{"roles":{"available":true},
+#                  "plugins":{"available":false,"reason":"snWorkflowStudio.workflowStudio answered null: not readable by this account"},
+#                  "properties":{"available":false,"reason":"the property getter answered null: not readable by this account"}},
+#  "checks":[{"kind":"role","name":"itil","status":"pass","exists":true,"basis":"session"}, …]}
+```
+
+- **Exit 0 only when every check passes.** Anything else writes the report to
+  stdout and then exits 2 with an error naming the checks that did not pass (no
+  `status_code` — every response was a 200). With no `--need-*` flags it checks
+  nothing and exits 0: connectivity, identity and capabilities only.
+- **`unavailable` is not `pass`.** A check the account cannot answer fails the
+  preflight. Plugin and property checks need admin — for anyone else the
+  instance answers `null`, which is reported as unavailable, never as "not
+  installed" or "unset".
+- **Roles:** an admin session answers *yes* to every role name, real or not, so
+  a role passes only if `sys_user_role` says it exists; `basis: "admin"` marks a
+  pass that rests on admin rather than a grant. Elevated roles (`security_admin`)
+  fail until elevated.
+- **Properties:** `NAME` passes when set, `NAME=VALUE` when equal. Unset and
+  empty read as one state (`value: null`); password-type properties are never
+  returned, so they come back `unavailable`.
+- A namespace missing from the instance's schema turns its checks `unavailable`
+  with the instance's own message rather than failing the command.
 
 ## Discovery flow
 
@@ -1089,6 +1124,7 @@ Filters: `--uuid <csv>`, `--favorites`, `--key`, `--target`, `--contains <csv>`,
 
 ```bash
 sn ping                                  # health check (auth + latency + identity + build); see `sn ping`
+sn doctor --need-role itil --need-plugin com.snc.incident   # preflight: exit 2 unless every check passes; see `sn doctor`
 sn user me                               # the caller's own sys_user record, read by sys_id
 sn api list|search|spec                  # which REST APIs this instance publishes; see Finding an API
 sn open incident a1b2c3 [--print-url]    # open the record's form in a browser; --print-url prints the URL instead
@@ -1226,6 +1262,7 @@ sn init [--profile NAME]                          sn ping [--profile NAME]
 sn profile add NAME --instance X --username Y --password-stdin [--force|--no-verify|--set-default]
 sn profile list|show NAME|use NAME|remove NAME|login|logout|status|refresh
 sn user me     sn open TABLE [SYS_ID] [--print-url]     sn completion SHELL
+sn doctor [--need-role R,...] [--need-plugin ID,...] [--need-property NAME[=VALUE] ...]
 
 # Record references: everywhere below that takes TABLE SYS_ID (or CLASS SYS_ID),
 # one token `table:sys_id` / `table:number` works instead; a number costs one

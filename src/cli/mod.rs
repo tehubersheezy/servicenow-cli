@@ -10,6 +10,7 @@ pub mod change;
 pub mod cmdb;
 pub mod completion;
 pub mod context;
+pub mod doctor;
 pub mod get_record;
 pub mod gr;
 pub mod graphql;
@@ -60,6 +61,7 @@ pub use cmdb::{
 };
 pub use completion::{CompletionArgs, Shell as CompletionShell};
 pub use context::{ContextSub, ContextTargetArgs};
+pub use doctor::DoctorArgs;
 pub use get_record::GetRecordArgs;
 pub use gr::GrArgs;
 pub use graphql::GraphqlArgs;
@@ -455,6 +457,9 @@ pub enum Command {
     },
     /// Health check the configured instance (auth + latency + build version).
     Ping,
+    /// Preflight the instance in one round trip: who you are, whether you are
+    /// admin, and pass/fail checks for required roles, plugins and properties.
+    Doctor(DoctorArgs),
     /// Open a record in the ServiceNow web UI (`sn open <table> <sys_id>`).
     Open(OpenArgs),
     /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).

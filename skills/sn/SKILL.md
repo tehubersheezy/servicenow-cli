@@ -66,6 +66,8 @@ ServiceNow's own error body — read it and self-correct instead of retrying bli
 so a perfectly good credential missing a role exits 4. Split them with one call: if `sn ping`
 exits 0, the credential is fine and a role is missing — re-authenticating will never fix it,
 and you should say so rather than loop. A 401, or a failing `ping`, is the credential.
+`sn doctor --need-role <role>` names which role; don't test roles with `getMatchingRoles` or
+`gs.hasRole` yourself — under admin they answer yes to any name, real or not.
 
 `status_code` may be absent on exit 2 (a failure reported inside a 200). Test for the key,
 don't default it.
