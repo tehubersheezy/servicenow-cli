@@ -348,6 +348,66 @@ async fn add_force_overwrites_but_preserves_proxy_credentials() {
     .unwrap();
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn add_force_rebuilds_proxy_tls_from_argv_and_reports_it() {
+    // Issue #97: a `--force` re-add merged the stored TLS settings, so
+    // `insecure = true` survived a "clean" rebuild with nothing saying so — and
+    // with no `--insecure=false`, nothing could clear it but a hand edit.
+    let server = verifying_server().await;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_path_buf();
+    let uri = server.uri();
+
+    // `no_proxy` has no flag, so no argv can restate it: it must survive.
+    let mut cfg = sn::config::Config::default();
+    cfg.profiles.insert(
+        "t".into(),
+        sn::config::ProfileConfig {
+            instance: "old.example.com".into(),
+            no_proxy: Some("localhost".into()),
+            ..Default::default()
+        },
+    );
+    sn::config::save_config_to(&dir.join("config.toml"), &cfg).unwrap();
+
+    tokio::task::spawn_blocking(move || {
+        let add = |extra: &[&str]| -> Value {
+            let mut args = vec![
+                "profile",
+                "add",
+                "t",
+                "--instance",
+                &uri,
+                "--username",
+                "u",
+                "--password",
+                "p",
+                "--force",
+            ];
+            args.extend_from_slice(extra);
+            let out = sn_cmd(&dir).args(&args).assert().success();
+            serde_json::from_slice(&out.get_output().stdout).unwrap()
+        };
+
+        // Setting it is reported by the write itself, not only by `show`.
+        let v = add(&["--insecure"]);
+        assert_eq!(v["insecure"], true, "{v}");
+        let pc = &load_config(&dir).profiles["t"];
+        assert!(pc.insecure);
+        assert_eq!(pc.no_proxy.as_deref(), Some("localhost"));
+
+        // Re-adding without the flag clears it, and says so.
+        let v = add(&[]);
+        assert_eq!(v["insecure"], false, "{v}");
+        assert_eq!(v["no_proxy"], "localhost", "{v}");
+        let pc = &load_config(&dir).profiles["t"];
+        assert!(!pc.insecure, "--force re-add kept insecure = true");
+        assert_eq!(pc.no_proxy.as_deref(), Some("localhost"));
+    })
+    .await
+    .unwrap();
+}
+
 #[test]
 fn add_names_the_missing_flag_instead_of_hanging() {
     let tmp = tempfile::tempdir().unwrap();

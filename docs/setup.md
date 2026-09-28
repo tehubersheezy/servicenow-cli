@@ -114,7 +114,7 @@ selected yet, so `ci` needs `sn profile use ci` or an explicit `--profile ci`.
 
 | | |
 |---|---|
-| profile already exists | exit 1 — pass `--force` to overwrite |
+| profile already exists | exit 1 — pass `--force` to overwrite (proxy/TLS settings are rebuilt from that run's flags) |
 | required flag missing, no TTY | exit 1, naming the flag |
 | credentials rejected | exit 4, profile changes rolled back |
 | `--non-interactive` | never prompt, even on a terminal — fail naming the flag |
@@ -335,4 +335,16 @@ For proxy and CA settings, precedence is: CLI flag > environment variable > prof
 
 TLS verification is disabled if **any** of `--insecure`, `SN_INSECURE=1`, or the profile's
 `insecure = true` enables it. There is no per-command flag to override an insecure
-profile; edit the profile to re-enable verification, and clear any environment override.
+profile; rewrite the profile to re-enable verification, and clear any environment override.
+
+Passing `--proxy`, `--insecure`, `--ca-cert`, or `--proxy-ca-cert` to `sn init` or
+`sn profile add` saves it in the profile. `sn profile show` and `sn profile list` report
+what's stored: `insecure` always, plus `proxy`, `no_proxy`, `ca_cert`, and `proxy_ca_cert`
+when set, with any password in the proxy URL masked. The two commands treat a flag you
+leave out differently:
+
+- **`sn profile add --force`** rebuilds these settings from the flags you pass, so
+  re-adding without `--insecure` turns verification back on. It also drops a stored proxy
+  unless you pass `--proxy` again. `no_proxy` has no flag and is kept.
+- **`sn init`** updates in place: a flag you leave out keeps its stored value, and
+  `--no-proxy` clears a stored proxy.

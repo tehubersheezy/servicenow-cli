@@ -85,7 +85,9 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
     let name = resolve_name(&add, Some("default".into()), Caller::Init)?;
     let input = resolve_input(&add, name, Caller::Init)?;
     // `init` is the onboarding wizard: it always claims the default profile,
-    // always verifies, and upserts rather than refusing an existing name.
+    // always verifies, and upserts rather than refusing an existing name —
+    // stored proxy/TLS settings included, which a flag it was not given leaves
+    // alone.
     let user = save_and_verify(
         global,
         &input,
@@ -93,6 +95,7 @@ pub fn run(global: &GlobalFlags, args: InitArgs) -> Result<()> {
             set_default: true,
             verify: true,
             refuse_existing: false,
+            replace_connection: false,
         },
     )?;
 

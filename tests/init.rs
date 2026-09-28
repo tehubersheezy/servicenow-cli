@@ -122,6 +122,9 @@ async fn reinit_preserves_proxy_credentials() {
         "t".into(),
         sn::config::ProfileConfig {
             instance: "old.example.com".into(),
+            // `init` upserts: a stored TLS setting its argv doesn't mention
+            // is kept (unlike `sn profile add --force`, which rebuilds it).
+            insecure: true,
             ..Default::default()
         },
     );
@@ -170,6 +173,7 @@ async fn reinit_preserves_proxy_credentials() {
             saved_cfg.profiles.get("t").unwrap().instance,
             server_uri.trim_end_matches('/')
         );
+        assert!(saved_cfg.profiles.get("t").unwrap().insecure);
     })
     .await
     .unwrap();
