@@ -260,6 +260,9 @@ fn refusal(cmd: &Command) -> Option<&'static str> {
             "it manages local profiles, and a profile is not a user to impersonate"
         }
         Command::Completion(_) | Command::Introspect => "it never contacts the instance",
+        Command::Cache { .. } => {
+            "the schema cache is shared per instance, so it must hold the profile's view, not the impersonated user's"
+        }
         Command::Watch(_) => "`sn watch` opens its own websocket session, not this one",
         Command::Flow {
             sub: FlowSub::Debug(FlowDebugSub::Tail(_)),

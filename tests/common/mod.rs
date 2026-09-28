@@ -174,7 +174,8 @@ pub fn sn_cmd(config_dir: &std::path::Path) -> assert_cmd::Command {
         .env_remove("http_proxy")
         .env_remove("https_proxy")
         .env_remove("ALL_PROXY")
-        .env_remove("NO_PROXY");
+        .env_remove("NO_PROXY")
+        .env_remove("SN_COMPLETE");
     cmd
 }
 

@@ -401,6 +401,10 @@ async fn argv_mistakes_are_refused_before_any_request() {
             "websocket",
         ),
         (
+            &["impersonate", ABEL, "--", "cache", "refresh"],
+            "schema cache",
+        ),
+        (
             &["impersonate", ABEL, "--", "impersonate", "x", "--", "ping"],
             "do not nest",
         ),

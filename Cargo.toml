@@ -34,7 +34,12 @@ directories = "6"
 rpassword = "7"
 thiserror = "2"
 is-terminal = "0.4"
-clap_complete = "4"
+# `unstable-dynamic` is the runtime completion engine behind `sn completion
+# <shell> --dynamic`, which completes table and column names from the offline
+# schema cache. Its API is explicitly unstable across minor releases, so the
+# requirement is held to 4.6.x: a breaking 4.7 then arrives as a reviewed bump
+# rather than through the weekly lockfile refresh.
+clap_complete = { version = "~4.6", features = ["unstable-dynamic"] }
 webbrowser = "1"
 comfy-table = "7"
 base64 = "0.22"
