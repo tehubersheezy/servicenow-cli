@@ -121,7 +121,9 @@ in one round trip without writing GraphQL (`--count` for just the match count). 
 `sn graphql` and `sn gr` map GraphQL errors to exit 2 even under HTTP 200; only
 `sn graphql` emits partial `data` on failure. `sn raw` has no confirmation guard,
 including for DELETE; `sn attachment download --out` stages and renames, so a
-failed download never leaves a truncated file, and reports `{"path","size"}`; `sn identify
+failed download never leaves a truncated file, and reports `{"path","size"}`; `sn flow get <flow>
+--outline` is the compact view of a Flow Designer model (the full one runs to hundreds of KB,
+and each read takes tens of seconds); `sn identify
 query` shows what the IRE *would* match before `create-update` writes; `sn catalog
 item-variables` names what an order must carry, and the cart is server-side state that
 survives a failed run.

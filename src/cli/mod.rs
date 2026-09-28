@@ -13,6 +13,7 @@ pub mod completion;
 pub mod context;
 pub mod decision;
 pub mod doctor;
+pub mod flow;
 pub mod get_record;
 pub mod gr;
 pub mod graphql;
@@ -69,6 +70,7 @@ pub use completion::{CompletionArgs, Shell as CompletionShell};
 pub use context::{ContextSub, ContextTargetArgs};
 pub use decision::{DecisionListArgs, DecisionRunArgs, DecisionShowArgs, DecisionSub};
 pub use doctor::DoctorArgs;
+pub use flow::FlowSub;
 pub use get_record::GetRecordArgs;
 pub use gr::GrArgs;
 pub use graphql::GraphqlArgs;
@@ -440,6 +442,11 @@ pub enum Command {
     Context {
         #[command(subcommand)]
         sub: Option<ContextSub>,
+    },
+    /// Flow Designer flows and subflows: find, inspect, and debug them.
+    Flow {
+        #[command(subcommand)]
+        sub: FlowSub,
     },
     /// Aggregate statistics for a table (GET /api/now/stats/{table}).
     Aggregate(AggregateArgs),
