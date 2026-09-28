@@ -201,11 +201,17 @@ against the instance, with profile changes rolled back if verification fails.
 browser, so there is nothing an agent can verify: `add` refuses on a non-TTY rather
 than save an untested profile. Register it with `--no-verify` and have a human run
 `sn profile login --profile <name>`. Session state is `sn profile status` / `refresh` /
-`logout`; commands reuse cached tokens and refresh them when needed. See
+`logout`; commands reuse cached tokens and refresh them when needed. `--grant jwt_bearer` is headless too and needs no secret of its own to grant access: `sn` signs a short-lived JWT with the key at `--jwt-key-file` (as `--jwt-subject`) and re-mints whenever the token expires. See
 [OAuth setup](setup.md#oauth--sso) to create an Application Registry entry and get a
-client ID. `client_credentials` requires one; without `--client-id`,
+client ID. `client_credentials` and `jwt_bearer` require one; without `--client-id`,
 `authorization_code` borrows the ServiceNow SDK's (now-sdk) public client, and `add`
 reports a `warning` recommending your own.
+
+**External token.** `sn profile add --auth token --token-command '<cmd>'` sends whatever
+bearer token `<cmd>` prints (bare, or JSON with `access_token` and an optional
+`expires_in`/`expires_at`); `--token-stdin` stores a static one instead. A command's
+token is cached only when it states an expiry — otherwise the command runs on every
+invocation. A failing command exits 1, quoting its stderr but never its stdout.
 
 **Profile selection** (highest precedence first): `--profile <name>` →
 `default_profile` in `config.toml` → error (`no profile selected`, exit 1). There

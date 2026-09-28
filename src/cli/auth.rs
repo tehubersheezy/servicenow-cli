@@ -2,8 +2,8 @@ use crate::cli::GlobalFlags;
 use crate::cli::kernel::{build_client, build_profile, write_response};
 use crate::client::Client;
 use crate::config::{
-    AuthMethod, OAuthGrant, ResolvedProfile, clear_oauth_tokens, config_path, load_config_from,
-    now_unix, resolve_profile_name, save_oauth_tokens,
+    AuthMethod, OAuthGrant, ResolvedProfile, ResolvedToken, clear_oauth_tokens, config_path,
+    load_config_from, now_unix, resolve_profile_name, save_oauth_tokens,
 };
 use crate::error::{Error, Result};
 use crate::oauth;
@@ -56,13 +56,13 @@ pub(crate) fn complete_oauth_login(
     let profile = build_profile(&scoped)?;
     let tokens = match grant {
         OAuthGrant::AuthorizationCode => oauth::login_authorization_code(&profile, scoped.timeout)?,
-        OAuthGrant::ClientCredentials => {
+        OAuthGrant::ClientCredentials | OAuthGrant::JwtBearer => {
             let client = oauth::build_token_client(&profile, scoped.timeout)?;
             let o = profile
                 .oauth
                 .as_ref()
                 .ok_or_else(|| Error::Config("oauth config missing after save".into()))?;
-            oauth::client_credentials(&client, o)?
+            oauth::mint_headless(&client, o)?
         }
     };
     save_oauth_tokens(name, &tokens)?;
@@ -246,11 +246,33 @@ pub fn status(global: &GlobalFlags) -> Result<()> {
         AuthMethod::Apikey => {
             out["hasApiKey"] = json!(profile.api_key.is_some());
         }
+        AuthMethod::Token => match &profile.token {
+            Some(ResolvedToken::Static(_)) => {
+                out["tokenSource"] = json!("static");
+            }
+            Some(ResolvedToken::Command { cached, .. }) => {
+                out["tokenSource"] = json!("command");
+                // Only a token with a stated expiry is ever cached, so a cache
+                // entry always has one to report.
+                out["cached"] = json!(cached.is_some());
+                if let Some(exp) = cached.as_ref().and_then(|t| t.expires_at) {
+                    out["expiresAt"] = json!(exp);
+                    out["expiresInSecs"] = json!(exp as i64 - now_unix() as i64);
+                    out["expired"] = json!(now_unix() >= exp);
+                }
+            }
+            None => {}
+        },
         AuthMethod::Oauth => {
             if let Some(o) = &profile.oauth {
                 out["grant"] = json!(o.grant.as_str());
                 out["clientId"] = json!(o.client_id);
-                out["redirectUri"] = json!(o.redirect_uri);
+                if let Some(j) = &o.jwt {
+                    out["jwtSubject"] = json!(j.subject);
+                    out["jwtKeyFile"] = json!(j.key_file);
+                } else {
+                    out["redirectUri"] = json!(o.redirect_uri);
+                }
                 out["loggedIn"] = json!(o.tokens.is_some());
                 if let Some(t) = &o.tokens {
                     out["hasRefreshToken"] = json!(t.refresh_token.is_some());
@@ -268,13 +290,17 @@ pub fn status(global: &GlobalFlags) -> Result<()> {
 
 pub fn refresh(global: &GlobalFlags) -> Result<()> {
     let profile = build_profile(global)?;
-    if !matches!(profile.auth_method, AuthMethod::Oauth) {
-        return Err(Error::Usage(format!(
-            "profile '{}' does not use oauth",
-            profile.name
-        )));
-    }
-    let tokens = oauth::force_refresh(&profile, global.timeout)?;
+    let tokens = match profile.auth_method {
+        AuthMethod::Oauth => oauth::force_refresh(&profile, global.timeout)?,
+        // Re-run the token command even if its cached token is still good.
+        AuthMethod::Token => crate::external_token::force_refresh(&profile, global.timeout)?,
+        AuthMethod::Basic | AuthMethod::Apikey => {
+            return Err(Error::Usage(format!(
+                "profile '{}' does not use oauth or a token command",
+                profile.name
+            )));
+        }
+    };
     let out = json!({
         "ok": true,
         "profile": profile.name,

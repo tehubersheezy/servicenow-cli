@@ -1740,6 +1740,7 @@ dependencies = [
  "is-terminal",
  "predicates",
  "reqwest",
+ "ring",
  "rpassword",
  "rustls",
  "rustls-pki-types",

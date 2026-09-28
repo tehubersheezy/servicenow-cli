@@ -8,9 +8,12 @@ short version: install with Homebrew, run `sn init`, answer the prompts, done.
 - [Profiles](#profiles)
 - [Non-interactive setup (CI, containers, agents)](#non-interactive-setup-ci-containers-agents)
 - [API key](#api-key)
+- [External bearer token](#external-bearer-token)
 - [OAuth / SSO](#oauth--sso)
+  - [Quick start: the now-sdk's client](#quick-start-the-now-sdks-client-not-recommended-for-ongoing-use)
   - [Create an OAuth Application Registry entry](#create-an-oauth-application-registry-entry)
   - [Connect sn with your client ID](#connect-sn-with-your-client-id)
+- [OAuth JWT bearer grant](#oauth-jwt-bearer-grant)
 - [Configuration files](#configuration-files)
 - [Environment variables](#environment-variables)
 - [Proxy and TLS](#proxy-and-tls)
@@ -45,9 +48,10 @@ Download from [Releases](https://github.com/tehubersheezy/servicenow-cli/release
 ## First-time setup
 
 `sn` supports **basic auth** (username + password) for most instances, **API keys**
-(the platform's inbound REST API key, sent as the `x-sn-apikey` header), and **OAuth / SSO**
+(the platform's inbound REST API key, sent as the `x-sn-apikey` header), **OAuth / SSO**
 for instances fronted by an external identity provider (Okta, Azure AD, ADFS), where the
-password lives in the IdP and basic auth cannot work.
+password lives in the IdP and basic auth cannot work — including a secretless **JWT bearer
+grant** for automation — and **external bearer tokens** that something other than `sn` issues.
 
 For basic auth, run `sn init` and answer the prompts:
 
@@ -55,7 +59,7 @@ For basic auth, run `sn init` and answer the prompts:
 sn init
 # Profile name [default]:
 # Instance (e.g. 'dev380385' or 'https://acme.service-now.com'): mycompany.service-now.com
-# Auth method (basic/oauth/apikey) [basic]:
+# Auth method (basic/oauth/apikey/token) [basic]:
 # Username: admin
 # Password: ********
 # profile 'default' saved and verified (mycompany.service-now.com).
@@ -140,6 +144,39 @@ only whether one is stored, never the key itself.
 API Access Policies → REST API Key → New** to generate the key, and make sure an
 **inbound authentication profile** of type API Key (auth parameter `x-sn-apikey: Auth Header`)
 is attached to the APIs you call via a REST API Access Policy.
+
+## External bearer token
+
+When something other than `sn` issues the token — an IdP minting ServiceNow-audience tokens
+directly, a secrets broker, Vault, a cloud CLI — use `--auth token`. The token is sent as the
+`Authorization` bearer token on every request. It comes from one of two places:
+
+```bash
+# A command sn runs (through `sh -c`, or `cmd /C` on Windows) whenever it needs a token:
+sn profile add ci --instance acme.service-now.com --auth token \
+  --token-command 'vault read -field=token secret/servicenow/ci'
+
+# Or a static token, stored in credentials.toml (0600):
+sn profile add ci --instance acme.service-now.com --auth token --token-stdin < token.txt
+```
+
+The command's stdout is the token: either the bare token on one line, or a JSON object with
+`access_token` (also `accessToken` or `token`) and optionally an expiry — `expires_at` /
+`expires_on` (Unix seconds) or `expires_in` (seconds from now). That reads the output of
+`az account get-access-token -o json` and most brokers as-is. The command also sees
+`SN_PROFILE` and `SN_INSTANCE` in its environment, so one script can serve several profiles.
+
+**When the command runs again:** a token whose expiry the command stated is cached in
+`credentials.toml` and reused until a minute before it expires. A token with no stated expiry
+is never cached — the command runs on every `sn` invocation — because guessing a lifetime would
+keep presenting a token its issuer may already have revoked. `sn profile refresh` re-runs the
+command on demand; `sn profile logout` drops the cache.
+
+The output is treated as a secret: it is never logged, never quoted in an error, and never put
+on anyone's command line. The command gets no stdin (there is nobody to answer a prompt) and
+must finish within `--timeout` (default 30s). If it fails, `sn` exits 1 quoting the end of its
+stderr. As with every auth type, `sn profile add` verifies the token against the instance before
+saving the profile.
 
 ## OAuth / SSO
 
@@ -276,14 +313,54 @@ After login, tokens refresh transparently. Manage the session with `sn profile s
 Use `--profile NAME` to select a profile for these commands, or run `sn ping` to check
 the default profile's connection.
 
+## OAuth JWT bearer grant
+
+The JWT bearer grant (RFC 7523) is the headless OAuth option with no shared secret that grants
+access on its own: `sn` signs a short-lived JWT with a **private key file** and trades it at
+`/oauth_token.do` for an access token. Only the key file's path is stored in `sn`'s config.
+
+```bash
+sn profile add ci --auth oauth --grant jwt_bearer --instance acme.service-now.com \
+  --client-id <id> --client-secret-stdin \
+  --jwt-key-file ~/.config/sn-keys/ci.pem --jwt-subject svc.integration --jwt-kid ci-key \
+  < secret.txt
+```
+
+- `--jwt-key-file` — an unencrypted PEM private key: RSA (`BEGIN PRIVATE KEY` or
+  `BEGIN RSA PRIVATE KEY`, at least 2048 bits) or EC P-256/P-384 (`BEGIN PRIVATE KEY`). Keep it
+  `0600`. The algorithm defaults to RS256 for RSA and ES256/ES384 for EC; `--jwt-alg` picks
+  RS384/RS512 instead.
+- `--jwt-subject` — the `sub` claim: the user the token acts as, matched against the JWT
+  endpoint's **User field** (e.g. `user_name` or `email`).
+- `--jwt-kid` — the `kid` header naming the verifier map entry. Optional when the endpoint has a
+  single verifier map.
+- `--client-secret-stdin` — ServiceNow's JWT endpoints are confidential clients unless marked
+  **Public Client**; for a public one, omit the secret.
+
+Each assertion carries `iss` and `aud` set to the client ID, a five-minute `exp` and a fresh
+`jti`, which is what the instance checks. ServiceNow issues no refresh token for this grant, so
+`sn` mints a new access token from a new assertion whenever the cached one expires — no
+`sn profile login` involved.
+
+**One-time admin setup:** upload the key's X.509 certificate as a **Certificate** record
+(`sys_certificate`, format PEM, type Trust Store Cert). Then **System OAuth → Application
+Registry → New → "Create an OAuth JWT API endpoint for external clients"**: set the **User field**
+to match your `--jwt-subject`, save, and add a **JWT Verifier Map** row pointing at the
+certificate (its **Kid** is your `--jwt-kid`). The generated client ID and secret are what
+`--client-id` and `--client-secret-stdin` take. To make the key and certificate:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout ci.pem -out ci-cert.pem -days 365 -subj "/CN=sn-ci"
+```
+
 ## Configuration files
 
 Credentials use a two-file, AWS CLI-style split:
 
 | File | Contains | Location (Linux) |
 |---|---|---|
-| `config.toml` | Instance URLs, default profile, non-secret OAuth config | `~/.config/sn/` |
-| `credentials.toml` | Usernames, passwords, secrets, cached tokens | `~/.config/sn/` |
+| `config.toml` | Instance URLs, default profile, non-secret OAuth config, `token_command`, JWT key path | `~/.config/sn/` |
+| `credentials.toml` | Usernames, passwords, secrets, static tokens, cached tokens | `~/.config/sn/` |
 | `.sn.lock` | Empty; the advisory lock serializing config writes | `~/.config/sn/` |
 
 macOS uses `~/Library/Application Support/sn/` and Windows `%APPDATA%\sn\`.

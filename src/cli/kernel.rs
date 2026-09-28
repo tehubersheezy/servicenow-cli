@@ -79,6 +79,7 @@ pub(crate) fn build_client_with_headers(
         );
     // OAuth profiles attach a bearer token, refreshing (or minting, for
     // client-credentials) it transparently and persisting any new tokens.
+    // (That covers every OAuth grant, jwt_bearer included.)
     // API-key profiles attach the stored key as the x-sn-apikey header.
     // Basic profiles fall through to the builder's default username/password.
     match profile.auth_method {
@@ -96,6 +97,12 @@ pub(crate) fn build_client_with_headers(
                 ))
             })?;
             b = b.auth(Auth::ApiKey { key });
+        }
+        // External-token profiles send a bearer token sn did not mint: the
+        // stored one, or `token_command`'s output (cached per its stated expiry).
+        AuthMethod::Token => {
+            let token = crate::external_token::ensure_token(profile, timeout)?;
+            b = b.auth(Auth::Bearer { token });
         }
         AuthMethod::Basic => {}
     }

@@ -39,6 +39,10 @@ pub struct ProfileConfig {
     /// `credentials.toml`). Present only when `auth = "oauth"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth: Option<OAuthConfig>,
+    /// `auth = "token"` only: a command whose stdout is the bearer token (or a
+    /// JSON object carrying one). Run through the platform shell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_command: Option<String>,
 }
 
 /// Which credential mechanism a profile authenticates with.
@@ -53,6 +57,9 @@ pub enum AuthMethod {
     Oauth,
     /// ServiceNow REST API key, sent as the `x-sn-apikey` request header.
     Apikey,
+    /// An externally issued bearer token: stored as-is in `credentials.toml`,
+    /// or fetched by running the profile's `token_command`.
+    Token,
 }
 
 impl AuthMethod {
@@ -62,7 +69,8 @@ impl AuthMethod {
 }
 
 /// OAuth 2.0 grant type. `authorization_code` is the interactive (SSO) flow;
-/// `client_credentials` is the service-to-service flow.
+/// `client_credentials` is the service-to-service flow; `jwt_bearer` (RFC 7523)
+/// mints tokens from a JWT the CLI signs with a local private key.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 #[value(rename_all = "snake_case")]
@@ -70,6 +78,7 @@ pub enum OAuthGrant {
     #[default]
     AuthorizationCode,
     ClientCredentials,
+    JwtBearer,
 }
 
 impl OAuthGrant {
@@ -83,6 +92,49 @@ impl OAuthGrant {
         match self {
             OAuthGrant::AuthorizationCode => "authorization_code",
             OAuthGrant::ClientCredentials => "client_credentials",
+            OAuthGrant::JwtBearer => "jwt_bearer",
+        }
+    }
+
+    /// Whether the grant can mint a token with no human present. These are the
+    /// grants `ensure_access_token` may run on its own when the cache is empty.
+    pub fn is_headless(self) -> bool {
+        matches!(self, OAuthGrant::ClientCredentials | OAuthGrant::JwtBearer)
+    }
+}
+
+/// JWS signing algorithm for the `jwt_bearer` assertion. The set is what both
+/// ServiceNow's JWT verifier and `ring` support with an asymmetric key (ES512
+/// needs P-521, which `ring` lacks; the HS* family would need a shared secret,
+/// defeating the point of a key file).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+pub enum JwtAlg {
+    #[serde(rename = "RS256")]
+    #[value(name = "RS256")]
+    Rs256,
+    #[serde(rename = "RS384")]
+    #[value(name = "RS384")]
+    Rs384,
+    #[serde(rename = "RS512")]
+    #[value(name = "RS512")]
+    Rs512,
+    #[serde(rename = "ES256")]
+    #[value(name = "ES256")]
+    Es256,
+    #[serde(rename = "ES384")]
+    #[value(name = "ES384")]
+    Es384,
+}
+
+impl JwtAlg {
+    /// The JOSE `alg` header value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JwtAlg::Rs256 => "RS256",
+            JwtAlg::Rs384 => "RS384",
+            JwtAlg::Rs512 => "RS512",
+            JwtAlg::Es256 => "ES256",
+            JwtAlg::Es384 => "ES384",
         }
     }
 }
@@ -114,6 +166,22 @@ pub struct OAuthConfig {
     /// Use PKCE (S256) for the authorization-code flow. Defaults to true.
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub pkce: bool,
+    /// `jwt_bearer` only: path to the PEM private key the assertion is signed
+    /// with. A path, not the key — the key never enters sn's own files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwt_key_file: Option<String>,
+    /// `jwt_bearer` only: the assertion's `sub` claim — the value the instance
+    /// matches against the JWT endpoint's configured User field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwt_subject: Option<String>,
+    /// `jwt_bearer` only: the `kid` header naming the instance's JWT verifier
+    /// map entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwt_kid: Option<String>,
+    /// `jwt_bearer` only: signing algorithm. Inferred from the key when unset
+    /// (RSA → RS256, P-256 → ES256, P-384 → ES384).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwt_alg: Option<JwtAlg>,
 }
 
 /// An OAuth token set, persisted in `credentials.toml` (chmod 0600 on Unix).
@@ -205,6 +273,13 @@ pub struct ProfileCredentials {
     /// Cached OAuth tokens, refreshed transparently when stale.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth_tokens: Option<TokenSet>,
+    /// Static bearer token (`auth = "token"` profiles without a command).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// The last `token_command` result, cached only when the command reported
+    /// an expiry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_cache: Option<TokenSet>,
 }
 
 /// Resolve the sn config directory.
@@ -296,6 +371,10 @@ mod tests {
                     token_path: None,
                     grant: OAuthGrant::AuthorizationCode,
                     pkce: true,
+                    jwt_key_file: None,
+                    jwt_subject: None,
+                    jwt_kid: None,
+                    jwt_alg: None,
                 }),
                 ..Default::default()
             },
@@ -838,6 +917,30 @@ pub struct ResolvedProfile {
     pub oauth: Option<ResolvedOauth>,
     /// REST API key. `Some` iff `auth_method` is Apikey.
     pub api_key: Option<String>,
+    /// External bearer token source. `Some` iff `auth_method` is Token.
+    pub token: Option<ResolvedToken>,
+}
+
+/// Where an `auth = "token"` profile's bearer token comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedToken {
+    /// Stored verbatim in `credentials.toml`.
+    Static(String),
+    /// Produced by running `command`; `cached` is the last result, when the
+    /// command reported an expiry.
+    Command {
+        command: String,
+        cached: Option<TokenSet>,
+    },
+}
+
+/// `jwt_bearer` settings with the required fields proven present.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedJwt {
+    pub key_file: String,
+    pub subject: String,
+    pub kid: Option<String>,
+    pub alg: Option<JwtAlg>,
 }
 
 /// Fully-resolved OAuth state for a single invocation: client config plus any
@@ -852,6 +955,8 @@ pub struct ResolvedOauth {
     pub grant: OAuthGrant,
     pub pkce: bool,
     pub tokens: Option<TokenSet>,
+    /// `Some` iff `grant` is `jwt_bearer`.
+    pub jwt: Option<ResolvedJwt>,
 }
 
 pub struct ProfileResolverInputs<'a> {
@@ -921,7 +1026,7 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
                 ))
             })?,
         ),
-        AuthMethod::Oauth | AuthMethod::Apikey => (
+        AuthMethod::Oauth | AuthMethod::Apikey | AuthMethod::Token => (
             username_opt.unwrap_or_default(),
             password_opt.unwrap_or_default(),
         ),
@@ -938,17 +1043,63 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
                     ))
                 })?,
         ),
-        AuthMethod::Basic | AuthMethod::Oauth => None,
+        AuthMethod::Basic | AuthMethod::Oauth | AuthMethod::Token => None,
+    };
+
+    let token = match auth_method {
+        AuthMethod::Token => {
+            // A command wins over a stored token: `sn profile add` never
+            // writes both, and a hand-edited file that has both most plausibly
+            // added the command later.
+            let command = profile_cfg
+                .and_then(|p| p.token_command.clone())
+                .filter(|c| !c.trim().is_empty());
+            Some(match command {
+                Some(command) => ResolvedToken::Command {
+                    command,
+                    cached: profile_cred.and_then(|c| c.token_cache.clone()),
+                },
+                None => ResolvedToken::Static(
+                    profile_cred
+                        .and_then(|c| c.token.clone())
+                        .filter(|t| !t.trim().is_empty())
+                        .ok_or_else(|| {
+                            Error::Config(format!(
+                                "no token or token_command configured for profile '{name}'; run `sn init`"
+                            ))
+                        })?,
+                ),
+            })
+        }
+        AuthMethod::Basic | AuthMethod::Oauth | AuthMethod::Apikey => None,
     };
 
     let oauth = match auth_method {
-        AuthMethod::Basic | AuthMethod::Apikey => None,
+        AuthMethod::Basic | AuthMethod::Apikey | AuthMethod::Token => None,
         AuthMethod::Oauth => {
             let cfg = profile_cfg.and_then(|p| p.oauth.as_ref()).ok_or_else(|| {
                 Error::Config(format!(
                     "profile '{name}' uses oauth but has no [oauth] config; run `sn init`"
                 ))
             })?;
+            let jwt = match cfg.grant {
+                OAuthGrant::JwtBearer => {
+                    let required = |v: &Option<String>, key: &str| {
+                        v.clone().filter(|s| !s.trim().is_empty()).ok_or_else(|| {
+                            Error::Config(format!(
+                                "profile '{name}' uses the jwt_bearer grant but has no {key} in its [oauth] config; run `sn init`"
+                            ))
+                        })
+                    };
+                    Some(ResolvedJwt {
+                        key_file: required(&cfg.jwt_key_file, "jwt_key_file")?,
+                        subject: required(&cfg.jwt_subject, "jwt_subject")?,
+                        kid: cfg.jwt_kid.clone().filter(|k| !k.trim().is_empty()),
+                        alg: cfg.jwt_alg,
+                    })
+                }
+                OAuthGrant::AuthorizationCode | OAuthGrant::ClientCredentials => None,
+            };
             Some(ResolvedOauth {
                 client_id: cfg.client_id.clone(),
                 client_secret: profile_cred.and_then(|c| c.client_secret.clone()),
@@ -967,6 +1118,7 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
                 grant: cfg.grant,
                 pkce: cfg.pkce,
                 tokens: profile_cred.and_then(|c| c.oauth_tokens.clone()),
+                jwt,
             })
         }
     };
@@ -1023,6 +1175,7 @@ pub fn resolve_profile(inputs: ProfileResolverInputs<'_>) -> Result<ResolvedProf
         auth_method,
         oauth,
         api_key,
+        token,
     })
 }
 
@@ -1059,10 +1212,27 @@ pub fn load_oauth_tokens(profile_name: &str) -> Result<Option<TokenSet>> {
 }
 
 /// Drop any cached OAuth tokens for `profile_name` (used by `sn profile logout`).
+/// Also drops a cached `token_command` result — logout means "forget what you
+/// were handed", whichever mechanism handed it over.
 pub fn clear_oauth_tokens(profile_name: &str) -> Result<()> {
     update_credentials_at(&credentials_path()?, |creds| {
         if let Some(p) = creds.profiles.get_mut(profile_name) {
             p.oauth_tokens = None;
+            p.token_cache = None;
+        }
+        Ok(())
+    })
+}
+
+/// Persist (or with `None`, drop) the cached `token_command` result for
+/// `profile_name`. Locked read-modify-write like [`save_oauth_tokens`].
+///
+/// Never creates a profile entry: a profile removed while its command ran must
+/// stay removed, not come back as a credentials entry with only a cache in it.
+pub fn save_token_cache(profile_name: &str, tokens: Option<&TokenSet>) -> Result<()> {
+    update_credentials_at(&credentials_path()?, |creds| {
+        if let Some(p) = creds.profiles.get_mut(profile_name) {
+            p.token_cache = tokens.cloned();
         }
         Ok(())
     })
@@ -1634,6 +1804,10 @@ mod resolution_tests {
                     token_path: None,
                     grant: OAuthGrant::AuthorizationCode,
                     pkce: true,
+                    jwt_key_file: None,
+                    jwt_subject: None,
+                    jwt_kid: None,
+                    jwt_alg: None,
                 }),
                 ..Default::default()
             },

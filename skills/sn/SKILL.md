@@ -91,13 +91,13 @@ get labels — and dates localized to the caller's timezone. A localized date fe
 - **`updateset back-out` and `app rollback` deserve a human.** They can affect
   many configuration records. Establish the target and intended reversal from the user's
   request before running either command.
-- **Pipe secrets** (`--password-stdin`, `--client-secret-stdin`, `--api-key-stdin`); argv is
-  visible to `ps`.
+- **Pipe secrets** (`--password-stdin`, `--client-secret-stdin`, `--api-key-stdin`,
+  `--token-stdin`); argv is visible to `ps`.
 - **Prefer `sn profile add` over `sn init`** — it emits JSON, never prompts off a TTY, and
   leaves `default_profile` alone.
 - **Authorization-code login needs a person** — `sn profile login` opens a browser and waits
-  for authorization. `client_credentials` and API keys (`--auth apikey`) support
-  headless setup. Data commands never open a browser.
+  for authorization. `client_credentials`, `jwt_bearer`, and API keys (`--auth apikey`)
+  support headless setup. Data commands never open a browser.
 - **Journal has no write verb**: add a note with
   `sn table update incident <sys_id> --field work_notes="..."`.
 

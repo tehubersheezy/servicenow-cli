@@ -194,6 +194,7 @@ pub fn mock_profile(instance: &str) -> sn::config::ResolvedProfile {
         auth_method: sn::config::AuthMethod::Basic,
         oauth: None,
         api_key: None,
+        token: None,
     }
 }
 
@@ -227,7 +228,9 @@ pub fn mock_oauth_profile(instance: &str, access_token: &str) -> sn::config::Res
                 expires_at: None,
                 token_type: Some("Bearer".into()),
             }),
+            jwt: None,
         }),
         api_key: None,
+        token: None,
     }
 }
