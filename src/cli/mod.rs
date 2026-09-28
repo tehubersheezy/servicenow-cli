@@ -472,7 +472,7 @@ pub enum Command {
     /// Run one sn command as another user, then end the impersonation
     /// (`sn impersonate <USER> -- <COMMAND>...`).
     Impersonate(ImpersonateArgs),
-    /// Open a record in the ServiceNow web UI (`sn open <table> <sys_id>`).
+    /// Open a record form or a list view in the web UI (`sn open <table> [<sys_id> | -q <query>]`).
     Open(OpenArgs),
     /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).
     Raw(RawArgs),

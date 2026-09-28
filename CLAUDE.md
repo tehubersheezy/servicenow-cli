@@ -67,7 +67,7 @@ src/
     user.rs         → sn user me (authenticated user: `ui/user/current_user` names the sys_id, then a direct `sys_user/{sys_id}` read; the scripted query is only the fallback)
     ping.rs         → sn ping (auth + latency + build version + the instance's own account of who the caller is)
     impersonate.rs  → sn impersonate <user> -- <cmd> (mints one cookie-only session, hops to the user, verifies, runs the wrapped command in-process via main.rs's `run`, then reverts + logs out on every exit incl. Ctrl-C; see "Impersonation")
-    open_record.rs  → sn open <table> <sys_id> (opens the form in the browser)
+    open_record.rs  → sn open <table> [<sys_id> | -q <query>] (opens a record form, or the table's list view — optionally filtered — in the browser; the query is percent-encoded twice, once as `sysparm_query`'s value and again with the whole target inside `nav_to.do?uri=`, so `&`/`%`/`+` survive both decodes)
     raw.rs          → sn raw <method> <path> (REST passthrough for unmodeled endpoints; --header, --query, --data/--field)
     graphql.rs      → sn graphql <query> (GraphQL passthrough: POST /api/now/graphql; in-band errors → exit 2 with the array in sn_error)
     gr.rs           → sn gr <table> (reads compiled to GlideRecord_Query: -f dot-walks references — `_reference` insertion decided by path position alone, no dictionary lookup — results flattened back to the dotted keys; -q rides as a GraphQL variable, never interpolated, and segments are identifier-validated before connect(); --count → _rowCount. An unqueryable table is detected by the error *path* ending at the table level (`@[GlideRecord_Query/<table>])`) because the live spelling is UnknownArgument 'pagination', not the FieldUndefined sn get documented — both are pinned)

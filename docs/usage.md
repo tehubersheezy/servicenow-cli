@@ -40,7 +40,7 @@ Utilities:
 
 - [API discovery](#api-discovery)
 - [Inspect and connect](#inspect-and-connect)
-- [Open a record in the web UI](#open-a-record-in-the-web-ui)
+- [Open a record or list in the web UI](#open-a-record-or-list-in-the-web-ui)
 - [Raw REST passthrough](#raw-rest-passthrough)
 - [Background scripts](#background-scripts)
 - [Human-readable table output](#human-readable-table-output)
@@ -671,12 +671,20 @@ It ends on every exit — success, a failing command, Ctrl-C (exit 130) — by s
 the session out, and checking the session is gone. The switch is also verified before the command
 runs: the instance answers the impersonate call with success even when it refused it.
 
-## Open a record in the web UI
+## Open a record or list in the web UI
 
 ```bash
 sn open incident <sys_id>                # any table; opens the form in your default browser
+sn open incident:INC0010001              # record references work too
+sn open incident                         # the table's list view
+sn open incident -q "active=true^priority=1"   # a filtered list view
 sn open incident <sys_id> --print-url    # print the URL instead of opening it
 ```
+
+A second positional (or a `table:id` reference) names a record; a bare table
+names its list. `-q` filters the list only, so combining it with a record is a
+usage error (exit 1). The query is encoded for you — pass it exactly as you would
+to `sn table list -q`.
 
 Opening emits `{"opened": true, "url": "..."}` and honors `--output`. `--print-url`
 deliberately does not: it writes the bare URL and nothing else, under every

@@ -1156,6 +1156,7 @@ sn ping                                  # health check (auth + latency + identi
 sn user me                               # the caller's own sys_user record, read by sys_id
 sn api list                              # which REST APIs this instance publishes
 sn open incident a1b2c3 --print-url        # print the record URL; omit the flag to open it
+sn open incident -q "active=true"          # open the filtered list view; -q is refused with a record
 sn raw GET /api/now/table/incident --query sysparm_limit=5      # REST passthrough for unmodeled endpoints
 sn raw POST /api/now/table/incident --data '{"short_description":"via raw"}'
 sn raw GET /api/now/table/incident -H 'X-no-response-body: true'   # repeatable request headers

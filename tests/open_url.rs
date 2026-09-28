@@ -65,3 +65,81 @@ fn trailing_slash_does_not_double_up() {
         "https://acme.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsys_id%3Dabc123"
     );
 }
+
+// ------------------------------------------------------------- list view ---
+
+fn open_args(args: &[&str]) -> assert_cmd::assert::Assert {
+    let tmp = write_profiles(
+        "t",
+        &[ProfileSpec {
+            name: "t",
+            instance: "acme.service-now.com",
+            username: "u",
+            password: "p",
+        }],
+    );
+    let mut all = vec!["open"];
+    all.extend_from_slice(args);
+    sn_cmd(tmp.path()).args(all).assert()
+}
+
+fn stdout_of(a: assert_cmd::assert::Assert) -> String {
+    String::from_utf8(a.success().get_output().stdout.clone())
+        .unwrap()
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn bare_table_opens_the_list_view() {
+    assert_eq!(
+        stdout_of(open_args(&["incident", "--print-url"])),
+        "https://acme.service-now.com/nav_to.do?uri=%2Fincident_list.do"
+    );
+}
+
+#[test]
+fn query_is_double_encoded_inside_uri() {
+    // `nav_to.do` decodes `uri=` once; the list page decodes its own
+    // `sysparm_query=` once more — so the query's `=`/`^`/space arrive as %25xx.
+    assert_eq!(
+        stdout_of(open_args(&[
+            "incident",
+            "-q",
+            "active=true^short_descriptionLIKEmail server",
+            "--print-url",
+        ])),
+        "https://acme.service-now.com/nav_to.do?uri=%2Fincident_list.do%3Fsysparm_query%3D\
+         active%253Dtrue%255Eshort_descriptionLIKEmail%2520server"
+    );
+}
+
+#[test]
+fn sysparm_query_alias_is_accepted() {
+    assert!(
+        stdout_of(open_args(&[
+            "incident",
+            "--sysparm-query",
+            "active=true",
+            "--print-url"
+        ]))
+        .ends_with("sysparm_query%3Dactive%253Dtrue")
+    );
+}
+
+#[test]
+fn query_with_a_sys_id_is_a_usage_error() {
+    open_args(&["incident", "abc123", "-q", "active=true", "--print-url"]).code(1);
+}
+
+#[test]
+fn query_with_a_record_ref_is_a_usage_error() {
+    let out = open_args(&["incident:INC0010001", "-q", "active=true", "--print-url"]).code(1);
+    let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+    assert!(stderr.contains("--query filters a list view"), "{stderr}");
+}
+
+#[test]
+fn invalid_list_table_is_a_usage_error() {
+    open_args(&["Incident", "--print-url"]).code(1);
+}
