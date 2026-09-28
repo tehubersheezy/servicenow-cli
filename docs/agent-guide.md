@@ -59,7 +59,8 @@ Non-obvious shapes worth knowing:
 
 `sn_error` is ServiceNow's original payload verbatim (null for transport/CLI
 errors — check `.error.message` first). `transaction_id` is SN's correlation id,
-useful for support requests.
+useful for support requests. `resume_from` appears only on a `table list --all`
+stream that failed part-way (see [Pagination](#pagination--bulk-processing)).
 
 **Every key but `message` may be absent**, and `status_code` in particular. Two
 paths omit it because the failure carried no HTTP status at all: a CICD
@@ -457,9 +458,9 @@ has no such flag — an event's `record` already carries each field as a
 
 ### Pagination & bulk processing
 
-ServiceNow caps any single response. `--all` follows the `Link: rel="next"`
-header and streams **every** matching record as JSONL — one object per line, so
-you can pipe to `jq -c` without buffering the whole set:
+ServiceNow caps any single response. `--all` streams **every** matching record
+as JSONL — one object per line, so you can pipe to `jq -c` without buffering the
+whole set:
 
 ```bash
 sn table list incident --query "active=true" --all
@@ -471,6 +472,26 @@ sn table list incident --query "active=true" --all --setlimit 5000    # larger p
 `--setlimit` is the per-API-call batch size under `--all`; `--offset` is ignored
 in `--all` mode. Don't compute offsets by hand. For a single manual page, use
 `--setlimit`+`--offset` without `--all`.
+
+**How `--all` pages.** By default it is a keyset walk. Each page asks for "rows
+after the last `sys_id` seen, sorted by `sys_id`", with no per-page count. Rows
+that exist for the whole walk each appear exactly once, even while the table
+changes. Output is therefore in `sys_id` order. A query with its own `ORDERBY`
+keeps its sort and pages by offset (the `Link` header) instead; so does
+`--paginate offset`. A table with no plain `sys_id` to seek on, such as a
+database view, switches to offset by itself. `^OR` and `^NQ` queries both work
+under keyset.
+
+**Resuming.** If a keyset stream fails part-way, stdout holds every record up to
+the failure and the error names where to continue:
+
+```json
+{"error":{"message":"…","status_code":503,"resume_from":"8b031135474321009db4b5b08b9a7152"}}
+```
+
+Rerun the same command with `--resume-from <that sys_id>` and append. The rest
+of the walk arrives with no gap and no overlap. `--array` writes nothing until
+the end, so its failures carry no `resume_from`.
 
 **`--all` refuses `--output raw` and `--output table`** (exit 1, before any
 request goes out). Both were accepted and ignored in earlier releases, which is
@@ -701,6 +722,7 @@ apply across `table` and most other command groups.
 | `--no-count` / `--suppress-pagination-header` | `sysparm_no_count` / `sysparm_suppress_pagination_header` | list | Skip count query (faster on big tables) |
 | `--suppress-auto-sys-field` | `sysparm_suppress_auto_sys_field` | create/update | Skip system-field auto-gen |
 | `--all` / `--array` / `--max-records <N>` | (CLI only) | list | Auto-paginate / array output / cap |
+| `--paginate keyset\|offset` / `--resume-from <sys_id>` | (CLI only) | `table list --all` | Walk strategy (keyset by default) / continue an interrupted keyset stream |
 | `--query-category <cat>` | `sysparm_query_category` | list | Index selection |
 | `--output`, `--profile`, `-d`/`-dd`/`-ddd` | (CLI only) | all | See relevant sections |
 | `--yes` / `-y` | (CLI only) | **destructive subcommands only** — not global | Skip the confirmation; required on a non-TTY. Every `delete`, plus `change conflict remove`, `catalog cart-remove`/`cart-empty`, `updateset back-out`, `app rollback`, `profile remove` |
@@ -1248,6 +1270,7 @@ sn schema choices TABLE COLUMN
 # Shared list flags: --query EQ  --fields CSV  --setlimit N(=--limit)  --offset N
 #   --display-value false|true|all  --all [--array] [--max-records N]  --output default|raw|table
 sn table list TABLE [shared list flags] [--view N] [--query-category C] [--query-no-domain] [--no-count]
+              [--paginate keyset|offset] [--resume-from SYS_ID]   (both need --all)
 sn table get  TABLE [SYS_ID] [--fields CSV] [--display-value ...] [--view N]
 sn table create  TABLE (--data JSON|@FILE|@- | --field K=V ...) [--fields CSV] [--display-value ...] [--input-display-value]
 sn table update  TABLE [SYS_ID] (--data ...|--field K=V ...) [same write flags]   # PATCH — the only write verb
@@ -1306,6 +1329,6 @@ Env vars (proxy/TLS + config dir only — no credential/profile env vars):
   SN_CONFIG_DIR  SN_PROXY  SN_NO_PROXY  SN_INSECURE=1  SN_CA_CERT  SN_PROXY_CA_CERT
 Exit codes: 0 ok   1 usage/config   2 api(4xx/5xx, or a failure inside a 200)   3 network
             4 auth — every 401 AND every 403, incl. an ACL denial
-Error (stderr, all non-zero): {"error":{message,detail?,status_code?,transaction_id?,sn_error?}}
+Error (stderr, all non-zero): {"error":{message,detail?,status_code?,transaction_id?,sn_error?,resume_from?}}
   only `message` is guaranteed; `status_code` is omitted when the failure had no HTTP status
 ```

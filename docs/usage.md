@@ -132,6 +132,18 @@ sn table list incident --all --array --max-records 5000
 sn table list incident --all | jq -r '.number'
 ```
 
+`--all` walks by `sys_id` (keyset). Each page is "rows after the last sys_id seen", with no
+per-page count, so a table that changes during the walk never makes it skip or repeat a row.
+Records arrive in `sys_id` order. A query with its own `ORDERBY`, `--paginate offset`, and
+tables with no plain `sys_id` (database views) page by offset instead. If a stream fails
+part-way, the error's `resume_from` names the last record written. Rerun with
+`--resume-from <sys_id>` and append to continue with no gap and no overlap:
+
+```bash
+sn table list syslog -q "$Q" --all > out.jsonl         # fails part-way: exit 3, resume_from "…"
+sn table list syslog -q "$Q" --all --resume-from 8b03… >> out.jsonl
+```
+
 `--all` is JSONL and only JSONL, so it refuses both other output modes with exit 1 rather than
 accepting a flag it would ignore. For columns, buffer first — `--all --array --output table`.
 `--output raw` has no equivalent: pagination flattens every page's `{"result": ...}` envelope into
@@ -659,7 +671,7 @@ Across every command:
 
 - `--output raw` preserves ServiceNow's `{"result": ...}` envelope; `--output table` renders columns (interactive only). A mode a command cannot honor is a usage error, not a silent fallback: `--all` refuses both.
 - Output is pretty-printed on a TTY, compact when piped — override with `--pretty` / `--compact`.
-- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?", "sn_error?"}}` — `sn_error` carries ServiceNow's raw error object. Only `message` is guaranteed; `status_code` is **omitted** when the failure carried no HTTP status (a CICD operation reported as failed inside a 200 under `--wait`, a scripted query the instance dropped) — never a fabricated `0`. It *is* reported as `200` where the HTTP call genuinely succeeded and ServiceNow put the failure in the body (`sn graphql`, `sn journal`, `sn variables set`), so the key says what HTTP said, not whether the command worked: branch on the exit code instead.
+- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?", "sn_error?", "resume_from?"}}` — `sn_error` carries ServiceNow's raw error object; `resume_from` only appears on an interrupted `table list --all` stream. Only `message` is guaranteed; `status_code` is **omitted** when the failure carried no HTTP status (a CICD operation reported as failed inside a 200 under `--wait`, a scripted query the instance dropped) — never a fabricated `0`. It *is* reported as `200` where the HTTP call genuinely succeeded and ServiceNow put the failure in the body (`sn graphql`, `sn journal`, `sn variables set`), so the key says what HTTP said, not whether the command worked: branch on the exit code instead.
 - `--timeout <SECS>` bounds every request (default 30s) — except on `attachment download`, where it becomes a per-read idle timeout.
 
 ## Exit codes
