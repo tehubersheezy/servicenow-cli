@@ -10,6 +10,7 @@ pub mod change;
 pub mod cmdb;
 pub mod completion;
 pub mod context;
+pub mod doctor;
 pub mod get_record;
 pub mod gr;
 pub mod graphql;
@@ -62,6 +63,7 @@ pub use cmdb::{
 };
 pub use completion::{CompletionArgs, Shell as CompletionShell};
 pub use context::{ContextSub, ContextTargetArgs};
+pub use doctor::DoctorArgs;
 pub use get_record::GetRecordArgs;
 pub use gr::GrArgs;
 pub use graphql::GraphqlArgs;
@@ -472,6 +474,9 @@ pub enum Command {
     /// Run one sn command as another user, then end the impersonation
     /// (`sn impersonate <USER> -- <COMMAND>...`).
     Impersonate(ImpersonateArgs),
+    /// Preflight the instance in one round trip: who you are, whether you are
+    /// admin, and pass/fail checks for required roles, plugins and properties.
+    Doctor(DoctorArgs),
     /// Open a record form or a list view in the web UI (`sn open <table> [<sys_id> | -q <query>]`).
     Open(OpenArgs),
     /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).

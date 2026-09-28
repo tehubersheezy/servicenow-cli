@@ -83,7 +83,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn script run`](docs/usage.md#background-scripts) | Run server-side JavaScript and get what it printed back as JSON |
 | [`sn raw`](docs/usage.md#raw-rest-passthrough) | Call REST endpoints directly |
 | [`sn impersonate`](docs/usage.md#acting-as-another-user) | Run a command as another user to see what their roles and ACLs allow |
-| [`sn ping` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection or open a record or list view in your browser |
+| [`sn ping` / `sn doctor` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection, preflight required roles, plugins and properties, or open a record or list view in your browser |
 
 ## Using it in scripts
 

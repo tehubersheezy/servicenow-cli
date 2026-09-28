@@ -640,6 +640,18 @@ the same probe and are `null` when the endpoint that carries them is absent; `im
 `glide.buildname` nor `glide.buildtag`, so null there means "the instance doesn't publish it", not
 a failure.
 
+```bash
+# Preflight: is this account set up for what I'm about to do? One round trip.
+sn doctor --need-role itil --need-plugin com.snc.change_management --need-property glide.servlet.uri
+```
+
+`sn doctor` reports identity, whether the session is admin, which kinds of check this account can
+run, and a `checks` array of `pass` / `fail` / `unavailable`. It exits 0 only when every check
+passes; otherwise the report still goes to stdout and the command exits 2. A role passes only if it
+exists — an admin session would otherwise "hold" any name you type — and plugin/property checks are
+`unavailable` for non-admin accounts, because the instance answers them with `null`. See the
+[agent guide](agent-guide.md#sn-doctor) for the full shape.
+
 `sn user me` resolves the caller's sys_id and reads that one record — no `javascript:` term on the
 wire, so a term the instance cannot evaluate cannot be silently dropped and leave you holding a
 stranger's record. On an instance without that endpoint it falls back to the scripted `sys_user`

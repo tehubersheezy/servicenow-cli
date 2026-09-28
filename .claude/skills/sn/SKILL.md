@@ -68,7 +68,9 @@ ServiceNow's own error body — read it and self-correct instead of retrying bli
 **Exit 4 does not always mean "log in again."** Both 401 and 403 map to it. A successful
 `sn ping` confirms that its probes worked, but another endpoint can still reject the
 request because of roles, ACLs, or API access policies. A failing ping can also be a
-network or configuration error. Check the exit code and error details before retrying.
+network or configuration error. Check the exit code and error details before retrying. `sn doctor --need-role <role>`
+names a missing role; don't test roles with `getMatchingRoles` or `gs.hasRole` yourself —
+under admin they answer yes to any name, real or not.
 
 `status_code` may be absent on exit 2 (a failure reported inside a 200). Test for the key,
 don't default it.
