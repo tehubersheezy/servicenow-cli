@@ -76,6 +76,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn app` / `sn updateset` / `sn atf`](docs/usage.md#cicd-operations) | Install and publish apps, move update sets, and run Automated Test Framework suites |
 | [`sn context`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
+| [`sn decision`](docs/usage.md#decision-tables) | List and inspect decision tables, and evaluate one against inputs |
 | [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
 | [`sn raw`](docs/usage.md#raw-rest-passthrough) | Call REST endpoints directly |
 | [`sn ping` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection or open a record in your browser |

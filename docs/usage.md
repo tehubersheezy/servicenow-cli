@@ -29,6 +29,7 @@ ITSM and platform APIs:
 - [Identification & Reconciliation](#identification--reconciliation)
 - [CICD operations](#cicd-operations)
 - [Performance Analytics scorecards](#performance-analytics-scorecards)
+- [Decision tables](#decision-tables)
 
 Utilities:
 
@@ -522,6 +523,39 @@ sn scores favorite <uuid>
 sn scores unfavorite <uuid>
 ```
 
+## Decision tables
+
+`sn decision` reads decision tables (`sys_decision`) and evaluates them — "what does this
+policy decide for these inputs?" — without opening Decision Builder:
+
+```bash
+sn decision list                                   # every table, ordered by name
+sn decision list -q "answer_table=chg_approval_def"
+sn decision show "Normal Change Policy"            # by exact name (case-insensitive) or sys_id
+sn decision run "Normal Change Policy" -i change_request=CHG0000008 -i manager_approved=false
+sn decision run <sys_id> -i instance_type=test --all-matches
+```
+
+`show` returns the table's row plus `inputs` (name, type, mandatory, choices, reference
+table), `answer_elements` (multi-result tables only), `conditions`, and `decisions` in
+evaluation order — each with its encoded-query `condition`, its `answer`, and
+`default: true` on the fallback row the table answers when nothing else matches. `run`
+returns `{sys_id, name, inputs, matches}`; each match names the decision (`sys_id`,
+`label`, `order`, `default`) and its `answer`: `{value, display_value}` for a table whose
+answer is a record, `{elements: {name: {value, display_value}}}` for a multi-result
+table. `matches: []` means no decision (and no default) applies — that is an answer, exit 0.
+
+The evaluator accepts every input mistake silently, answering with the default decision
+as though the input were real, so `run` checks inputs against the table first (exit 1):
+unknown names, missing mandatory inputs (`name=` sends one empty on purpose), a choice
+*label* where the value belongs, and a boolean that is not `true`/`false`. A reference
+input takes a sys_id or the referenced record's number, which is resolved first and
+reported under `resolved_from`. Both verbs need the Decision Builder plugin
+(`sn_decision_table`) and one of `decision_table_admin`, `decision_table_reader` or
+`change_manager`; its API answers a caller without them with empty data rather than an
+error, so `sn decision` reports that as exit 2 naming the roles. Editing tables is not
+wired yet.
+
 ## API discovery
 
 `sn schema` answers "what does this table look like?"; `sn api` answers "is there an API for this?"
@@ -648,6 +682,7 @@ Commands emit JSON on stdout by a few consistent rules:
 - `get` / `create` / `update` → the single record object (`cmdb get` includes relations).
 - `delete` → nothing.
 - `aggregate` → a stats object; `scores` → scorecard records; `journal` → an array of entries.
+- `decision show` / `decision run` → one composed object (see [Decision tables](#decision-tables)); `--output raw` is refused, as for `sn get`.
 - `graphql` → the response's `data` value, unwrapped; a non-empty `errors` array means exit 2 with the errors on stderr (partial `data` still reaches stdout).
 - Async CICD (`app`, `updateset`, `atf run`, `progress`) → a progress object carrying `status` — a numeric **string**, not a word: `"0"` pending, `"1"` running, `"2"` successful, `"3"` failed, `"4"` cancelled — alongside `status_message`, `percent_complete`, and the operation's id at `links.progress.id`.
 - `attachment download` → raw bytes (or `{"path","size"}` metadata JSON when you pass `--out <file>`). The destination flag is `--out`/`-o`; `--output` is reserved CLI-wide for the output *mode*.
@@ -659,7 +694,7 @@ Across every command:
 
 - `--output raw` preserves ServiceNow's `{"result": ...}` envelope; `--output table` renders columns (interactive only). A mode a command cannot honor is a usage error, not a silent fallback: `--all` refuses both.
 - Output is pretty-printed on a TTY, compact when piped — override with `--pretty` / `--compact`.
-- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?", "sn_error?"}}` — `sn_error` carries ServiceNow's raw error object. Only `message` is guaranteed; `status_code` is **omitted** when the failure carried no HTTP status (a CICD operation reported as failed inside a 200 under `--wait`, a scripted query the instance dropped) — never a fabricated `0`. It *is* reported as `200` where the HTTP call genuinely succeeded and ServiceNow put the failure in the body (`sn graphql`, `sn journal`, `sn variables set`), so the key says what HTTP said, not whether the command worked: branch on the exit code instead.
+- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?", "sn_error?"}}` — `sn_error` carries ServiceNow's raw error object. Only `message` is guaranteed; `status_code` is **omitted** when the failure carried no HTTP status (a CICD operation reported as failed inside a 200 under `--wait`, a scripted query the instance dropped) — never a fabricated `0`. It *is* reported as `200` where the HTTP call genuinely succeeded and ServiceNow put the failure in the body (`sn graphql`, `sn journal`, `sn variables set`, `sn decision`), so the key says what HTTP said, not whether the command worked: branch on the exit code instead.
 - `--timeout <SECS>` bounds every request (default 30s) — except on `attachment download`, where it becomes a per-read idle timeout.
 
 ## Exit codes

@@ -10,6 +10,7 @@ pub mod change;
 pub mod cmdb;
 pub mod completion;
 pub mod context;
+pub mod decision;
 pub mod get_record;
 pub mod gr;
 pub mod graphql;
@@ -60,6 +61,7 @@ pub use cmdb::{
 };
 pub use completion::{CompletionArgs, Shell as CompletionShell};
 pub use context::{ContextSub, ContextTargetArgs};
+pub use decision::{DecisionListArgs, DecisionRunArgs, DecisionShowArgs, DecisionSub};
 pub use get_record::GetRecordArgs;
 pub use gr::GrArgs;
 pub use graphql::GraphqlArgs;
@@ -442,6 +444,11 @@ pub enum Command {
     Catalog {
         #[command(subcommand)]
         sub: CatalogSub,
+    },
+    /// Decision tables: list them, show one's inputs and decisions, run one against inputs.
+    Decision {
+        #[command(subcommand)]
+        sub: DecisionSub,
     },
     /// Identification and Reconciliation (CI create/update/query).
     Identify {

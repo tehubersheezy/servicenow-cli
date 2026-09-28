@@ -2,8 +2,8 @@ use clap::error::ErrorKind;
 use is_terminal::IsTerminal;
 use sn::cli::{
     ApiSub, AppSub, AtfSub, AttachmentSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
-    ContextSub, IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub, UserSub,
-    VariablesSub,
+    ContextSub, DecisionSub, IdentifySub, ImportSub, SchemaSub, ScoresSub, TableSub, UpdateSetSub,
+    UserSub, VariablesSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -183,6 +183,11 @@ fn run(cli: Cli) -> Result<()> {
             CatalogSub::Checkout => sn::cli::catalog::checkout(&global),
             CatalogSub::SubmitOrder => sn::cli::catalog::submit_order(&global),
             CatalogSub::Wishlist => sn::cli::catalog::wishlist(&global),
+        },
+        Command::Decision { sub } => match sub {
+            DecisionSub::List(args) => sn::cli::decision::list(&global, args),
+            DecisionSub::Show(args) => sn::cli::decision::show(&global, args),
+            DecisionSub::Run(args) => sn::cli::decision::run(&global, args),
         },
         Command::Identify { sub } => match sub {
             IdentifySub::CreateUpdate(args) => sn::cli::identify::create_update(&global, args),
