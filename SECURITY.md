@@ -8,8 +8,8 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 0.3.x   | Yes       |
-| < 0.3   | No        |
+| Latest 0.x minor line | Yes |
+| Earlier 0.x minor lines | No |
 
 ## Reporting a Vulnerability
 
@@ -55,25 +55,31 @@ By default, `sn`:
 
 - Verifies TLS certificates; `--insecure` is opt-in only and prints a warning
 - Stores credentials separately from non-secret config (`credentials.toml`, chmod `0600` on Unix)
-- Sends network traffic only to the configured ServiceNow instance and (optionally) the configured proxy — there is no telemetry or analytics
-- Ships every release artifact built reproducibly via cargo-dist on GitHub-hosted runners
+- Uses the configured instance and proxy for API requests. Browser-based OAuth can also
+  visit your identity provider; the CLI has no telemetry or analytics.
+- Builds release binaries with cargo-dist on GitHub-hosted runners
 
 ## Verifying Release Artifacts
 
-Every release artifact is signed via [Sigstore](https://www.sigstore.dev/) using GitHub's [build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds). The signature is anchored in Sigstore's public Rekor transparency log and proves the artifact was built from this repo, by the release workflow, on a GitHub-hosted runner — without anyone holding a long-lived signing key.
+The release workflow creates GitHub build-provenance attestations for the per-target
+binary archives. Install scripts, checksums, and other release assets are not all
+attested. Provenance identifies the repository, workflow, and commit used to build an
+archive; it does not establish that the build is reproducible or the code is free of
+vulnerabilities.
 
 To verify an artifact you downloaded:
 
 ```bash
 # requires the GitHub CLI: https://cli.github.com/
-gh attestation verify sn-x86_64-apple-darwin.tar.xz --owner tehubersheezy
+gh attestation verify sn-x86_64-apple-darwin.tar.xz --repo tehubersheezy/servicenow-cli
 ```
 
 A successful verification confirms:
 
 - The artifact's SHA-256 matches what the build workflow produced
 - The build ran in this repo (`tehubersheezy/servicenow-cli`)
-- The build was triggered by a tag push to `main`
-- The signature is recorded in Sigstore's Rekor transparency log (auditable at <https://search.sigstore.dev/>)
+
+Inspect the verified provenance for the workflow, source commit, and release tag.
+A valid attestation alone does not prove that the tagged commit belongs to `main`.
 
 Attestations are available for releases starting with `v0.3.4`.

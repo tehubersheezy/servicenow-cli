@@ -25,6 +25,9 @@ brew install tehubersheezy/sn/sn
 For Windows, shell installers, and pre-built binaries, see the
 [setup guide](docs/setup.md#installation).
 
+For OAuth or SSO, we recommend [creating an Application Registry entry and using its
+client ID](docs/setup.md#create-an-oauth-application-registry-entry).
+
 Run `sn init` to connect to your instance. It asks for the instance URL and credentials,
 checks the connection, and saves a profile for future commands.
 
@@ -82,8 +85,8 @@ The [usage guide](docs/usage.md) has examples for each command group.
 
 ## Using it in scripts
 
-Record data goes to stdout as JSON, and errors go to stderr as JSON. Use `--all` on
-paginated list commands to stream one record per line, ready to pipe into `jq`:
+Record data goes to stdout as JSON, and errors go to stderr. On `sn table list`, use
+`--all` to stream one record per line, ready to pipe into `jq`:
 
 ```bash
 sn table list incident --query "active=true" --all | jq -r '.number'
@@ -92,7 +95,8 @@ sn table list incident --query "active=true" --all | jq -r '.number'
 Exit codes distinguish success (`0`), usage or configuration errors (`1`), API errors
 (`2`), network errors (`3`), and authentication or permission errors (`4`). Commands
 won't prompt when stdin isn't a terminal. Destructive operations require `--yes` in
-that case; in an interactive terminal, they ask for confirmation.
+that case; in an interactive terminal, they ask for confirmation. `sn raw` sends the
+requested HTTP method directly and has no confirmation guard.
 
 See the [output contract](docs/usage.md#output-contract) for response formats and the
 [non-interactive setup guide](docs/setup.md#non-interactive-setup-ci-containers-agents)

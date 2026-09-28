@@ -6,18 +6,19 @@ allowed-tools: Bash(sn *)
 
 # sn — ServiceNow from the command line
 
-JSON on stdout, JSON errors on stderr, deterministic exit codes, and it never prompts when
-stdin isn't a terminal. `sn <group> --help` is accurate and complete — read it for syntax.
+API data is JSON by default, with stable exit codes and JSON runtime errors on stderr.
+Warnings and diagnostics can share stderr. Commands never prompt when stdin isn't a terminal. `sn <group> --help` is accurate and complete — read it for syntax.
 This file covers only what the binary can't tell you: how the *instance* misleads you.
 
 ## The one dangerous silent failure
 
-**A query term ServiceNow cannot parse is dropped, and you get every row in the table** —
-correctly formatted, exit 0, no warning. A typo'd field name doesn't narrow your query, it
-widens it.
+**ServiceNow can drop an invalid query term and apply only the remaining terms**,
+returning more records than you intended with exit 0. If no valid filter remains, the
+result can cover the whole table. Behavior also depends on instance configuration.
 
-So after a filtered read, and before any decision or write that depends on it, prove the
-filter did something. `sn aggregate <table> --count` is one request and no rows:
+Check field names with `sn schema` and inspect returned values before making a decision
+or write that depends on a filter. Compare counts to catch a suspiciously broad result;
+`sn aggregate <table> --count` is one request without record rows:
 
 ```bash
 sn aggregate incident --count                                        # 70  baseline
@@ -25,11 +26,14 @@ sn aggregate incident --count -q "assigned_to.name=Abel Tuter"       # 0   term 
 sn aggregate incident --count -q "assigned_two.name=Abel Tuter"      # 70  typo, dropped
 ```
 
-**A zero needs the same proof from the other side.** "Nothing matched" and "my query broke"
+Equal counts are a clue, not proof: a valid filter can match every record, and a
+partly invalid query can still narrow the result.
+
+**An empty result needs a check too.** "Nothing matched" and "my query broke"
 look identical, so show the query *can* match — confirm the entity exists, or run the same
 shape against a value you know is there.
 
-`sn change list` checks this for you: a dropped term is a stderr warning naming it
+`sn change list` surfaces ignored fields when the API reports them: a dropped term is a stderr warning naming it
 (`sn: warning: ServiceNow ignored query field(s): assigned_two`). The full account — the
 query the instance actually ran — is the `__meta` element kept under `--output raw`.
 
@@ -53,26 +57,26 @@ Silent: `jq` prints empty and exits 0, so a wrong path reads as "no data".
 | `sn get` | `.number` | **`.record.number`** — top level is `{table, sys_id, record, variables, journal}` |
 | `aggregate --group-by` | `.stats.groupby_fields` | top level becomes an **array**; `groupby_fields` is a **sibling** of `stats` |
 | `aggregate --sum-fields` | `.stats.sum` | **`.stats.sum.<field>`** — sum/avg/min/max nest per field |
-| any count | a number | a **string**: `"70"` |
+| `aggregate --count` | a number | a **string**: `"70"`; `gr --count` instead returns `{count: 70}` |
 | `watch` | every line is an event | a line with **`sn_watch`** is a gap marker |
 
-## Exit codes, and the one that lies
+## Exit codes and permission failures
 
 `0` ok · `1` usage/config · `2` instance refused or couldn't answer · `3` network/transport ·
 `4` auth. Branch on the code first, parse stdout second. `sn_error` on stderr carries
 ServiceNow's own error body — read it and self-correct instead of retrying blind.
 
-**Exit 4 does not mean "log in again."** ServiceNow answers a *row-level ACL denial* with 403,
-so a perfectly good credential missing a role exits 4. Split them with one call: if `sn ping`
-exits 0, the credential is fine and a role is missing — re-authenticating will never fix it,
-and you should say so rather than loop. A 401, or a failing `ping`, is the credential.
+**Exit 4 does not always mean "log in again."** Both 401 and 403 map to it. A successful
+`sn ping` confirms that its probes worked, but another endpoint can still reject the
+request because of roles, ACLs, or API access policies. A failing ping can also be a
+network or configuration error. Check the exit code and error details before retrying.
 
 `status_code` may be absent on exit 2 (a failure reported inside a 200). Test for the key,
 don't default it.
 
 ## Values that don't round-trip
 
-`--display-value` **defaults to `true`** on `table`, `change`, `aggregate` and `scores`, so you
+`--display-value` **defaults to `true`** on `table`, `get`, `gr`, `change`, `aggregate`, and `scores`, so you
 get labels — and dates localized to the caller's timezone. A localized date fed back into
 `--query` will not match. When a value will be *used* rather than shown, read it with
 `--display-value false`.
@@ -84,15 +88,16 @@ get labels — and dates localized to the caller's timezone. A localized date fe
   land in the dropped-term case above.
 - **Bound every watch** (`--max-events` / `--duration` / `--idle-timeout`), and note it
   requires `-q`; there is no bare "watch this table" form.
-- **`updateset back-out` and `app rollback` deserve a human.** One flag, instance-wide,
-  asynchronous, no undo of their own — say what will be reverted before firing.
+- **`updateset back-out` and `app rollback` deserve a human.** They can affect
+  many configuration records. Establish the target and intended reversal from the user's
+  request before running either command.
 - **Pipe secrets** (`--password-stdin`, `--client-secret-stdin`, `--api-key-stdin`); argv is
   visible to `ps`.
 - **Prefer `sn profile add` over `sn init`** — it emits JSON, never prompts off a TTY, and
   leaves `default_profile` alone.
-- **`authorization_code` OAuth is not agent-safe** — `sn profile login` opens a browser and blocks
-  on a human. `client_credentials` is headless; an API key (`--auth apikey`) is the simplest
-  headless setup of all. Data commands never open a browser.
+- **Authorization-code login needs a person** — `sn profile login` opens a browser and waits
+  for authorization. `client_credentials` and API keys (`--auth apikey`) support
+  headless setup. Data commands never open a browser.
 - **Journal has no write verb**: add a note with
   `sn table update incident <sys_id> --field work_notes="..."`.
 
@@ -108,9 +113,10 @@ get labels — and dates localized to the caller's timezone. A localized date fe
 Other surfaces are well covered by `--help`; a few notes worth having anyway: `sn api search
 <term>` discovers what endpoints the instance actually publishes (use it before hand-writing
 `sn raw`); `sn gr <table> -f number,caller_id.manager.email` reads dot-walked reference fields
-in one round trip without writing GraphQL (`--count` for just the match count); `sn graphql`
-and `sn gr` fail **in band** — HTTP 200 with an `errors` array, mapped to exit 2
-with partial `data` still on stdout; `sn attachment download --out` stages and renames, so a
+in one round trip without writing GraphQL (`--count` for just the match count). Both
+`sn graphql` and `sn gr` map GraphQL errors to exit 2 even under HTTP 200; only
+`sn graphql` emits partial `data` on failure. `sn raw` has no confirmation guard,
+including for DELETE; `sn attachment download --out` stages and renames, so a
 failed download never leaves a truncated file, and reports `{"path","size"}`; `sn identify
 query` shows what the IRE *would* match before `create-update` writes; `sn catalog
 item-variables` names what an order must carry, and the cart is server-side state that

@@ -1,8 +1,11 @@
 # `sn` CLI v1 Implementation Plan
 
-> **Note:** This implementation plan has been fully executed. All 27 tasks are complete. This file is kept for historical reference only. For current architecture, see `CLAUDE.md`.
+> **Historical implementation plan.** The original work is complete; the code snippets,
+> dependency versions, command names, and checkboxes below are an archival record. Do not
+> execute them as current setup instructions. See the [usage guide](../../usage.md),
+> [contributor guide](../../../CONTRIBUTING.md), and [architecture notes](../../../CLAUDE.md).
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Original implementation instruction (archived):** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an agent-forward Rust CLI that wraps the ServiceNow Table API plus two schema-discovery endpoints, producing a single binary with stable JSON contract, named profiles, and deterministic exit codes.
 

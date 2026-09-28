@@ -44,8 +44,8 @@ with the later write's values.
   been observed arriving with `changes: []` — in which case they're rejected and the stream
   just looks quiet. Treat it as best-effort: if missing an update is unacceptable, take every
   event and filter on `record` yourself.
-- **Filters are client-side.** AMB has no server-side filter, so `--operation`/`--on-change`
-  are applied locally — a rejected event doesn't spend `--max-events` or reset `--idle-timeout`.
+- **Operation and changed-field filters are client-side.** The subscription query is
+  server-side; `--operation`/`--on-change` are applied locally — a rejected event doesn't spend `--max-events` or reset `--idle-timeout`.
 - **No replay, no cursor.** A subscription starts at "now"; anything that changed during an
   outage is gone. A watch is a best-effort feed, not a log.
 

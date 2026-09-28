@@ -14,7 +14,7 @@ pre-approved template. List them with `sn change templates`.
 returns scalars. This catches everyone:
 
 ```bash
-sn change get <sys_id> --type normal | jq -r '.number'         # → null
+sn change get <sys_id> --type normal | jq -r '.number'         # → a JSON object
 sn change get <sys_id> --type normal | jq -r '.number.value'   # → CHG0030001
 ```
 
@@ -24,7 +24,8 @@ sn change get <sys_id> --type normal | jq -r '.number.value'   # → CHG0030001
 
 `sn change list` returns records only. The API's trailing `__meta` element — the query the
 instance *actually ran* — is stripped from the array; when it names a dropped term, the CLI
-warns on stderr instead, so an unfiltered result never passes silently. Read the element
+warns on stderr when the API reports an ignored field. This does not validate every
+possible query; inspect the records before acting on them. Read the element
 itself under `--output raw`:
 
 ```bash
@@ -51,7 +52,7 @@ that read like a permission problem. The response has **three** top-level keys:
 ```json
 {"available_states": ["3"],
  "state_label": {"3": "Closed"},
- "state_transitions": [[{"sys_id": "…", "transition_available": "true", "conditions": […]}]]}
+ "state_transitions": [[{"sys_id": "…", "transition_available": "true", "conditions": []}]]}
 ```
 
 ```bash
@@ -67,4 +68,4 @@ and knowing why.
 - **`change task list` defaults to `--setlimit 100`**, not 1000 like its siblings. Pass it
   explicitly if a change might have more.
 - **`change conflict remove` clears every recorded conflict at once** — it is not a targeted
-  delete, and nothing restores them. Read `conflict get` first and say what's about to go.
+  delete, so check the target before running it. Read `conflict get` first and say what's about to go.

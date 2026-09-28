@@ -1,12 +1,15 @@
 # Usage guide
 
-Every command group, with examples. Two things hold everywhere and are worth knowing before
-anything else:
+Command examples and the conventions they share:
 
-- **Output is JSON on stdout, errors are JSON on stderr, and the exit code tells you what
-  happened.** The full rules are in [Output contract](#output-contract) at the bottom.
-- **A command needs a profile** — an instance + credentials saved by `sn init` or
-  `sn profile add`. See the [setup guide](setup.md) if you haven't made one.
+- **JSON is the default for API data.** Check the exit code before using it, and see the
+  [output contract](#output-contract) for exceptions and stderr diagnostics.
+- **Commands that connect to an instance need a profile** saved by `sn init` or
+  `sn profile add`. Local commands such as `--help`, `completion`, and `introspect`
+  don't need credentials. See the [setup guide](setup.md) to connect.
+
+Replace placeholders such as `<sys_id>` with values from your instance. Record numbers
+and payloads in these examples are illustrative.
 
 Working with records:
 
@@ -16,8 +19,11 @@ Working with records:
 - [Watching records (live)](#watching-records-live)
 - [Schema discovery](#schema-discovery)
 - [Journal: comments and work notes](#journal-comments-and-work-notes)
+- [Catalog variables](#catalog-variables)
+- [Session context](#session-context)
 - [Aggregate queries](#aggregate-queries)
 - [GraphQL](#graphql)
+- [Dot-walked reads](#dot-walked-reads-sn-gr)
 
 ITSM and platform APIs:
 
@@ -81,6 +87,9 @@ sn table incident                   # same as: sn table list incident
 sn cmdb cmdb_ci_server <sys_id>     # same as: sn cmdb get cmdb_ci_server <sys_id>
 ```
 
+Use the explicit verb for help (`sn table get --help` or `sn cmdb list --help`);
+help on an implied-verb form currently reports an unrecognized subcommand.
+
 Only `get` and `list` are ever inferred, never a write, and only when the choice is
 unambiguous — a `table:id` reference is a `get`, a bare noun is a `list`, and a noun
 plus sys_id is a `get`. A misspelled verb stays an error: `sn table lst incident`
@@ -121,8 +130,11 @@ destructive command carries the same guard, not only the ones spelled `delete`: 
 
 ## Pagination
 
+Automatic pagination is available on **`sn table list`**. Other list commands use
+their own paging flags; check the command's `--help`.
+
 ```bash
-# Stream every match as JSONL (one record per line)
+# Stream matches as JSONL (one record per line; capped at 100,000 by default)
 sn table list incident --query "active=true" --all
 
 # ...or buffer into one JSON array; cap the total with --max-records
@@ -132,8 +144,10 @@ sn table list incident --all --array --max-records 5000
 sn table list incident --all | jq -r '.number'
 ```
 
-`--all` is JSONL and only JSONL, so it refuses both other output modes with exit 1 rather than
-accepting a flag it would ignore. For columns, buffer first — `--all --array --output table`.
+`--max-records` defaults to 100,000; use `--max-records 0` to remove that cap.
+`--setlimit` controls page size, and `--offset` is ignored with `--all`.
+`--all` streams JSONL unless you add `--array`. Streaming refuses other output modes
+with exit 1. For columns, buffer first: `--all --array --output table`.
 `--output raw` has no equivalent: pagination flattens every page's `{"result": ...}` envelope into
 a record stream, so there is nothing left to keep; page by hand with `--setlimit`/`--offset` if the
 envelope is what you need.
@@ -227,11 +241,10 @@ sn schema choices incident state          # valid values for a choice field
 
 ## Journal: comments and work notes
 
-Journal entries live in `sys_journal_field`, one row per entry — but that table is
-ACL-locked for non-admin roles (the row *count* comes back, the rows don't). What any
-role that can read the record *can* read is the record's rendered journal stream.
-`sn journal` fetches it over GraphQL and parses it back into structured entries,
-newest first:
+Journal entries live in `sys_journal_field`, which can have stricter read access than
+the parent record. By default, `sn journal` fetches the record's rendered journal
+fields over GraphQL and parses them into structured entries, newest first. Access
+still depends on the record and field ACLs:
 
 ```bash
 sn journal incident <sys_id>                    # all entries: [{created_on, author, element, label, text}]
@@ -242,12 +255,40 @@ sn journal incident <sys_id> --raw              # the unparsed rendered stream, 
 sn journal incident <sys_id> --source table     # exact sys_journal_field rows (needs table ACL access)
 ```
 
-The default `--source record` works for any role that can read the record; its
-timestamps are rendered in the calling user's timezone and date format. `--source table`
+The default `--source record` uses timestamps rendered in the calling user's timezone
+and date format. `--source table`
 returns exact rows with UTC timestamps and usernames instead — and when rows exist but
 ACLs filter them all, the error says so and points back at `--source record`. Adding an
 entry needs no dedicated command: `sn table update incident <sys_id> --field
 work_notes="..."` writes one.
+
+## Catalog variables
+
+Read a request item's variables or update them by name:
+
+```bash
+sn variables get sc_req_item:RITM0010001
+sn variables set sc_req_item:RITM0010001 --field acrobat=true
+```
+
+Use the names returned by `get`; names are case-sensitive. `set` validates them before
+writing and reads the values back to verify the change. An `sc_task` reference resolves
+to its request item's variables. See the [agent guide](agent-guide.md#catalog-variables-variables)
+for response shapes, record-producer variables, and limitations.
+
+## Session context
+
+View or switch the application scope and update set used for tracked configuration writes:
+
+```bash
+sn context
+sn context scope x_myapp
+sn context updateset "Sprint 12 fixes"
+```
+
+This requires access to scope and update-set records. Setters read back the result to
+verify it; an update set must be in progress and belong to the current scope. See the
+[agent guide](agent-guide.md#session-context-context) for how stale preferences are reported.
 
 ## Aggregate queries
 
@@ -277,16 +318,16 @@ sn graphql @doc.graphql --operation GetIncident           # pick one operation f
 
 On success stdout gets `data` unwrapped — the GraphQL analogue of stripping `{"result": ...}` (`--output raw` keeps the whole response). GraphQL reports failure **in-band**: HTTP 200 with an `errors` array, sometimes alongside partial `data`. A response with errors exits 2 with the first error's message in the stderr envelope and the full array under `sn_error`; any partial `data` still reaches stdout first. `--var k=v` sets a string variable (repeatable; only the first `=` splits, so encoded queries pass through). `--variables` takes a whole JSON object for non-string variables; `--var` entries overlay it.
 
-What GraphQL gives you that the Table API can't: a total match count beside a page
-(`_rowCount`), many tables or queries in one request, per-field `canRead`/`canWrite`
+GraphQL can put a total match count in the response body (`_rowCount`), combine many
+tables or queries in one request, and provide per-field `canRead`/`canWrite`
 verdicts, choice lists resolved in record context (`_choices`), and structured dot-walking
 through reference fields (`_reference`). See [graphql.md](graphql.md) for the design notes.
 
 ## Dot-walked reads (`sn gr`)
 
-`sn gr` compiles friendly flags into a `GlideRecord_Query` document, for the one thing
-GraphQL does that the Table API can't: dot-walking through reference fields with real
-values, in one round trip (over REST that's one extra GET per hop per record):
+`sn gr` compiles field paths into a `GlideRecord_Query` document. It follows reference
+fields through GraphQL's `_reference` selections in one request, then flattens the
+results for use in scripts:
 
 ```bash
 sn gr incident -f number,short_description,caller_id.manager.email -q "active=true" --limit 20
@@ -310,6 +351,11 @@ along a path yields `null` for the whole key — dot-walking semantics. `ORDERBY
 fails with a message naming the mistake, and a table with no GraphQL query field is named
 too. `sn graphql` remains the passthrough for everything the compiler doesn't reach:
 mutations, aggregates, scripted namespaces, multi-operation documents.
+
+`--count` returns a JSON number in an object, such as `{"count":70}`. It cannot be
+combined with `--fields`. Reads default to 100 records; use `--limit` and `--offset`
+to page manually. `sn gr` has no `--all` flag. On GraphQL errors it exits 2 without
+emitting partial records; use `sn graphql` when you need the partial response data.
 
 ## Change Management
 
@@ -367,9 +413,8 @@ sn attachment download <sys_id> | gzip > backup.gz
 sn attachment delete <sys_id> --yes
 ```
 
-Downloads stream through a fixed 64 KiB buffer, so memory does not track file size — 800 MB
-measured at 19 MB peak RSS — and there is no attachment too large to fetch. Three details follow
-from that:
+Downloads stream through a fixed 64 KiB buffer instead of buffering the whole file.
+Three details matter when scripting them:
 
 - **`--timeout` is a per-read idle timeout on a download**, not a cap on the whole transfer (it
   still is on every other command). A slow but healthy transfer runs as long as it needs; a stalled
@@ -386,7 +431,7 @@ from that:
 
 ## CMDB
 
-CRUD and relationships on Configuration Items of any class:
+Read, create, and update configuration items, inspect class schemas, and manage relationships:
 
 ```bash
 sn cmdb list cmdb_ci_server --query "operational_status=1" --setlimit 20
@@ -501,13 +546,16 @@ sn progress <progress_id>
 ```
 
 `app rollback` and `updateset back-out` require `--yes` without a terminal, the same guard the
-deletes carry: a back-out reverts every record its update set applied, a rollback replaces an
-installed app instance-wide, both run asynchronously, and neither has an undo.
+deletes carry. Back-out reverses tracked configuration changes and can encounter
+conflicts; it is not a general data restore. See the ServiceNowDocs
+[back-out procedure](https://github.com/ServiceNow/ServiceNowDocs/blob/brazil/markdown/application-development/system-update-sets/t_BackOutUpdateSet.md).
+App rollback restores an earlier application version. Both operations run asynchronously.
 
 `--wait` honors `--output raw` and `--output table` — under raw it used to emit the initial,
 unpolled response and never wait at all. A failed operation is exit 2 with the progress object on
 stderr under `.error.sn_error`, and no `status_code`, since the instance reported the failure inside
-an HTTP 200.
+an HTTP 200. If the initial response has no `links.progress.id`, `--wait` emits it
+without polling; inspect that response before treating the operation as complete.
 
 ## Performance Analytics scorecards
 
@@ -554,7 +602,7 @@ API") instead of being rewritten as a guess about the release.
 ## Inspect and connect
 
 ```bash
-# Auth + identity + latency + build — one-shot health check (either auth method)
+# Auth + identity + latency + build — check the selected profile
 sn ping
 # {"ok":true,"profile":"prod","instance":"acme.service-now.com","username":"admin",
 #  "identity_source":"sg/impersonation/session","user_sys_id":null,"user_display_name":null,
@@ -594,7 +642,8 @@ deliberately does not: it writes the bare URL and nothing else, under every
 
 ## Raw REST passthrough
 
-An escape hatch for endpoints not yet modeled as typed commands — returned exactly as ServiceNow sends it, no envelope unwrapping:
+Call an endpoint directly using the selected profile. The response must be JSON;
+`sn raw` keeps its envelope but parses and formats it rather than copying raw bytes:
 
 ```bash
 sn raw GET /api/now/v2/table/incident -q sysparm_limit=5 -q sysparm_query=active=true
@@ -603,6 +652,10 @@ sn raw PATCH /api/now/table/incident/abc123 --field state=2
 sn raw DELETE /api/now/table/incident/abc123
 sn raw GET /api/now/table/incident -H 'X-no-response-body: true' -H 'X-Trace: 1'
 ```
+
+`sn raw` has no confirmation guard, including for `DELETE`, and takes no `--yes` flag.
+Headers can be added with `--header` / `-H`, but `Authorization` must come from the
+profile. Body inputs are JSON; changing `Content-Type` does not change their encoding.
 
 ## Human-readable table output
 
@@ -632,9 +685,11 @@ sn completion zsh > ~/.zsh/completions/_sn
 #   autoload -Uz compinit && compinit
 
 # bash (requires the bash-completion package)
+mkdir -p ~/.local/share/bash-completion/completions
 sn completion bash > ~/.local/share/bash-completion/completions/sn
 
 # fish
+mkdir -p ~/.config/fish/completions
 sn completion fish > ~/.config/fish/completions/sn.fish
 ```
 
@@ -642,25 +697,59 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`. The `${fpath[1]
 
 ## Output contract
 
-Commands emit JSON on stdout by a few consistent rules:
+API data is JSON by default, pretty-printed on a terminal and compact when piped.
+`--pretty` and `--compact` override that formatting. Most REST commands unwrap
+ServiceNow's `{"result": ...}` envelope; `--output raw` keeps it, and `--output table`
+renders columns for interactive reading.
 
-- `list` / `schema tables` / `columns` / `choices` → a JSON array (JSONL with `--all`).
-- `get` / `create` / `update` → the single record object (`cmdb get` includes relations).
-- `delete` → nothing.
-- `aggregate` → a stats object; `scores` → scorecard records; `journal` → an array of entries.
-- `graphql` → the response's `data` value, unwrapped; a non-empty `errors` array means exit 2 with the errors on stderr (partial `data` still reaches stdout).
-- Async CICD (`app`, `updateset`, `atf run`, `progress`) → a progress object carrying `status` — a numeric **string**, not a word: `"0"` pending, `"1"` running, `"2"` successful, `"3"` failed, `"4"` cancelled — alongside `status_message`, `percent_complete`, and the operation's id at `links.progress.id`.
-- `attachment download` → raw bytes (or `{"path","size"}` metadata JSON when you pass `--out <file>`). The destination flag is `--out`/`-o`; `--output` is reserved CLI-wide for the output *mode*.
-- `api list` / `api search` → an array of summary rows; `api spec` → the OpenAPI document (JSON, or YAML verbatim under `--format yaml`).
-- `profile use` → `{"ok","profile","default"}`; `profile remove` → `{"ok","profile","removed","wasDefault"}`, with `removed:false` and exit 0 when there was no such profile.
-- `scores unfavorite` → the endpoint's body, or `{"ok","uuid"}` when there is none; it used to print nothing at all. `scores favorite` passes the body through as-is, which is `null` on an instance that answers the POST with no content.
+| Command | Default stdout |
+|---|---|
+| `table list`, schema lists | JSON array; `table list --all` streams JSONL unless `--array` is set |
+| `table get/create/update` | One record object |
+| `get` | `{table, sys_id, record, variables, journal}`; `--output raw` is unsupported |
+| `cmdb get` | Object containing `attributes` and relationships |
+| Typed `delete` commands | Empty on success |
+| `aggregate` | Stats object, or an array of groups with `--group-by` |
+| `journal` | Entry array, or a JSON string with `--raw` |
+| `variables get/set` | Variable array / verified change report |
+| `context` | Scope and update-set object; setters also include `previous` |
+| `graphql` | Unwrapped `data`; errors exit 2, but partial data is still emitted |
+| `gr` | Record array, or `{"count": N}` with `--count`; errors exit 2 without partial data |
+| Async CICD operations / `progress` | Progress object; see [CICD operations](#cicd-operations) |
+| `api list/search` | Summary array; `--output raw` keeps the catalogue response |
+| `api spec` | OpenAPI JSON, or YAML text with `--format yaml` |
+| `raw` | Parsed JSON response, with no envelope unwrapping |
+| `profile add/use/remove` | JSON result; removing a missing profile returns `removed:false` and exits 0 |
+| `scores favorite/unfavorite` | Endpoint response; `unfavorite` supplies `{ok, uuid}` if there is no body |
 
-Across every command:
+Some commands deliberately produce other formats: `attachment download` writes file
+bytes (or `{path, size}` JSON with `--out`); `open --print-url` writes a bare URL;
+`completion` writes a shell script; help and version output are text. `sn init` reports
+its result on stderr, and interactive setup prompts can appear on stdout.
 
-- `--output raw` preserves ServiceNow's `{"result": ...}` envelope; `--output table` renders columns (interactive only). A mode a command cannot honor is a usage error, not a silent fallback: `--all` refuses both.
-- Output is pretty-printed on a TTY, compact when piped — override with `--pretty` / `--compact`.
-- Errors always go to stderr: `{"error": {"message", "detail?", "status_code?", "transaction_id?", "sn_error?"}}` — `sn_error` carries ServiceNow's raw error object. Only `message` is guaranteed; `status_code` is **omitted** when the failure carried no HTTP status (a CICD operation reported as failed inside a 200 under `--wait`, a scripted query the instance dropped) — never a fabricated `0`. It *is* reported as `200` where the HTTP call genuinely succeeded and ServiceNow put the failure in the body (`sn graphql`, `sn journal`, `sn variables set`), so the key says what HTTP said, not whether the command worked: branch on the exit code instead.
-- `--timeout <SECS>` bounds every request (default 30s) — except on `attachment download`, where it becomes a per-read idle timeout.
+`--all --output raw` is unsupported, including with `--array`.
+`--all --output table` requires `--array`. Options such as `open --print-url` and
+`api spec --format yaml` select their own format regardless of `--output`.
+
+Errors go to stderr in this shape:
+
+```json
+{"error":{"message":"...","detail":"...","status_code":403}}
+```
+
+Only `message` is guaranteed. Optional keys are `detail`, `status_code`,
+`transaction_id`, and `sn_error` (the instance's error payload). `status_code` is absent
+when no HTTP status describes the failure, and it can be `200` for a failure reported
+inside a successful HTTP response. Branch on the exit code first.
+
+Argument-parsing errors use JSON when stderr is redirected and human-readable text
+when stderr is a terminal. Runtime errors use JSON in either case. Warnings, OAuth
+login messages, and `-d` diagnostics can also appear on stderr, so the entire stream
+is not guaranteed to be one JSON document.
+
+`--timeout` defaults to 30 seconds per HTTP request. Attachment downloads use a
+per-read idle timeout for the body. Multi-request commands can take longer overall;
+use `--wait-timeout` for CICD polling and the watch-specific duration flags for streams.
 
 ## Exit codes
 
@@ -674,18 +763,24 @@ Across every command:
 
 Exit 4 is wider than "wrong password": a 403 from an ACL, a field the role cannot write, or an
 expired token all land here, and `status_code` is the only thing distinguishing them. There is no
-exit 2 with `status_code: 403`. Re-authenticating fixes the 401 case only; if the same call fails
-again, the answer is a role or an ACL.
+exit 2 with `status_code: 403`. A 403 can reflect an ACL or API access policy, not just a missing role.
+Check the error details before refreshing credentials; logging in again does not grant
+additional access.
+
+Ctrl-C during an attachment download exits `130`. `sn watch` exits `0` on Ctrl-C,
+and a closed stdout pipe also exits `0`; a successful exit therefore does not always
+mean every possible record was consumed.
 
 ## Parameters
 
-Every `sysparm_*` parameter has both a friendly name and a raw alias; `--query` and `--fields` also have short flags:
+The following Table API flags map to `sysparm_*` parameters. Other command groups
+support subsets; check their `--help` before reusing flags:
 
 | Friendly | Short | Alias | Values |
 |---|---|---|---|
 | `--query` | `-q` | `--sysparm-query` | Encoded query string |
 | `--fields` | `-f` | `--sysparm-fields` | Comma-separated field list |
-| `--setlimit` |  | `--limit`, `--sysparm-limit`, `--page-size` | Max records returned. Default 1000 on `table`/`change`/`cmdb` list; 100 on `change task list`, `attachment list`, `catalog categories`, `catalog items` |
+| `--setlimit` |  | `--limit`, `--setLimit`, `--sysparm-limit`; `--page-size` on `table list` only | Max records returned. Default 1000 on `table`/`change`/`cmdb` list; 100 on `gr`, `change task list`, `attachment list`, `catalog categories`, `catalog items` |
 | `--offset` |  | `--sysparm-offset` | Starting offset |
 | `--display-value` |  | `--sysparm-display-value` | `true` (default), `false`, `all` |
 | `--exclude-reference-link` |  | `--sysparm-exclude-reference-link` | Flag (presence ⇒ true) |

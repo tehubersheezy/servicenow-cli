@@ -5,9 +5,12 @@ this document was verified live against a Zurich PDI (dev421992, 2026-08-11)
 — including the ACL behavior, which was tested as both admin and a
 freshly-minted `itil` user.
 
-**Status:** the record-read wrapper shipped as `sn gr` in 0.13.2 (#99, PR
-#101) — see [usage.md](usage.md#dot-walked-reads-sn-gr). Batching, schema
-discovery, and keyset `--all` remain follow-ups tracked in #99.
+**Status:** these are design notes, not a command reference. `sn graphql` and
+`sn journal` shipped in 0.12.0; the record-read wrapper shipped as `sn gr` in
+0.13.2. See the [usage guide](usage.md#graphql) for implemented behavior. The
+`--with-total`, multi-get, live schema, `--expand`, and keyset-pagination ideas
+below are proposals, not supported flags. Follow-up work is tracked in
+[issue #99](https://github.com/tehubersheezy/servicenow-cli/issues/99).
 
 ## Background: the endpoint
 
@@ -36,8 +39,8 @@ feature below.
 1. **Many tables / many queries in one request** — aliases allow the same
    table under different conditions; reads and aggregates mix in one document.
 2. **Total count with the page** — `_rowCount` returns the full match count
-   alongside `pagination: {limit: N}` results. The Table API has no total; the
-   workaround is a second Aggregate API call.
+   alongside `pagination: {limit: N}` results. The Table API can report totals in headers, but `sn table list` does not
+   include those headers in its JSON output; `sn aggregate --count` is another option.
 3. **Field metadata inline, ACL-evaluated for the caller** — every column is
    a typed wrapper carrying `label`, `internalType`, `isMandatory`, and live
    `canRead`/`canWrite`/`canCreate` verdicts, per field, per record, per user.
@@ -75,7 +78,7 @@ not rows — parse it (header regex:
 
 ## Proposed additions
 
-### 1. `sn graphql` — first-class query runner
+### 1. `sn graphql` — shipped in 0.12.0
 
 `src/cli/graphql.rs`, modeled on `raw.rs`. Query from positional arg, `@file`,
 or stdin; `--var key=value` for GraphQL variables; unwraps `data` to stdout.
@@ -83,17 +86,16 @@ or stdin; `--var key=value` for GraphQL variables; unwraps `data` to stdout.
 Why `raw` isn't enough: GraphQL returns **HTTP 200 with an `errors` array**
 (sometimes alongside partial `data`), which silently defeats the
 "branch on exit code first" contract. The dedicated command maps a non-empty
-`errors` array to the stderr JSON error shape and exit code 2, and decides a
-policy for partial results (propose: `data` to stdout, `errors` to stderr,
-exit 2 — callers that want partials can still read stdout).
+`errors` array to the stderr JSON error shape and exit code 2. The implementation writes partial `data` to stdout and errors
+to stderr, so callers can inspect partial results while detecting failure.
 
 Request body shape: `{"query": "...", "variables": {...}}`.
 
-### 2. `sn journal <table> <sys_id>` — structured comments/work notes
+### 2. `sn journal <table> <sys_id>` — shipped in 0.12.0
 
 The itil-safe route: read the record's `comments_and_work_notes` displayValue
 via GraphQL, parse the rendered stream into JSON entries
-(`[{created_on, author, type, text}]`). Flags:
+(`[{created_on, author, element, label, text}]` in the shipped command). Flags:
 
 - `--comments` / `--work-notes` — filter by type (also narrows the fetched
   column, which matters: `comments` and `work_notes` are separate columns).
@@ -154,7 +156,7 @@ emitting real nested JSON objects instead of REST's flattened dot-walk strings.
   Principle: reads go GraphQL where it wins; writes stay REST.
 - **GraphQL subscriptions.** Every generated table type has a `_subscription`
   field, but `sn watch` already rides the same AMB channel natively with
-  reconnect/backoff/hydration policy. The GraphQL wrapper adds nothing.
+  reconnection and gap reporting. Hydration was removed in 0.13.0. The GraphQL wrapper adds nothing.
 - **CICD / Performance Analytics.** No GraphQL surface exists — they are
   procedural APIs, not tables. (Their *state* tables — `sys_update_set`,
   `sys_atf_test_result`, `pa_scores` — are readable like any other table.)
