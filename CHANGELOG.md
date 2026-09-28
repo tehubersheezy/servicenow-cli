@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.14.0 (unreleased)
+## 0.14.0 (2026-09-28)
 
 This release brings Flow Designer troubleshooting, code search, and background scripts to the terminal, along with more login options and resumable record exports.
 
