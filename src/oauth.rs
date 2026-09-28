@@ -363,29 +363,78 @@ pub fn client_credentials(client: &Client, o: &ResolvedOauth) -> Result<TokenSet
 // High-level orchestration
 // ---------------------------------------------------------------------------
 
+/// Whether a redirect is a path on the instance itself (the SDK client's
+/// `/sdk-oauth.do`) rather than a loopback URL. The instance renders the code
+/// on that page, so the flow reads it back from the user instead of listening.
+pub fn is_instance_redirect(redirect_uri: &str) -> bool {
+    redirect_uri.starts_with('/')
+}
+
+/// Pull the authorization code out of what the user pasted: the bare code the
+/// page displays, or — if they copied the address bar instead — a URL carrying
+/// `code=`.
+fn parse_pasted_code(pasted: &str) -> Option<String> {
+    let pasted = pasted.trim();
+    if pasted.is_empty() {
+        return None;
+    }
+    if let Ok(url) = reqwest::Url::parse(pasted) {
+        return url
+            .query_pairs()
+            .find(|(k, _)| k == "code")
+            .map(|(_, v)| v.into_owned())
+            .filter(|c| !c.is_empty());
+    }
+    Some(pasted.to_string())
+}
+
+/// Prompt on the terminal for the code the instance's redirect page shows.
+/// Refuses a non-terminal stdin rather than block on a read nobody will answer.
+fn prompt_pasted_code() -> Result<String> {
+    use is_terminal::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return Err(Error::Usage(
+            "this OAuth client redirects to the instance, which shows a code to paste back; \
+             run `sn profile login` from a terminal"
+                .into(),
+        ));
+    }
+    rpassword::prompt_password("Paste the code shown in the browser: ")
+        .map_err(|e| Error::Usage(format!("read code: {e}")))
+}
+
 /// Run the interactive authorization-code (SSO) flow end to end and return the
-/// resulting tokens. Opens the user's browser and waits for the redirect.
+/// resulting tokens. Opens the user's browser, then waits for the loopback
+/// redirect — or, for an instance-hosted redirect, for the user to paste the
+/// code the instance displays.
 pub fn login_authorization_code(
     profile: &ResolvedProfile,
     timeout: Option<u64>,
 ) -> Result<TokenSet> {
-    login_authorization_code_with(profile, timeout, |url| {
-        eprintln!("Opening browser for SSO login:\n  {url}");
-        if webbrowser::open(url).is_err() {
-            eprintln!("(could not open a browser automatically — open the URL above manually)");
-        }
-        Ok(())
-    })
+    login_authorization_code_with(
+        profile,
+        timeout,
+        |url| {
+            eprintln!("Opening browser for SSO login:\n  {url}");
+            if webbrowser::open(url).is_err() {
+                eprintln!("(could not open a browser automatically — open the URL above manually)");
+            }
+            Ok(())
+        },
+        prompt_pasted_code,
+    )
 }
 
-/// Like [`login_authorization_code`], but with the browser-open step injected so
-/// the flow can be exercised end to end in tests without launching a real
-/// browser. `open` receives the fully-built authorization URL; the default
-/// caller hands it to `webbrowser::open`.
+/// Like [`login_authorization_code`], but with the browser-open and code-paste
+/// steps injected so the flow can be exercised end to end in tests without
+/// launching a real browser or reading a terminal. `open` receives the
+/// fully-built authorization URL; `paste` is called only for an
+/// instance-hosted redirect ([`is_instance_redirect`]).
 pub fn login_authorization_code_with(
     profile: &ResolvedProfile,
     timeout: Option<u64>,
     open: impl FnOnce(&str) -> Result<()>,
+    paste: impl FnOnce() -> Result<String>,
 ) -> Result<TokenSet> {
     let o = profile
         .oauth
@@ -404,9 +453,16 @@ pub fn login_authorization_code_with(
     let url = authorize_url(&base, o, &state, challenge.as_deref())?;
 
     open(&url)?;
-    eprintln!("Waiting for the SSO redirect on {} …", o.redirect_uri);
-
-    let code = run_loopback(&o.redirect_uri, &state)?;
+    // An instance-hosted redirect has no `state` to check on our side — only
+    // the code comes back, through the user. PKCE is what binds that code to
+    // this login: it is useless without the verifier, which never left here.
+    let code = if is_instance_redirect(&o.redirect_uri) {
+        parse_pasted_code(&paste()?)
+            .ok_or_else(|| Error::Usage("no authorization code was pasted".into()))?
+    } else {
+        eprintln!("Waiting for the SSO redirect on {} …", o.redirect_uri);
+        run_loopback(&o.redirect_uri, &state)?
+    };
     exchange_code(&client, o, &code, verifier.as_deref())
 }
 
@@ -614,6 +670,24 @@ mod tests {
         let o = sample_oauth();
         let url = authorize_url("https://acme.service-now.com", &o, "s", None).unwrap();
         assert!(!url.contains("code_challenge"));
+    }
+
+    #[test]
+    fn instance_redirect_is_a_path_not_a_url() {
+        assert!(is_instance_redirect("/sdk-oauth.do"));
+        assert!(!is_instance_redirect("http://localhost:8400/callback"));
+    }
+
+    #[test]
+    fn pasted_code_accepts_bare_code_or_url() {
+        assert_eq!(parse_pasted_code("  abc123\n").as_deref(), Some("abc123"));
+        assert_eq!(
+            parse_pasted_code("https://x.service-now.com/sdk-oauth.do?code=abc%2B1&state=s")
+                .as_deref(),
+            Some("abc+1")
+        );
+        assert_eq!(parse_pasted_code("   "), None);
+        assert_eq!(parse_pasted_code("https://x/sdk-oauth.do?state=s"), None);
     }
 
     #[test]

@@ -148,6 +148,24 @@ ServiceNow in your browser, including your usual SSO provider if the instance us
 We recommend a dedicated OAuth **client ID** on the instance you want to connect to.
 The following steps create one and configure `sn` to use it.
 
+### Quick start: the now-sdk's client (not recommended for ongoing use)
+
+If you leave out `--client-id`, `sn` falls back to the ServiceNow SDK's (`now-sdk`) public
+OAuth client, `543e5655f77746a28228c6009a599dfb`, which instances ship as the
+**ServiceNow SDK** OAuth entity. Its only registered redirect is `/sdk-oauth.do` on the
+instance itself, so instead of returning to a local port, the browser shows a code that
+you paste back into the terminal:
+
+```bash
+sn init --profile sso --auth oauth --instance acme.service-now.com
+```
+
+**We highly recommend creating your own client** with the steps below. The SDK client
+belongs to `now-sdk`, not `sn`: an administrator can deactivate or change it for the
+SDK's sake, and the instance's OAuth records can't tell your `sn` logins apart from SDK
+logins. `sn init` and `sn profile add` both warn when a profile uses it. It only covers
+browser login; `client_credentials` always needs your own client ID and secret.
+
 ### Create an OAuth Application Registry entry
 
 This is a one-time setup on the ServiceNow instance. Ask your instance administrator to

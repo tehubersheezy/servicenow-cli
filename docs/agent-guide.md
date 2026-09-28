@@ -202,8 +202,10 @@ browser, so there is nothing an agent can verify: `add` refuses on a non-TTY rat
 than save an untested profile. Register it with `--no-verify` and have a human run
 `sn profile login --profile <name>`. Session state is `sn profile status` / `refresh` /
 `logout`; commands reuse cached tokens and refresh them when needed. See
-[OAuth setup](setup.md#oauth--sso) to create an Application Registry entry and get
-the client ID required by both grants.
+[OAuth setup](setup.md#oauth--sso) to create an Application Registry entry and get a
+client ID. `client_credentials` requires one; without `--client-id`,
+`authorization_code` borrows the ServiceNow SDK's (now-sdk) public client, and `add`
+reports a `warning` recommending your own.
 
 **Profile selection** (highest precedence first): `--profile <name>` →
 `default_profile` in `config.toml` → error (`no profile selected`, exit 1). There
