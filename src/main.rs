@@ -207,6 +207,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Script { sub } => match sub {
             ScriptSub::Run(args) => sn::cli::script::run(&global, args),
         },
+        Command::Codesearch(args) => sn::cli::codesearch::run(&global, args),
         Command::Completion(args) => sn::cli::completion::run(args),
     }
 }

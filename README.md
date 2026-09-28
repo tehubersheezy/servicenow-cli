@@ -81,6 +81,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
 | [`sn script run`](docs/usage.md#background-scripts) | Run server-side JavaScript and get what it printed back as JSON |
+| [`sn codesearch`](docs/usage.md#code-search) | Find where a script include, table, or function is referenced in the instance's code |
 | [`sn raw`](docs/usage.md#raw-rest-passthrough) | Call REST endpoints directly |
 | [`sn impersonate`](docs/usage.md#acting-as-another-user) | Run a command as another user to see what their roles and ACLs allow |
 | [`sn ping` / `sn doctor` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection, preflight required roles, plugins and properties, or open a record or list view in your browser |

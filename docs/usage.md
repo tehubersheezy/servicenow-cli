@@ -39,6 +39,7 @@ ITSM and platform APIs:
 Utilities:
 
 - [API discovery](#api-discovery)
+- [Code search](#code-search)
 - [Inspect and connect](#inspect-and-connect)
 - [Open a record or list in the web UI](#open-a-record-or-list-in-the-web-ui)
 - [Raw REST passthrough](#raw-rest-passthrough)
@@ -614,6 +615,28 @@ An unknown `--namespace` is a usage error naming the near miss — the endpoint 
 namespace with `{"result":{}}` and HTTP 200, which would otherwise be indistinguishable from "no
 matches". A genuine 404 keeps the instance's own explanation ("Version v99 not found for now/Table
 API") instead of being rewritten as a guess about the release.
+
+## Code search
+
+`sn codesearch` finds a string in script and code fields across the instance in one call, through
+the Code Search API that Studio uses:
+
+```bash
+sn codesearch MyUtil                                   # every configured table, every scope
+sn codesearch "new GlideRecord('incident')" --table sys_script_include
+sn codesearch MyUtil --scope x_acme_app --limit 50
+```
+
+Each row is one matching field — `{table, sys_id, name, field, count, lines}` — and `lines` holds
+each matching line plus its neighbours, with `match` telling them apart. `table` and `sys_id` feed
+straight into `sn table get` or `sn open`. The match is a case-insensitive literal substring.
+
+- Results only include records you can read, so a non-admin often gets an empty array.
+- `--limit` (default 500, also the instance's stock ceiling) counts records the instance examines,
+  not hits. When a result may have been cut short, stderr says which tables to narrow.
+- A `--table` that Code Search doesn't cover exits 1 and lists the tables it does; a term
+  containing `^` is refused, because the instance would split it into separate query terms.
+- `--timeout` defaults to 120s for this command: a search across every table can take a while.
 
 ## Inspect and connect
 

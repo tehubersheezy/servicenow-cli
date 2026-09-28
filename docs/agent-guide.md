@@ -422,6 +422,50 @@ spec endpoint is passed through with the instance's own explanation in `detail`
 (it names a bad API or version precisely); only the doc family's own absence is
 reported as "this release may not have it".
 
+### Finding code (`sn codesearch`)
+
+"Where on this instance is X referenced" — a script include, a table name, a
+property, a function — is one call, not one `sn table list` per script table:
+
+```bash
+sn codesearch MyUtil                              # every configured table, every scope
+sn codesearch "gs.getProperty('x.y')" --table sys_script_include
+sn codesearch MyUtil --scope x_acme_app --limit 50
+```
+
+```json
+[{"table":"sys_script_include","sys_id":"1717eb60d7120200b6bddb0c825203da","name":"MyUtil",
+  "field":"script","count":2,
+  "lines":[{"line":11,"text":"var MyUtil = Class.create();","match":true},
+           {"line":12,"text":"MyUtil.prototype = {","match":true}]}]
+```
+
+One row per matching field; `lines` includes the neighbouring lines the
+instance sends for context, which is what `match: false` marks. `table` is the
+record's own class, so `table` + `sys_id` go straight to `sn table get` /
+`sn open`. The search is a case-insensitive literal substring over the fields
+the instance's Code Search is configured for (31 tables stock: business rules,
+script includes, UI actions/policies/scripts, client scripts, ACLs, scheduled
+jobs, notifications, …), in **every scope** unless `--scope` narrows it — the
+underlying API defaults to the session's scope, which is why a plain API call
+often finds nothing.
+
+- **Read access filters results silently.** A non-admin (e.g. `itil`) gets exit
+  0 with few or no rows; that is the ACL answer, not "not referenced".
+- **`--limit` counts records examined, not hits**, and the instance caps it at
+  `sn_codesearch.search.results.max` (500 stock). A result that may have been
+  cut short — a table that nearly filled its share, or tables never reached —
+  is named on stderr (`sn: warning: results may be incomplete…`); narrow the
+  search rather than trusting the count.
+- Refused before the network (exit 1): an empty term, and a term containing
+  `^` (the instance splices it into an encoded query, where it splits terms).
+  A `--table` Code Search does not cover is exit 1 listing the tables it does
+  (the API would otherwise ignore it and search everything); an empty result
+  under a `--scope` that does not exist is exit 1 too.
+- Without the plugin the route answers HTTP 400; the error says the Code
+  Search application (`sn_codesearch`) is missing. A search over every table
+  can take tens of seconds, so `--timeout` defaults to 120s for this command.
+
 ## Reading records (`list`, `get`)
 
 ```bash
