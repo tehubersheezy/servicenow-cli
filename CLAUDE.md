@@ -195,18 +195,21 @@ A profile is the single unit of identity: commands either manage profiles (`sn i
 
 ### `sn init` vs `sn profile add`
 
-Both write a profile through **one shared core** in `cli/profile.rs` (`resolve_name` → `resolve_input` → `save_and_verify`); they differ only in the three policies layered on top, so the two can't drift:
+Both write a profile through **one shared core** in `cli/profile.rs` (`resolve_name` → `resolve_input` → `save_and_verify`); they differ only in the `SavePolicy` fields layered on top, so the two can't drift:
 
 | | `sn init` | `sn profile add` |
 |---|---|---|
 | role | onboarding wizard | scriptable creator |
 | `default_profile` | **always** claims it | **never** touches it (unless `--set-default`) |
 | existing profile | upserts | exit 1 unless `--force` |
+| stored proxy/TLS a flag omits (`replace_connection`) | kept (merge; `--no-proxy` clears `proxy`) | cleared — `--force` rebuilds `proxy`/`insecure`/`ca_cert`/`proxy_ca_cert` from argv, so re-adding without `--insecure` is how it's turned off. `no_proxy` has no flag and survives both |
 | result reported as | human text on stderr | JSON on stdout, empty stderr |
 | secret input | prompt only | `--password-stdin` / `--client-secret-stdin` (or a prompt) |
 | skip verification | can't | `--no-verify` |
 
 (Prompts themselves go to **stdout** — `print!` in `profile::ask` — for both. They only ever fire on a TTY, so scripted stdout stays clean JSON.)
+
+`sn profile show`, `sn profile list` and `add`'s result all report the stored proxy/TLS fields through `profile::connection_fields`, under their `config.toml` names: `insecure` **always** (its absence is what made `--insecure` look like it never stuck — issue #97), the rest only when set. The proxy URL goes through `redact_url_password`, which masks an embedded password *in place* rather than re-serializing (`Url` would append a `/` the file doesn't hold); proxy credentials in `credentials.toml` are never read.
 
 The shared core speaks `profile add`'s vocabulary, so a `Caller` (`Init` / `ProfileAdd`) is threaded through `resolve_name`/`resolve_input`: every missing-field message must name a flag the *invoked* command actually has. Without it `sn init` on a non-TTY pointed at `--password-stdin`, which `init` does not accept.
 

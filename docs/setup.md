@@ -112,7 +112,7 @@ selected yet, so `ci` needs `sn profile use ci` or an explicit `--profile ci`.
 
 | | |
 |---|---|
-| profile already exists | exit 1 — pass `--force` to overwrite |
+| profile already exists | exit 1 — pass `--force` to overwrite (proxy/TLS settings are rebuilt from that run's flags) |
 | required flag missing, no TTY | exit 1, naming the flag |
 | credentials rejected | exit 4, nothing written |
 | `--non-interactive` | never prompt, even on a terminal — fail naming the flag |
@@ -243,4 +243,9 @@ proxy_password = "proxy-pass"
 
 Precedence for every proxy/TLS setting: CLI flag > env var (`SN_PROXY`, `SN_INSECURE=1`, …) > profile config.
 
-`--insecure` is the exception: it is a logical OR across all three sources, not a chain. TLS verification is disabled if **any** of the flag, `SN_INSECURE`, or the profile's `insecure = true` says so — there is no way to turn it back *on* for one invocation of a profile that has it set. That's deliberate (a footgun should not be quietly re-armed by a stale config), but it means the only way to undo `insecure = true` is to edit the profile.
+`--insecure` is the exception: it is a logical OR across all three sources, not a chain. TLS verification is disabled if **any** of the flag, `SN_INSECURE`, or the profile's `insecure = true` says so — there is no way to turn it back *on* for one invocation of a profile that has it set. That's deliberate (a footgun should not be quietly re-armed by a stale config), but it means undoing `insecure = true` means rewriting the profile.
+
+Passing `--proxy`, `--insecure`, `--ca-cert` or `--proxy-ca-cert` to `sn init` or `sn profile add` saves it into the profile. `sn profile show` and `sn profile list` report what is stored (`insecure` always; `proxy`, `no_proxy`, `ca_cert`, `proxy_ca_cert` when set, with any password in the proxy URL masked). The two writers differ on a flag you leave out:
+
+- **`sn profile add --force`** rebuilds these from the flags it was given, so re-adding without `--insecure` turns verification back on (and `--force` without `--proxy` drops the proxy). `no_proxy` has no flag and is kept.
+- **`sn init`** updates in place: a flag you leave out keeps the stored value, and `--no-proxy` clears a stored proxy.

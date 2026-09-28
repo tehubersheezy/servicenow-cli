@@ -160,3 +160,97 @@ fn profile_show_unknown_name_errors() {
         .failure()
         .code(1);
 }
+
+/// Seed one basic profile carrying every proxy/TLS field, plus proxy
+/// credentials that must never be echoed.
+fn write_tls_profile() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cfg = sn::config::Config {
+        default_profile: Some("tls".into()),
+        ..Default::default()
+    };
+    cfg.profiles.insert(
+        "tls".into(),
+        sn::config::ProfileConfig {
+            instance: "tls.example.com".into(),
+            proxy: Some("http://pu:proxy-url-secret@proxy.corp:8080".into()),
+            no_proxy: Some("localhost,127.0.0.1".into()),
+            insecure: true,
+            ca_cert: Some("/etc/ssl/custom-ca.pem".into()),
+            proxy_ca_cert: Some("/etc/ssl/proxy-ca.pem".into()),
+            ..Default::default()
+        },
+    );
+    let mut creds = sn::config::Credentials::default();
+    creds.profiles.insert(
+        "tls".into(),
+        sn::config::ProfileCredentials {
+            username: "u".into(),
+            password: "pw".into(),
+            proxy_username: Some("proxy-user".into()),
+            proxy_password: Some("proxy-cred-secret".into()),
+            ..Default::default()
+        },
+    );
+    sn::config::save_config_to(&tmp.path().join("config.toml"), &cfg).unwrap();
+    sn::config::save_credentials_to(&tmp.path().join("credentials.toml"), &creds).unwrap();
+    tmp
+}
+
+fn assert_tls_fields(v: &Value, text: &str) {
+    assert_eq!(v["insecure"], true, "{text}");
+    assert_eq!(v["proxy"], "http://pu:***@proxy.corp:8080", "{text}");
+    assert_eq!(v["no_proxy"], "localhost,127.0.0.1", "{text}");
+    assert_eq!(v["ca_cert"], "/etc/ssl/custom-ca.pem", "{text}");
+    assert_eq!(v["proxy_ca_cert"], "/etc/ssl/proxy-ca.pem", "{text}");
+    assert!(
+        !text.contains("proxy-url-secret"),
+        "proxy URL password leaked:\n{text}"
+    );
+    assert!(
+        !text.contains("proxy-cred-secret"),
+        "proxy password leaked:\n{text}"
+    );
+    assert!(
+        !text.contains("proxy-user"),
+        "proxy credentials read:\n{text}"
+    );
+}
+
+#[test]
+fn profile_show_and_list_report_persisted_proxy_and_tls_settings() {
+    // Issue #97: `insecure = true` was persisted and honored but appeared in
+    // neither `show` nor `list`, so it looked like `--insecure` never stuck.
+    let tmp = write_tls_profile();
+
+    let (v, text) = stdout_json(common::sn_cmd(tmp.path()).args(["profile", "show", "tls"]));
+    assert_tls_fields(&v, &text);
+
+    let (v, text) = stdout_json(common::sn_cmd(tmp.path()).args(["profile", "list"]));
+    let arr = v.as_array().expect("list emits a JSON array");
+    assert_eq!(arr.len(), 1);
+    assert_tls_fields(&arr[0], &text);
+}
+
+#[test]
+fn profile_show_and_list_state_insecure_false_and_omit_unset_fields() {
+    let tmp = common::write_profiles(
+        "dev",
+        &[ProfileSpec {
+            name: "dev",
+            instance: "dev.example.com",
+            username: "admin",
+            password: "pw",
+        }],
+    );
+
+    let (show, _) = stdout_json(common::sn_cmd(tmp.path()).args(["profile", "show", "dev"]));
+    let (list, _) = stdout_json(common::sn_cmd(tmp.path()).args(["profile", "list"]));
+    for v in [&show, &list[0]] {
+        // `insecure` is stated either way: its absence was the bug.
+        assert_eq!(v["insecure"], false);
+        for key in ["proxy", "no_proxy", "ca_cert", "proxy_ca_cert"] {
+            assert!(v.get(key).is_none(), "unset {key} emitted: {v}");
+        }
+    }
+}

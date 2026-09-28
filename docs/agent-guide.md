@@ -159,7 +159,7 @@ identity that breaks somewhere confusing later. Its contract:
 | situation | exit | effect |
 |---|---|---|
 | ok | 0 | profile written, `"verified":true` |
-| profile already exists | 1 | nothing written — pass `--force` |
+| profile already exists | 1 | nothing written — pass `--force` (which rebuilds proxy/TLS from its own flags: omitting `--insecure` clears it) |
 | required flag missing (no TTY) | 1 | nothing written — message names the flag |
 | credentials rejected | 4 | **nothing written** |
 | `--no-verify` | 0 | written unverified, no network call |
@@ -219,7 +219,9 @@ env-overridable (precedence: CLI flag > env var > per-profile config field):
 
 Proxy auth and the same settings can also live per-profile in the config files
 (`proxy`, `no_proxy`, `insecure`, `ca_cert`, `proxy_ca_cert`, `proxy_username`,
-`proxy_password`).
+`proxy_password`). `sn profile show`/`list` (and `add`'s own result) report the
+non-secret ones under those names — `insecure` always, the rest when set, with a
+password inside the proxy URL masked; proxy credentials are never printed.
 
 Config and credentials are written atomically — into a same-directory temp file
 created `0600` by `open(2)` and renamed over the target — under an advisory lock

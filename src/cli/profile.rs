@@ -94,7 +94,8 @@ pub struct ProfileAddArgs {
     /// Disable PKCE for the authorization-code flow.
     #[arg(long)]
     pub no_pkce: bool,
-    /// Overwrite the profile if it already exists.
+    /// Overwrite the profile if it already exists. Its proxy/TLS settings are
+    /// rebuilt from this invocation's flags, so leaving out `--insecure` clears it.
     #[arg(long)]
     pub force: bool,
     /// Save without checking the credentials against the instance.
@@ -425,8 +426,16 @@ pub(crate) fn resolve_input(
 ///
 /// Non-destructive: the write starts from whatever is stored and overwrites only
 /// what this run configures, so fields neither command can set — proxy
-/// credentials, OAuth endpoint overrides — survive. Returns the prior state for
-/// [`restore`].
+/// credentials, OAuth endpoint overrides, the `no_proxy` host list — survive.
+/// Returns the prior state for [`restore`].
+///
+/// The flag-settable proxy/TLS fields (`proxy`, `insecure`, `ca_cert`,
+/// `proxy_ca_cert`) follow `policy.replace_connection`. `sn init` upserts, so it
+/// merges: a flag that was not passed leaves the stored value alone.
+/// `sn profile add --force` rebuilds them from this run's flags, like every
+/// other field it sets — merging there made a "clean" re-add keep
+/// `insecure = true` with nothing saying so, and with no `--insecure=false`
+/// there was no way to clear it short of hand-editing `config.toml`.
 ///
 /// The entire read → modify → write runs inside `with_config_lock`. Locking
 /// only the two `save_*` calls would not help at all: two `sn profile add`
@@ -444,17 +453,15 @@ pub(crate) fn resolve_input(
 fn save_profile(
     global: &GlobalFlags,
     input: &ProfileInput,
-    set_default: bool,
-    refuse_existing: bool,
+    policy: &SavePolicy,
 ) -> Result<Snapshot> {
-    config::with_config_lock(|| save_profile_locked(global, input, set_default, refuse_existing))
+    config::with_config_lock(|| save_profile_locked(global, input, policy))
 }
 
 fn save_profile_locked(
     global: &GlobalFlags,
     input: &ProfileInput,
-    set_default: bool,
-    refuse_existing: bool,
+    policy: &SavePolicy,
 ) -> Result<Snapshot> {
     let cfg_path = config_path()?;
     let cred_path = credentials_path()?;
@@ -465,7 +472,7 @@ fn save_profile_locked(
     // and not only in `add` before prompting: that earlier check reads the file
     // and then spends a prompt's worth of time before writing, so on its own it
     // would let two concurrent adds of one name both decide the name was free.
-    if refuse_existing && config.profiles.contains_key(&input.name) {
+    if policy.refuse_existing && config.profiles.contains_key(&input.name) {
         return Err(Error::Usage(format!(
             "profile '{}' already exists; pass --force to overwrite it",
             input.name
@@ -477,7 +484,7 @@ fn save_profile_locked(
         config: config.profiles.get(&input.name).cloned(),
         credentials: creds.profiles.get(&input.name).cloned(),
         prior_default: config.default_profile.clone(),
-        claimed_default: set_default,
+        claimed_default: policy.set_default,
     };
 
     let mut pc: ProfileConfig = config
@@ -490,8 +497,15 @@ fn save_profile_locked(
     pc.instance = input.instance.clone();
 
     // Proxy/TLS settings from the global flags are persisted with the profile so
-    // later invocations pick them up automatically. Flags that were not passed
-    // leave the stored values alone.
+    // later invocations pick them up automatically. Merging (`sn init`), a flag
+    // that was not passed leaves the stored value alone; replacing
+    // (`sn profile add`), it clears it. `no_proxy` has no flag, so it is kept.
+    if policy.replace_connection {
+        pc.proxy = None;
+        pc.insecure = false;
+        pc.ca_cert = None;
+        pc.proxy_ca_cert = None;
+    }
     if global.no_proxy {
         pc.proxy = None;
     } else if let Some(proxy) = &global.proxy {
@@ -547,7 +561,7 @@ fn save_profile_locked(
         }
     }
 
-    if set_default {
+    if policy.set_default {
         config.default_profile = Some(input.name.clone());
     }
     config.profiles.insert(input.name.clone(), pc);
@@ -635,6 +649,9 @@ pub(crate) struct SavePolicy {
     pub verify: bool,
     /// Fail rather than overwrite an existing profile.
     pub refuse_existing: bool,
+    /// Rebuild the stored proxy/TLS settings from this run's flags rather than
+    /// merging the flags onto them (see [`save_profile`]).
+    pub replace_connection: bool,
 }
 
 /// Persist `input`, then prove it works — rolling the write back if it doesn't,
@@ -652,7 +669,7 @@ pub(crate) fn save_and_verify(
     input: &ProfileInput,
     policy: SavePolicy,
 ) -> Result<Option<String>> {
-    let snapshot = save_profile(global, input, policy.set_default, policy.refuse_existing)?;
+    let snapshot = save_profile(global, input, &policy)?;
     if !policy.verify {
         return Ok(None);
     }
@@ -782,6 +799,7 @@ fn add(global: &GlobalFlags, args: ProfileAddArgs) -> Result<()> {
             set_default: args.set_default,
             verify: !args.no_verify,
             refuse_existing: !args.force,
+            replace_connection: true,
         },
     )?;
 
@@ -809,11 +827,62 @@ fn add(global: &GlobalFlags, args: ProfileAddArgs) -> Result<()> {
     // `--profile`, whereas an unselected one can.
     let config = load_config_from(&config_path()?)?;
     out["default"] = json!(config.default_profile.as_deref() == Some(input.name.as_str()));
+    // Report the proxy/TLS state that landed, so a `--force` re-add says
+    // whether `insecure` was kept or cleared instead of leaving it to `show`.
+    if let Some(p) = config.profiles.get(&input.name) {
+        connection_fields(p, &mut out);
+    }
     if config.default_profile.is_none() && out.get("next").is_none() {
         out["next"] = json!(format!("sn profile use {}", input.name));
     }
 
     write_response(global, &out)
+}
+
+/// Add a profile's stored proxy/TLS settings to `out`, under their
+/// `config.toml` names.
+///
+/// These alter every connection the profile makes, so leaving them out of
+/// `show`/`list` made `--insecure` look like it never stuck. `insecure` is
+/// always present — its absence was the bug — and the rest only when set.
+/// Proxy *credentials* live in `credentials.toml` and are never read here; a
+/// password embedded in the proxy URL itself is masked.
+fn connection_fields(p: &ProfileConfig, out: &mut serde_json::Value) {
+    out["insecure"] = json!(p.insecure);
+    if let Some(proxy) = &p.proxy {
+        out["proxy"] = json!(redact_url_password(proxy));
+    }
+    for (key, value) in [
+        ("no_proxy", &p.no_proxy),
+        ("ca_cert", &p.ca_cert),
+        ("proxy_ca_cert", &p.proxy_ca_cert),
+    ] {
+        if let Some(v) = value {
+            out[key] = json!(v);
+        }
+    }
+}
+
+/// `http://user:secret@proxy:8080` → `http://user:***@proxy:8080`. Anything
+/// that does not parse as a URL, or carries no password, is returned as stored.
+///
+/// The mask is spliced into the stored string rather than re-serialized from
+/// the parsed URL, which would normalize it (a trailing `/`) and so report a
+/// value the file does not hold. Only when the stored spelling cannot be found
+/// (a password `Url` re-encoded) does it fall back to the normalized form.
+fn redact_url_password(raw: &str) -> String {
+    let Ok(mut url) = reqwest::Url::parse(raw) else {
+        return raw.to_string();
+    };
+    let Some(password) = url.password() else {
+        return raw.to_string();
+    };
+    let stored = format!(":{password}@");
+    if raw.contains(&stored) {
+        return raw.replacen(&stored, ":***@", 1);
+    }
+    let _ = url.set_password(Some("***"));
+    url.to_string()
 }
 
 fn list(global: &GlobalFlags) -> Result<()> {
@@ -822,12 +891,14 @@ fn list(global: &GlobalFlags) -> Result<()> {
         .profiles
         .iter()
         .map(|(name, p)| {
-            json!({
+            let mut entry = json!({
                 "name": name,
                 "instance": p.instance,
                 "auth": auth_str(p.auth),
                 "default": cfg.default_profile.as_deref() == Some(name.as_str()),
-            })
+            });
+            connection_fields(p, &mut entry);
+            entry
         })
         .collect();
     write_response(global, &json!(profiles))
@@ -879,6 +950,7 @@ fn show(global: &GlobalFlags, name: Option<String>) -> Result<()> {
             }
         }
     }
+    connection_fields(p, &mut out);
     write_response(global, &out)
 }
 
@@ -959,7 +1031,31 @@ fn set_default(global: &GlobalFlags, name: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_instance;
+    use super::{normalize_instance, redact_url_password};
+
+    #[test]
+    fn proxy_url_password_is_masked_in_place() {
+        assert_eq!(
+            redact_url_password("http://u:secret@proxy:8080"),
+            "http://u:***@proxy:8080"
+        );
+    }
+
+    #[test]
+    fn proxy_url_without_password_is_verbatim() {
+        for raw in ["http://proxy:8080", "socks5://u@proxy:1080", "not a url"] {
+            assert_eq!(redact_url_password(raw), raw);
+        }
+    }
+
+    #[test]
+    fn re_encoded_proxy_password_still_masked() {
+        // `Url` percent-encodes the second `:`, so the stored spelling is not
+        // found; the fallback must still never print the password.
+        let out = redact_url_password("http://u:pa:ss@proxy:8080");
+        assert!(!out.contains("pa"), "{out}");
+        assert!(out.contains(":***@"), "{out}");
+    }
 
     #[test]
     fn short_name_gets_service_now_suffix() {
