@@ -11,6 +11,7 @@ pub mod cmdb;
 pub mod codesearch;
 pub mod completion;
 pub mod context;
+pub mod decision;
 pub mod doctor;
 pub mod get_record;
 pub mod gr;
@@ -65,6 +66,7 @@ pub use cmdb::{
 pub use codesearch::CodesearchArgs;
 pub use completion::{CompletionArgs, Shell as CompletionShell};
 pub use context::{ContextSub, ContextTargetArgs};
+pub use decision::{DecisionListArgs, DecisionRunArgs, DecisionShowArgs, DecisionSub};
 pub use doctor::DoctorArgs;
 pub use get_record::GetRecordArgs;
 pub use gr::GrArgs;
@@ -473,6 +475,11 @@ pub enum Command {
     Catalog {
         #[command(subcommand)]
         sub: CatalogSub,
+    },
+    /// Decision tables: list them, show one's inputs and decisions, run one against inputs.
+    Decision {
+        #[command(subcommand)]
+        sub: DecisionSub,
     },
     /// Identification and Reconciliation (CI create/update/query).
     Identify {

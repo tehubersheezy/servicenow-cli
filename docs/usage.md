@@ -35,6 +35,7 @@ ITSM and platform APIs:
 - [Identification & Reconciliation](#identification--reconciliation)
 - [CICD operations](#cicd-operations)
 - [Performance Analytics scorecards](#performance-analytics-scorecards)
+- [Decision tables](#decision-tables)
 
 Utilities:
 
@@ -587,6 +588,39 @@ sn scores favorite <uuid>
 sn scores unfavorite <uuid>
 ```
 
+## Decision tables
+
+`sn decision` reads decision tables (`sys_decision`) and evaluates them — "what does this
+policy decide for these inputs?" — without opening Decision Builder:
+
+```bash
+sn decision list                                   # every table, ordered by name
+sn decision list -q "answer_table=chg_approval_def"
+sn decision show "Normal Change Policy"            # by exact name (case-insensitive) or sys_id
+sn decision run "Normal Change Policy" -i change_request=CHG0000008 -i manager_approved=false
+sn decision run <sys_id> -i instance_type=test --all-matches
+```
+
+`show` returns the table's row plus `inputs` (name, type, mandatory, choices, reference
+table), `answer_elements` (multi-result tables only), `conditions`, and `decisions` in
+evaluation order — each with its encoded-query `condition`, its `answer`, and
+`default: true` on the fallback row the table answers when nothing else matches. `run`
+returns `{sys_id, name, inputs, matches}`; each match names the decision (`sys_id`,
+`label`, `order`, `default`) and its `answer`: `{value, display_value}` for a table whose
+answer is a record, `{elements: {name: {value, display_value}}}` for a multi-result
+table. `matches: []` means no decision (and no default) applies — that is an answer, exit 0.
+
+The evaluator accepts every input mistake silently, answering with the default decision
+as though the input were real, so `run` checks inputs against the table first (exit 1):
+unknown names, missing mandatory inputs (`name=` sends one empty on purpose), a choice
+*label* where the value belongs, and a boolean that is not `true`/`false`. A reference
+input takes a sys_id or the referenced record's number, which is resolved first and
+reported under `resolved_from`. Both verbs need the Decision Builder plugin
+(`sn_decision_table`) and one of `decision_table_admin`, `decision_table_reader` or
+`change_manager`; its API answers a caller without them with empty data rather than an
+error, so `sn decision` reports that as exit 2 naming the roles. Editing tables is not
+wired yet.
+
 ## API discovery
 
 `sn schema` answers "what does this table look like?"; `sn api` answers "is there an API for this?"
@@ -839,6 +873,7 @@ renders columns for interactive reading.
 | `variables get/set` | Variable array / verified change report |
 | `context` | Scope and update-set object; setters also include `previous` |
 | `graphql` | Unwrapped `data`; errors exit 2, but partial data is still emitted |
+| `decision show/run` | One composed object (see [Decision tables](#decision-tables)); `--output raw` is refused, as for `get` |
 | `script run` | `{ok, scope, output, messages, error, elapsed_ms, history_id, rollback_context}`; a script error still prints it (`ok: false`) and exits 2 |
 | `gr` | Record array, or `{"count": N}` with `--count`; errors exit 2 without partial data |
 | Async CICD operations / `progress` | Progress object; see [CICD operations](#cicd-operations) |
