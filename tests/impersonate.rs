@@ -397,6 +397,10 @@ async fn argv_mistakes_are_refused_before_any_request() {
             "websocket",
         ),
         (
+            &["impersonate", ABEL, "--", "flow", "tail", "some_flow"],
+            "websocket",
+        ),
+        (
             &["impersonate", ABEL, "--", "impersonate", "x", "--", "ping"],
             "do not nest",
         ),

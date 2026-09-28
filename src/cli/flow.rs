@@ -26,6 +26,10 @@
 //!   - A caller without Flow Designer rights gets 403 "User Not Authorized"
 //!     (exit 4) from `processflow` while `sys_hub_flow` stays Table-API readable.
 //!
+//! The execution-debugging verbs (`runs`, `debug`, `steps`, `logs`, `why-not`,
+//! `tail`) live in [`debug`], which reads the documented flow-engine tables and
+//! is flattened into [`FlowSub`] so its verbs sit directly under `sn flow`.
+//!
 //! Writes (`POST`/`PUT processflow/flow`, the `snFlowDesigner.flowPatch` GraphQL
 //! mutation) are deliberately not wired: they could not be measured end to end
 //! on a throwaway flow (the reference instance refused creation mid-upgrade:
@@ -39,6 +43,8 @@ use crate::client::Client;
 use crate::error::{Error, NO_HTTP_STATUS, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::{Map, Value, json};
+
+pub mod debug;
 use std::collections::HashMap;
 
 /// Default request timeout for the `processflow` reads when `--timeout` is not
@@ -66,6 +72,8 @@ pub enum FlowSub {
     ///
     /// Same `/api/now/processflow` API and 180s default timeout as `get`.
     Versions(FlowVersionsArgs),
+    #[command(flatten)]
+    Debug(debug::FlowDebugSub),
 }
 
 /// Dispatch one `sn flow` verb.
@@ -74,6 +82,7 @@ pub fn run(global: &GlobalFlags, sub: FlowSub) -> Result<()> {
         FlowSub::List(args) => list(global, args),
         FlowSub::Get(args) => get(global, args),
         FlowSub::Versions(args) => versions(global, args),
+        FlowSub::Debug(sub) => debug::run(global, sub),
     }
 }
 

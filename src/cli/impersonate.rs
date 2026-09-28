@@ -29,6 +29,8 @@
 //!   neither observation is relied on.
 
 use crate::cli::auth::non_empty;
+use crate::cli::flow::FlowSub;
+use crate::cli::flow::debug::FlowDebugSub;
 use crate::cli::kernel::{SessionScope, build_client, build_profile};
 use crate::cli::{Cli, Command, GlobalFlags, OutputMode};
 use crate::client::{Client, SESSION_COOKIE, SessionJar};
@@ -259,6 +261,9 @@ fn refusal(cmd: &Command) -> Option<&'static str> {
         }
         Command::Completion(_) | Command::Introspect => "it never contacts the instance",
         Command::Watch(_) => "`sn watch` opens its own websocket session, not this one",
+        Command::Flow {
+            sub: FlowSub::Debug(FlowDebugSub::Tail(_)),
+        } => "`sn flow tail` watches over its own websocket session, not this one",
         Command::Open(_) => "it opens your browser, whose session is not the impersonated one",
         Command::Script { .. } => {
             "`sn script run` mints its own UI session for sys.scripts.do, not this one"

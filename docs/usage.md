@@ -36,12 +36,16 @@ ITSM and platform APIs:
 - [CICD operations](#cicd-operations)
 - [Performance Analytics scorecards](#performance-analytics-scorecards)
 - [Decision tables](#decision-tables)
+- [Playbooks](#playbooks)
+- [Flow Designer](#flow-designer)
+- [Debugging flows](#debugging-flows)
 
 Utilities:
 
 - [API discovery](#api-discovery)
 - [Code search](#code-search)
 - [Inspect and connect](#inspect-and-connect)
+- [Acting as another user](#acting-as-another-user)
 - [Open a record or list in the web UI](#open-a-record-or-list-in-the-web-ui)
 - [Raw REST passthrough](#raw-rest-passthrough)
 - [Background scripts](#background-scripts)
@@ -375,58 +379,6 @@ combined with `--fields`. Reads default to 100 records; use `--limit` and `--off
 to page manually. `sn gr` has no `--all` flag. On GraphQL errors it exits 2 without
 emitting partial records; use `sn graphql` when you need the partial response data.
 
-## Playbooks
-
-`sn playbook` drives the workspace Playbook panel's own API (the `snPlaybookExp` GraphQL
-schema, shipped with the Playbook Experience application). Records take the usual
-`table sys_id` pair or a `table:sys_id` / `table:number` reference.
-
-```bash
-sn playbook list incident:INC0010001        # [{sys_id, title, scoped_name, playbook_id, state: {value, displayValue}, …}]
-sn playbook trigger incident:INC0010001 --scoped-name sn_app.my_playbook
-sn playbook trigger incident:INC0010001 --scoped-name sn_app.my_playbook --only-if-none
-sn playbook launch <process_definition_sys_id> --record <sys_id> --input priority=high --input note="a&b"
-```
-
-`trigger` prints `{"triggered": true, "sys_id": "<execution>", …}`. With `--only-if-none`
-it starts nothing — and prints `"triggered": false`, exit 0 — when the record already has
-*any* playbook execution, of any playbook and in any state (a cancelled one counts), so a
-retry never stacks a second run. `launch` prints `{"launched": true, …}`; its `--input`
-pairs are encoded for the instance's query-string parser, so `&`, `=` and `%` in values are
-safe. `list` shows each execution's `playbook_id`, the process definition sys_id `launch`
-takes.
-
-Failures the API reports as typed errors (`PARENT_TABLE_NOT_VALID`,
-`PARENT_RECORD_NOT_FOUND`, `PROCESS_DEFINITION_ID_NOT_VALID`, `INSUFFICIENT_PERMISSIONS`,
-`TRIGGER_PLAYBOOK_FAILED`, `LAUNCH_PLAYBOOK_FAILED`) exit 2 with the error object in
-`sn_error` — branch on `sn_error.errorType`. A record the profile cannot read and one that
-does not exist are the same answer to `list` (exit 2, "or not readable by this profile").
-An instance without the application exits 2 naming it. The API does not check that a
-playbook was built for the record's table.
-
-## Flow Designer
-
-Find flows and subflows, read one, and see its version history. This is read-only for now:
-no command writes a flow.
-
-```bash
-sn flow list --scope global --type subflow --active    # sys_hub_flow rows, raw values, sorted by name
-sn flow list -q "nameLIKEincident" --limit 20
-sn flow get <sys_id>                                    # the full designer model (~70 keys)
-sn flow get sn_itsm.my_flow --outline                   # header, triggers, and the ordered, nested steps
-sn flow versions my_flow                                # save/publish history
-```
-
-A flow can be named by its sys_id, its internal name, or `scope.internal_name`.
-Internal names repeat across scopes (`send_email` exists in more than one scope), so an
-ambiguous name exits 1 and lists the qualified candidates. `get` and `versions` read the
-designer's own undocumented `/api/now/processflow` API. It takes tens of seconds per flow,
-so these two verbs default to a 180s timeout, and they need Flow Designer rights: an
-`itil`-only caller gets 403 (exit 4), even though `sn flow list` still works for it.
-`--outline` gives each step its `order`, `depth`, `kind` (`action`/`flowlogic`/`subflow`),
-and `parent` (the enclosing step's `order`), which is usually all an agent needs out of
-a model that can run to hundreds of KB.
-
 ## Change Management
 
 Normal, emergency, and standard change requests across their lifecycle:
@@ -673,6 +625,105 @@ reported under `resolved_from`. Both verbs need the Decision Builder plugin
 error, so `sn decision` reports that as exit 2 naming the roles. Editing tables is not
 wired yet.
 
+## Playbooks
+
+`sn playbook` drives the workspace Playbook panel's own API (the `snPlaybookExp` GraphQL
+schema, shipped with the Playbook Experience application). Records take the usual
+`table sys_id` pair or a `table:sys_id` / `table:number` reference.
+
+```bash
+sn playbook list incident:INC0010001        # [{sys_id, title, scoped_name, playbook_id, state: {value, displayValue}, …}]
+sn playbook trigger incident:INC0010001 --scoped-name sn_app.my_playbook
+sn playbook trigger incident:INC0010001 --scoped-name sn_app.my_playbook --only-if-none
+sn playbook launch <process_definition_sys_id> --record <sys_id> --input priority=high --input note="a&b"
+```
+
+`trigger` prints `{"triggered": true, "sys_id": "<execution>", …}`. With `--only-if-none`
+it starts nothing — and prints `"triggered": false`, exit 0 — when the record already has
+*any* playbook execution, of any playbook and in any state (a cancelled one counts), so a
+retry never stacks a second run. `launch` prints `{"launched": true, …}`; its `--input`
+pairs are encoded for the instance's query-string parser, so `&`, `=` and `%` in values are
+safe. `list` shows each execution's `playbook_id`, the process definition sys_id `launch`
+takes.
+
+Failures the API reports as typed errors (`PARENT_TABLE_NOT_VALID`,
+`PARENT_RECORD_NOT_FOUND`, `PROCESS_DEFINITION_ID_NOT_VALID`, `INSUFFICIENT_PERMISSIONS`,
+`TRIGGER_PLAYBOOK_FAILED`, `LAUNCH_PLAYBOOK_FAILED`) exit 2 with the error object in
+`sn_error` — branch on `sn_error.errorType`. A record the profile cannot read and one that
+does not exist are the same answer to `list` (exit 2, "or not readable by this profile").
+An instance without the application exits 2 naming it. The API does not check that a
+playbook was built for the record's table.
+
+## Flow Designer
+
+Find flows and subflows, read one, and see its version history. This is read-only for now:
+no command writes a flow.
+
+```bash
+sn flow list --scope global --type subflow --active    # sys_hub_flow rows, raw values, sorted by name
+sn flow list -q "nameLIKEincident" --limit 20
+sn flow get <sys_id>                                    # the full designer model (~70 keys)
+sn flow get sn_itsm.my_flow --outline                   # header, triggers, and the ordered, nested steps
+sn flow versions my_flow                                # save/publish history
+```
+
+A flow can be named by its sys_id, its internal name, or `scope.internal_name`.
+Internal names repeat across scopes (`send_email` exists in more than one scope), so an
+ambiguous name exits 1 and lists the qualified candidates. `get` and `versions` read the
+designer's own undocumented `/api/now/processflow` API. It takes tens of seconds per flow,
+so these two verbs default to a 180s timeout, and they need Flow Designer rights: an
+`itil`-only caller gets 403 (exit 4), even though `sn flow list` still works for it.
+`--outline` gives each step its `order`, `depth`, `kind` (`action`/`flowlogic`/`subflow`),
+and `parent` (the enclosing step's `order`), which is usually all an agent needs out of
+a model that can run to hundreds of KB.
+
+## Debugging flows
+
+The execution side of Flow Designer, read from the flow engine's own tables
+(`sys_flow_context`, `sys_flow_report`, `sys_flow_log`) instead of clicking through
+execution details. A flow is named by sys_id, display name or internal name; an
+execution by its `sys_flow_context` sys_id, which `runs` lists.
+
+```bash
+sn flow runs "Change - Normal - Assess" --errors --since 24h    # executions, newest first
+sn flow runs --record incident:INC0010001                       # what ran for this record?
+sn flow debug <context_sys_id>      # context + first failed step (with values) + log tail + notes
+sn flow steps <context_sys_id> --failed --values                # per-step timeline
+sn flow logs <context_sys_id> --level warn                      # engine log lines
+sn flow why-not "Delegate Roles in Group" --record change_request:CHG0030421
+sn flow tail "Change - Normal - Assess" --errors --duration 600 # live, JSONL
+```
+
+Output uses raw values (`ERROR`, not `Error`) and UTC timestamps, so a value can be fed
+straight back into a query.
+
+**Steps exist only when the run was reported.** Per-step rows are written only when
+the system property `com.snc.process_flow.reporting.level` is `BASIC` (states and
+timings) or `FULL` (adds input/output values) at the time the flow runs, and it ships
+as `OFF`. `steps` on an unreported run is an error that says so, and `debug` carries
+the same explanation in its `notes` — an empty step list would read as "nothing ran".
+Newer releases may not use `sys_flow_report` even then: on an Australia instance a run
+recorded at `FULL` left it empty and wrote its values to `sys_flow_report_value`, which
+REST cannot read even as admin. For such a run the message points at the UI
+(`sn open sys_flow_context <sys_id>`) instead of at the property.
+Log lines at error level are shown by `debug` even when the run ended `COMPLETE`: a
+script step that catches and logs its own failure leaves exactly that shape.
+
+**`why-not`** reads the flow's published runtime trigger (`sys_hub_flow.remote_trigger_id`
+→ `sys_flow_record_trigger`: table, condition, insert/update/delete, active) and
+checks, in order: the flow is active and published, the trigger is active, the record
+is in the trigger's table (or an extension of it, when the trigger runs on extended
+tables), and the condition matches — clause by clause, so the output names the clause
+that fails. It also lists any runs the flow *did* have for the record. Its limits are
+reported, not hidden: change operators (`CHANGESTO`, `VALCHANGES`, `CHANGESFROM`) test
+the triggering write and cannot be evaluated against stored values; the condition is
+checked against the record as it is now, not as it was at the write; and a clause that
+matches every row of the table is flagged, because ServiceNow silently drops a query
+term it cannot parse.
+
+All of these tables are row-ACL protected: a profile without `flow_operator`/`admin`
+sees no executions (and a 404 for one read by sys_id).
+
 ## API discovery
 
 `sn schema` answers "what does this table look like?"; `sn api` answers "is there an API for this?"
@@ -780,8 +831,8 @@ or 403 exactly as it would for them. The profile's user needs the admin or imper
 without it the command exits 4 before anything is attempted.
 
 The command after `--` is any `sn` command (a leading `sn` is optional) except the ones that
-manage local state or open a session of their own: `init`, `profile`, `watch`, `open`,
-`completion`, `introspect`, and `impersonate` itself. Its stdout, stderr and exit code are its own.
+manage local state or open a session of their own: `init`, `profile`, `watch`, `flow tail`,
+`open`, `script`, `completion`, `introspect`, and `impersonate` itself. Its stdout, stderr and exit code are its own.
 Connection options (`--profile`, `--proxy`, `--timeout`, TLS) go before `--`, since the session is
 opened first; output options work on either side.
 
