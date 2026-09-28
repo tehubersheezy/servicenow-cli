@@ -362,6 +362,7 @@ Credentials use a two-file, AWS CLI-style split:
 | `config.toml` | Instance URLs, default profile, non-secret OAuth config, `token_command`, JWT key path | `~/.config/sn/` |
 | `credentials.toml` | Usernames, passwords, secrets, static tokens, cached tokens | `~/.config/sn/` |
 | `.sn.lock` | Empty; the advisory lock serializing config writes | `~/.config/sn/` |
+| `number_prefixes.toml` | Cache of record-number prefix → table answers from each instance's `sys_number` (`sn get <number>`); safe to delete | `~/.config/sn/` |
 
 macOS uses `~/Library/Application Support/sn/` and Windows `%APPDATA%\sn\`.
 

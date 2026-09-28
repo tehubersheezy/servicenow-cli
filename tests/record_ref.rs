@@ -251,13 +251,406 @@ async fn get_number_canary_trips_on_multiple_matches() {
 }
 
 #[test]
-fn get_unknown_prefix_is_a_usage_error_offline() {
+fn get_token_without_prefix_and_counter_is_a_usage_error_offline() {
+    // Neither is a record number, so neither is worth a sys_number request.
     let tmp = offline_profile();
-    let mut cmd = sn_cmd(tmp.path());
-    let out = cmd.args(["get", "FOO0001"]).assert().code(1);
-    let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
-    assert!(stderr.contains("INC") && stderr.contains("SIR"), "{stderr}");
-    assert!(stderr.contains("table:number"), "{stderr}");
+    for token in ["INC", "0010001"] {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd.args(["get", token]).assert().code(1);
+        let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+        assert!(stderr.contains("not a record number"), "{stderr}");
+        assert!(stderr.contains("table:identifier"), "{stderr}");
+    }
+}
+
+// ------------------------------------------- sn get: prefixes via sys_number ---
+
+/// A `sys_number` answer for `prefix=<prefix>`: one row per table.
+fn sys_number_rows(prefix: &str, tables: &[&str]) -> serde_json::Value {
+    let rows: Vec<_> = tables
+        .iter()
+        .map(|t| json!({"prefix": prefix, "category": t}))
+        .collect();
+    json!({ "result": rows })
+}
+
+async fn mount_sys_number(server: &MockServer, prefix: &str, body: serde_json::Value, n: u64) {
+    Mock::given(method("GET"))
+        .and(path("/api/now/table/sys_number"))
+        .and(query_param("sysparm_query", format!("prefix={prefix}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(n)
+        .mount(server)
+        .await;
+}
+
+/// The GraphQL resolution for `table` (matched on the document's root field,
+/// which `u_incident(` alone would not tell apart from `incident(`).
+async fn mount_resolution(server: &MockServer, table: &str, results: serde_json::Value) {
+    let count = results.as_array().map_or(0, Vec::len) as u64;
+    Mock::given(method("POST"))
+        .and(path("/api/now/graphql"))
+        .and(body_string_contains(format!(
+            "GlideRecord_Query {{ {table}("
+        )))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(graphql_response(table, results, count)),
+        )
+        .mount(server)
+        .await;
+}
+
+async fn mount_record(server: &MockServer, table: &str) {
+    Mock::given(method("GET"))
+        .and(path(format!("/api/now/table/{table}/{RESOLVED}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"result": {"sys_id": RESOLVED}})),
+        )
+        .expect(1..)
+        .mount(server)
+        .await;
+}
+
+fn resolved_row() -> serde_json::Value {
+    json!([{"sys_id": {"value": RESOLVED}, "comments": null, "work_notes": null}])
+}
+
+fn read_cache(dir: &std::path::Path) -> sn::config::PrefixCache {
+    sn::config::load_prefix_cache_from(&dir.join("number_prefixes.toml"))
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_unknown_prefix_resolves_via_sys_number_once_then_from_cache() {
+    let server = MockServer::start().await;
+    // Asked exactly once across both runs: the second is a cache hit.
+    mount_sys_number(
+        &server,
+        "PTASK",
+        sys_number_rows("PTASK", &["problem_task"]),
+        1,
+    )
+    .await;
+    mount_resolution(&server, "problem_task", resolved_row()).await;
+    mount_record(&server, "problem_task").await;
+    mount_vars_empty(&server).await;
+
+    let tmp = profile_for(&server.uri());
+    let uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        for _ in 0..2 {
+            let mut cmd = sn_cmd(tmp.path());
+            let out = cmd
+                .args(["--compact", "get", "PTASK0010005"])
+                .assert()
+                .success();
+            let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+            let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+            assert_eq!(v["table"], "problem_task");
+            assert_eq!(v["sys_id"], RESOLVED);
+        }
+        // Keyed by instance, not profile: the map is the instance's.
+        let cache = read_cache(tmp.path());
+        assert_eq!(cache.instances[&uri]["PTASK"].table, "problem_task");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(tmp.path().join("number_prefixes.toml"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_inherited_prefix_reads_the_row_as_its_own_class() {
+    // TASK is defined on `task`; cert_follow_on_task has no numbering of its
+    // own and draws TASK numbers (measured). The row is found on `task` and
+    // read from the class it actually is.
+    let server = MockServer::start().await;
+    mount_sys_number(&server, "TASK", sys_number_rows("TASK", &["task"]), 1).await;
+    Mock::given(method("POST"))
+        .and(path("/api/now/graphql"))
+        .and(body_string_contains("GlideRecord_Query { task("))
+        .and(body_string_contains("sys_class_name"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(graphql_response(
+            "task",
+            json!([{
+                "sys_id": {"value": RESOLVED},
+                "sys_class_name": {"value": "cert_follow_on_task"},
+                "comments": null,
+                "work_notes": null,
+            }]),
+            1,
+        )))
+        .mount(&server)
+        .await;
+    mount_record(&server, "cert_follow_on_task").await;
+    mount_vars_empty(&server).await;
+
+    let tmp = profile_for(&server.uri());
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "get", "TASK0021807"])
+            .assert()
+            .success();
+        let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(v["table"], "cert_follow_on_task");
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_prefix_no_table_uses_is_a_usage_error_with_a_case_hint() {
+    let server = MockServer::start().await;
+    // The instance's `=` ignores case; prefixes do not.
+    mount_sys_number(&server, "task", sys_number_rows("TASK", &["task"]), 1).await;
+    mount_sys_number(&server, "FOO", sys_number_rows("FOO", &[]), 1).await;
+
+    let tmp = profile_for(&server.uri());
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd.args(["get", "FOO0010001"]).assert().code(1);
+        let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+        assert!(stderr.contains("prefix FOO"), "{stderr}");
+        assert!(stderr.contains("table:number"), "{stderr}");
+
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd.args(["get", "task0010001"]).assert().code(1);
+        let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+        assert!(stderr.contains("did you mean TASK"), "{stderr}");
+        // Nothing unique was learned, so nothing was cached.
+        assert!(read_cache(tmp.path()).instances.is_empty());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_shared_prefix_is_refused_naming_every_table() {
+    // Prefixes are not unique (measured: SR numbers both scan_result and
+    // sn_ti_sandbox_submission_results), so the prefix alone names no table.
+    let server = MockServer::start().await;
+    mount_sys_number(
+        &server,
+        "SR",
+        sys_number_rows("SR", &["scan_result", "sn_ti_sandbox_submission_results"]),
+        1,
+    )
+    .await;
+
+    let tmp = profile_for(&server.uri());
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd.args(["get", "SR0010001"]).assert().code(1);
+        let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+        assert!(
+            stderr.contains("scan_result") && stderr.contains("sn_ti_sandbox_submission_results"),
+            "{stderr}"
+        );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_unreadable_sys_number_degrades_to_the_builtin_map() {
+    // sys_number is admin-only by default (measured: itil gets 403). That is
+    // not an auth failure of the command — it is "only the built-ins are
+    // known", which is exit 1 naming them.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/now/table/sys_number"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .set_body_json(json!({"error": {"message": "User Not Authorized"}})),
+        )
+        .mount(&server)
+        .await;
+
+    let tmp = profile_for(&server.uri());
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd.args(["get", "HRC0001001"]).assert().code(1);
+        let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+        assert!(stderr.contains("cannot read"), "{stderr}");
+        assert!(stderr.contains("INC") && stderr.contains("SIR"), "{stderr}");
+        assert!(stderr.contains("table:number"), "{stderr}");
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_prefix_canary_trips_when_the_prefix_term_is_dropped() {
+    // Rows whose prefix is not the one asked about prove the `prefix=` term
+    // was dropped; resolving to any of them would be a wrong table.
+    let server = MockServer::start().await;
+    mount_sys_number(
+        &server,
+        "HRC",
+        json!({"result": [
+            {"prefix": "EC", "category": "sys_execution_context"},
+            {"prefix": "CTRL", "category": "sn_compliance_control"},
+        ]}),
+        1,
+    )
+    .await;
+
+    let tmp = profile_for(&server.uri());
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd.args(["get", "HRC0001001"]).assert().code(2);
+        let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+        let err: serde_json::Value = serde_json::from_str(stderr.trim()).unwrap();
+        let msg = err["error"]["message"].as_str().unwrap();
+        assert!(msg.contains("dropped by the instance"), "{msg}");
+        assert!(err["error"].get("status_code").is_none(), "{err}");
+        assert!(read_cache(tmp.path()).instances.is_empty());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_builtin_prefix_miss_follows_a_renumbered_table() {
+    // INC is built in, so the first try is `incident` with no sys_number
+    // request. The number is not there; sys_number says INC now numbers
+    // u_incident, so the lookup moves there and the answer is cached.
+    let server = MockServer::start().await;
+    mount_resolution(&server, "incident", json!([])).await;
+    mount_sys_number(&server, "INC", sys_number_rows("INC", &["u_incident"]), 1).await;
+    mount_resolution(&server, "u_incident", resolved_row()).await;
+    mount_record(&server, "u_incident").await;
+    mount_vars_empty(&server).await;
+
+    let tmp = profile_for(&server.uri());
+    let uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "get", "INC0010001"])
+            .assert()
+            .success();
+        let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(v["table"], "u_incident");
+        assert_eq!(
+            read_cache(tmp.path()).instances[&uri]["INC"].table,
+            "u_incident"
+        );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_builtin_prefix_miss_without_sys_number_is_the_plain_not_found() {
+    // The re-check is best-effort: an unreadable sys_number (here: unmocked,
+    // so 404) leaves the original, truthful not-found standing.
+    let server = MockServer::start().await;
+    mount_resolution(&server, "incident", json!([])).await;
+
+    let tmp = profile_for(&server.uri());
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd.args(["get", "INC9999999"]).assert().code(2);
+        let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+        let err: serde_json::Value = serde_json::from_str(stderr.trim()).unwrap();
+        let msg = err["error"]["message"].as_str().unwrap();
+        assert!(
+            msg.contains("no incident record with number INC9999999"),
+            "{msg}"
+        );
+        assert!(err["error"].get("status_code").is_none(), "{err}");
+        // Nothing was learned, so nothing was written.
+        assert!(!tmp.path().join("number_prefixes.toml").exists());
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_stale_cache_entry_is_rechecked_and_replaced() {
+    let server = MockServer::start().await;
+    mount_resolution(&server, "u_old_case", json!([])).await;
+    mount_sys_number(&server, "HRC", sys_number_rows("HRC", &["u_new_case"]), 1).await;
+    mount_resolution(&server, "u_new_case", resolved_row()).await;
+    mount_record(&server, "u_new_case").await;
+    mount_vars_empty(&server).await;
+
+    let tmp = profile_for(&server.uri());
+    let uri = server.uri();
+    sn::config::update_prefix_cache_at(
+        &tmp.path().join("number_prefixes.toml"),
+        std::time::Duration::from_secs(2),
+        |c| {
+            c.instances.entry(uri.clone()).or_default().insert(
+                "HRC".into(),
+                sn::config::PrefixEntry {
+                    table: "u_old_case".into(),
+                    fetched_at: sn::config::now_unix(),
+                },
+            );
+        },
+    )
+    .unwrap();
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        let out = cmd
+            .args(["--compact", "get", "HRC0001001"])
+            .assert()
+            .success();
+        let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(v["table"], "u_new_case");
+        assert_eq!(
+            read_cache(tmp.path()).instances[&uri]["HRC"].table,
+            "u_new_case"
+        );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_expired_cache_entry_is_asked_again() {
+    let server = MockServer::start().await;
+    mount_sys_number(&server, "HRC", sys_number_rows("HRC", &["u_case"]), 1).await;
+    mount_resolution(&server, "u_case", resolved_row()).await;
+    mount_record(&server, "u_case").await;
+    mount_vars_empty(&server).await;
+
+    let tmp = profile_for(&server.uri());
+    let uri = server.uri();
+    sn::config::update_prefix_cache_at(
+        &tmp.path().join("number_prefixes.toml"),
+        std::time::Duration::from_secs(2),
+        |c| {
+            c.instances.entry(uri.clone()).or_default().insert(
+                "HRC".into(),
+                sn::config::PrefixEntry {
+                    table: "u_case".into(),
+                    // Well past the TTL.
+                    fetched_at: 1,
+                },
+            );
+        },
+    )
+    .unwrap();
+    tokio::task::spawn_blocking(move || {
+        let mut cmd = sn_cmd(tmp.path());
+        cmd.args(["get", "HRC0001001"]).assert().success();
+        assert!(read_cache(tmp.path()).instances[&uri]["HRC"].fetched_at > 1);
+    })
+    .await
+    .unwrap();
 }
 
 #[test]

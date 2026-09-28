@@ -419,8 +419,10 @@ sn get INC0010001
 sn get incident:INC0010001
 ```
 
-Bare numbers on `sn get` must have a recognized prefix: INC, CHG, CTASK, PRB, REQ,
-RITM, SCTASK, KB, or SIR. Otherwise specify `table:number` or `table:sys_id`.
+Bare numbers on `sn get` resolve INC, CHG, CTASK, PRB, REQ, RITM, SCTASK, KB, and SIR
+offline. Any other prefix is looked up once in the instance's `sys_number` table
+(admin-readable by default) and cached. A prefix two tables share, or one the instance
+doesn't define, exits 1; specify `table:number` or `table:sys_id` instead.
 To find a record by other criteria, use `list --query "..."`; use `--limit 2` and
 check the result count when the query is supposed to identify exactly one record.
 
