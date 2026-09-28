@@ -311,6 +311,29 @@ fails with a message naming the mistake, and a table with no GraphQL query field
 too. `sn graphql` remains the passthrough for everything the compiler doesn't reach:
 mutations, aggregates, scripted namespaces, multi-operation documents.
 
+## Flow Designer
+
+Find flows and subflows, read one, and see its version history. This is read-only for now:
+no command writes a flow.
+
+```bash
+sn flow list --scope global --type subflow --active    # sys_hub_flow rows, raw values, sorted by name
+sn flow list -q "nameLIKEincident" --limit 20
+sn flow get <sys_id>                                    # the full designer model (~70 keys)
+sn flow get sn_itsm.my_flow --outline                   # header, triggers, and the ordered, nested steps
+sn flow versions my_flow                                # save/publish history
+```
+
+A flow can be named by its sys_id, its internal name, or `scope.internal_name`.
+Internal names repeat across scopes (`send_email` exists in more than one scope), so an
+ambiguous name exits 1 and lists the qualified candidates. `get` and `versions` read the
+designer's own undocumented `/api/now/processflow` API. It takes tens of seconds per flow,
+so these two verbs default to a 180s timeout, and they need Flow Designer rights: an
+`itil`-only caller gets 403 (exit 4), even though `sn flow list` still works for it.
+`--outline` gives each step its `order`, `depth`, `kind` (`action`/`flowlogic`/`subflow`),
+and `parent` (the enclosing step's `order`), which is usually all an agent needs out of
+a model that can run to hundreds of KB.
+
 ## Change Management
 
 Normal, emergency, and standard change requests across their lifecycle:

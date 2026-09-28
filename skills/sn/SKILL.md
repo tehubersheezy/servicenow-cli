@@ -111,7 +111,8 @@ Other surfaces are well covered by `--help`; a few notes worth having anyway: `s
 in one round trip without writing GraphQL (`--count` for just the match count); `sn graphql`
 and `sn gr` fail **in band** — HTTP 200 with an `errors` array, mapped to exit 2
 with partial `data` still on stdout; `sn attachment download --out` stages and renames, so a
-failed download never leaves a truncated file, and reports `{"path","size"}`; `sn identify
+failed download never leaves a truncated file, and reports `{"path","size"}`; `sn flow get <flow> --outline` is the compact view of a Flow Designer
+model (the full one runs to hundreds of KB, and each read takes tens of seconds); `sn identify
 query` shows what the IRE *would* match before `create-update` writes; `sn catalog
 item-variables` names what an order must carry, and the cart is server-side state that
 survives a failed run.
