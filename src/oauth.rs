@@ -8,6 +8,10 @@
 //!     this browser flow is the supported path.
 //!   * **Client Credentials** — a non-interactive service-to-service flow for
 //!     automation/CI.
+//!   * **JWT Bearer** (RFC 7523) — non-interactive too, but secretless on the
+//!     client side: sn signs a short-lived JWT with a local private key (see
+//!     `crate::jwt`) and trades it for an access token. ServiceNow's JWT grant
+//!     issues no refresh token, so a stale token is simply re-minted.
 //!
 //! ServiceNow OAuth endpoints (relative to the instance base URL):
 //!   * `GET  /oauth_auth.do`  — authorization endpoint (issues the `code`)
@@ -345,6 +349,40 @@ pub fn refresh(client: &Client, o: &ResolvedOauth, refresh_token: &str) -> Resul
     Ok(tokens)
 }
 
+/// The `grant_type` ServiceNow's inbound JWT endpoint expects (RFC 7523 §2.1).
+pub const JWT_BEARER_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+
+/// Mint a token via the JWT bearer grant: sign a fresh assertion with the
+/// profile's key and post it. `client_secret` rides along when the profile has
+/// one — ServiceNow's JWT endpoints are confidential unless marked Public
+/// Client, in which case the secret is simply absent.
+pub fn jwt_bearer(client: &Client, o: &ResolvedOauth) -> Result<TokenSet> {
+    let jwt = o.jwt.as_ref().ok_or_else(|| {
+        Error::Config("jwt_bearer grant requires jwt_key_file and jwt_subject".into())
+    })?;
+    let assertion = crate::jwt::assertion_for(&o.client_id, jwt)?;
+    let mut form = vec![
+        ("grant_type".into(), JWT_BEARER_GRANT_TYPE.into()),
+        ("assertion".into(), assertion),
+        ("client_id".into(), o.client_id.clone()),
+    ];
+    if let Some(secret) = &o.client_secret {
+        form.push(("client_secret".into(), secret.clone()));
+    }
+    parse_token_response(&client.post_form(&o.token_path, &form)?)
+}
+
+/// Mint a token with whichever headless grant `o` is configured for.
+pub fn mint_headless(client: &Client, o: &ResolvedOauth) -> Result<TokenSet> {
+    match o.grant {
+        OAuthGrant::ClientCredentials => client_credentials(client, o),
+        OAuthGrant::JwtBearer => jwt_bearer(client, o),
+        OAuthGrant::AuthorizationCode => Err(Error::Config(
+            "the authorization_code grant needs a browser; run `sn profile login`".into(),
+        )),
+    }
+}
+
 /// Mint a token via the client-credentials grant (requires a client secret).
 pub fn client_credentials(client: &Client, o: &ResolvedOauth) -> Result<TokenSet> {
     let secret = o
@@ -471,10 +509,11 @@ pub fn ensure_access_token(profile: &ResolvedProfile, timeout: Option<u64>) -> R
         }
 
         // No cached token (or it expired without a refresh token). The
-        // client-credentials grant can mint one non-interactively.
-        if matches!(o.grant, OAuthGrant::ClientCredentials) {
+        // client-credentials and JWT bearer grants can mint one
+        // non-interactively.
+        if o.grant.is_headless() {
             let client = build_token_client(profile, timeout)?;
-            let fresh = client_credentials(&client, o)?;
+            let fresh = mint_headless(&client, o)?;
             config::save_oauth_tokens(&profile.name, &fresh)?;
             return Ok(fresh.access_token);
         }
@@ -523,8 +562,8 @@ pub fn force_refresh(profile: &ResolvedProfile, timeout: Option<u64>) -> Result<
         .ok_or_else(|| Error::Config("profile is not configured for oauth".into()))?;
     config::with_config_lock_for(refresh_lock_timeout(timeout), || {
         let client = build_token_client(profile, timeout)?;
-        let fresh = if matches!(o.grant, OAuthGrant::ClientCredentials) {
-            client_credentials(&client, o)?
+        let fresh = if o.grant.is_headless() {
+            mint_headless(&client, o)?
         } else {
             let rt = config::load_oauth_tokens(&profile.name)?
                 .and_then(|t| t.refresh_token)
@@ -559,6 +598,7 @@ mod tests {
             grant: OAuthGrant::AuthorizationCode,
             pkce: true,
             tokens: None,
+            jwt: None,
         }
     }
 

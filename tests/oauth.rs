@@ -18,6 +18,7 @@ fn client_credentials_profile(uri: &str) -> ResolvedProfile {
             grant: OAuthGrant::ClientCredentials,
             pkce: false,
             tokens: None,
+            jwt: None,
         }),
         ..base
     }

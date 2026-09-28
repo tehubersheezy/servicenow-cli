@@ -1921,6 +1921,7 @@ mod tests {
             auth_method: crate::config::AuthMethod::Basic,
             oauth: None,
             api_key: None,
+            token: None,
         }
     }
 

@@ -2,8 +2,8 @@ use crate::cli::GlobalFlags;
 use crate::cli::auth::{complete_oauth_login, whoami};
 use crate::cli::kernel::{build_client, build_profile, confirm_destructive, write_response};
 use crate::config::{
-    self, AuthMethod, OAuthConfig, OAuthGrant, ProfileConfig, ProfileCredentials, config_path,
-    credentials_path, default_redirect_uri, load_config_from, load_credentials_from,
+    self, AuthMethod, JwtAlg, OAuthConfig, OAuthGrant, ProfileConfig, ProfileCredentials,
+    config_path, credentials_path, default_redirect_uri, load_config_from, load_credentials_from,
     resolve_profile_name, save_config_to, save_credentials_to,
 };
 use crate::error::{Error, Result};
@@ -15,7 +15,7 @@ use std::io::{self, Read, Write};
 #[derive(Subcommand, Debug)]
 pub enum ProfileSub {
     /// Add a profile. Leaves the default profile alone (see `sn profile use`).
-    Add(ProfileAddArgs),
+    Add(Box<ProfileAddArgs>),
     /// List every configured profile.
     List,
     /// Show one profile's settings (secrets redacted).
@@ -38,11 +38,11 @@ pub enum ProfileSub {
     },
     /// Run the OAuth flow for the selected (already-configured) profile and cache tokens.
     Login,
-    /// Discard the profile's cached OAuth tokens.
+    /// Discard the profile's cached OAuth tokens (or cached token_command result).
     Logout,
-    /// Show the resolved auth method and OAuth token status for a profile.
+    /// Show the resolved auth method and token status for a profile.
     Status,
-    /// Force an OAuth token refresh now.
+    /// Force an OAuth token refresh (or re-run the token_command) now.
     Refresh,
 }
 
@@ -55,7 +55,8 @@ pub struct ProfileAddArgs {
     #[arg(long)]
     pub instance: Option<String>,
     /// Authentication method: `basic` (username/password), `oauth` (SSO /
-    /// OAuth 2.0), or `apikey` (REST API key).
+    /// OAuth 2.0), `apikey` (REST API key), or `token` (an externally issued
+    /// bearer token, stored or fetched by --token-command).
     #[arg(long, value_enum)]
     pub auth: Option<AuthMethod>,
     /// Username (basic auth only).
@@ -75,6 +76,19 @@ pub struct ProfileAddArgs {
     /// Read the REST API key from stdin (apikey auth only).
     #[arg(long, conflicts_with_all = ["password_stdin", "client_secret_stdin"])]
     pub api_key_stdin: bool,
+    /// Command whose stdout is the bearer token, run through the shell on
+    /// demand (token auth only). Its output may be the bare token or JSON with
+    /// `access_token` and `expires_in`/`expires_at`; the token is cached only
+    /// when an expiry is given, otherwise the command runs on every call.
+    #[arg(long, value_name = "COMMAND", conflicts_with_all = ["token", "token_stdin"])]
+    pub token_command: Option<String>,
+    /// Static bearer token (token auth only). Visible in `ps` output and shell
+    /// history — prefer `--token-stdin` or `--token-command`.
+    #[arg(long, conflicts_with = "token_stdin")]
+    pub token: Option<String>,
+    /// Read a static bearer token from stdin (token auth only).
+    #[arg(long, conflicts_with_all = ["password_stdin", "client_secret_stdin", "api_key_stdin"])]
+    pub token_stdin: bool,
     /// OAuth client_id (oauth only).
     #[arg(long)]
     pub client_id: Option<String>,
@@ -88,9 +102,26 @@ pub struct ProfileAddArgs {
     /// OAuth loopback redirect URI (oauth only). Defaults to http://localhost:8400/callback.
     #[arg(long, value_name = "URL")]
     pub redirect_uri: Option<String>,
-    /// OAuth grant: authorization_code (SSO, default) or client_credentials.
+    /// OAuth grant: authorization_code (SSO, default), client_credentials, or
+    /// jwt_bearer (sign a JWT with a local private key; no browser).
     #[arg(long, value_enum)]
     pub grant: Option<OAuthGrant>,
+    /// PEM private key that signs the JWT assertion (jwt_bearer only). Its
+    /// certificate must be in the instance's JWT verifier map. The path is
+    /// stored; the key stays where it is.
+    #[arg(long, value_name = "PATH")]
+    pub jwt_key_file: Option<String>,
+    /// JWT `sub` claim (jwt_bearer only): the user the token acts as, matched
+    /// against the JWT endpoint's User field (e.g. a user_name or email).
+    #[arg(long, value_name = "SUBJECT")]
+    pub jwt_subject: Option<String>,
+    /// JWT `kid` header naming the instance's verifier map entry (jwt_bearer only).
+    #[arg(long, value_name = "KID")]
+    pub jwt_kid: Option<String>,
+    /// JWT signing algorithm (jwt_bearer only). Defaults to RS256 for an RSA
+    /// key, ES256/ES384 for a P-256/P-384 key.
+    #[arg(long, value_enum, ignore_case = true)]
+    pub jwt_alg: Option<JwtAlg>,
     /// Disable PKCE for the authorization-code flow.
     #[arg(long)]
     pub no_pkce: bool,
@@ -110,7 +141,7 @@ pub struct ProfileAddArgs {
 
 pub fn run(global: &GlobalFlags, sub: ProfileSub) -> Result<()> {
     match sub {
-        ProfileSub::Add(args) => add(global, args),
+        ProfileSub::Add(args) => add(global, *args),
         ProfileSub::List => list(global),
         ProfileSub::Show { name } => show(global, name),
         ProfileSub::Remove { name, yes } => remove(global, name, yes),
@@ -127,6 +158,7 @@ pub(crate) fn auth_str(method: AuthMethod) -> &'static str {
         AuthMethod::Basic => "basic",
         AuthMethod::Oauth => "oauth",
         AuthMethod::Apikey => "apikey",
+        AuthMethod::Token => "token",
     }
 }
 
@@ -181,6 +213,13 @@ impl Caller {
             Caller::ProfileAdd => "--api-key (or --api-key-stdin)",
         }
     }
+
+    fn token_flag(self) -> &'static str {
+        match self {
+            Caller::Init => "--token-command or --token",
+            Caller::ProfileAdd => "--token-command, --token or --token-stdin",
+        }
+    }
 }
 
 /// One profile's worth of settings, with every prompt and flag already resolved.
@@ -196,6 +235,14 @@ pub(crate) struct ProfileInput {
     pub redirect_uri: Option<String>,
     pub grant: OAuthGrant,
     pub pkce: bool,
+    /// jwt_bearer settings; the key file already made absolute and loaded once.
+    pub jwt_key_file: Option<String>,
+    pub jwt_subject: Option<String>,
+    pub jwt_kid: Option<String>,
+    pub jwt_alg: Option<JwtAlg>,
+    /// Static bearer token (token auth without a command).
+    pub token: String,
+    pub token_command: Option<String>,
 }
 
 /// What one [`save_profile`] displaced, so [`restore`] can put back exactly
@@ -285,7 +332,7 @@ pub(crate) fn resolve_input(
         Some(m) => m,
         None => match ask(
             interactive,
-            "Auth method (basic/oauth/apikey) [basic]: ",
+            "Auth method (basic/oauth/apikey/token) [basic]: ",
             Some("basic".into()),
             "--auth",
             caller,
@@ -296,9 +343,10 @@ pub(crate) fn resolve_input(
             "oauth" => AuthMethod::Oauth,
             "basic" => AuthMethod::Basic,
             "apikey" => AuthMethod::Apikey,
+            "token" => AuthMethod::Token,
             other => {
                 return Err(Error::Usage(format!(
-                    "unknown auth method '{other}' (expected basic, oauth, or apikey)"
+                    "unknown auth method '{other}' (expected basic, oauth, apikey, or token)"
                 )));
             }
         },
@@ -316,7 +364,35 @@ pub(crate) fn resolve_input(
         redirect_uri: None,
         grant: OAuthGrant::default(),
         pkce: !args.no_pkce,
+        jwt_key_file: None,
+        jwt_subject: None,
+        jwt_kid: None,
+        jwt_alg: None,
+        token: String::new(),
+        token_command: None,
     };
+
+    // Flags that belong to one mechanism are refused under another rather than
+    // silently dropped: `--jwt-key-file` without `--grant jwt_bearer` would
+    // otherwise become an authorization_code profile and a browser refusal
+    // that never mentions the flag the caller actually typed.
+    let token_flags = args.token.is_some() || args.token_stdin || args.token_command.is_some();
+    if token_flags && auth != AuthMethod::Token {
+        return Err(Error::Usage(
+            "--token, --token-stdin and --token-command only apply to --auth token".into(),
+        ));
+    }
+    let jwt_flags = args.jwt_key_file.is_some()
+        || args.jwt_subject.is_some()
+        || args.jwt_kid.is_some()
+        || args.jwt_alg.is_some();
+    if jwt_flags && !(auth == AuthMethod::Oauth && args.grant == Some(OAuthGrant::JwtBearer)) {
+        return Err(Error::Usage(
+            "--jwt-key-file, --jwt-subject, --jwt-kid and --jwt-alg only apply to \
+             --auth oauth --grant jwt_bearer"
+                .into(),
+        ));
+    }
 
     match auth {
         AuthMethod::Basic => {
@@ -351,6 +427,52 @@ pub(crate) fn resolve_input(
                 return Err(Error::Usage(
                     "an API key is required for apikey auth".into(),
                 ));
+            }
+        }
+        AuthMethod::Token => {
+            match (&args.token_command, &args.token, args.token_stdin) {
+                (Some(c), None, false) => input.token_command = Some(c.clone()),
+                (None, Some(t), false) => input.token = t.clone(),
+                (None, None, true) => input.token = read_secret_stdin()?,
+                (None, None, false) if interactive => {
+                    let c = ask(
+                        true,
+                        "Token command (leave empty to paste a static token): ",
+                        Some(String::new()),
+                        "--token-command",
+                        caller,
+                    )?;
+                    if c.trim().is_empty() {
+                        input.token = rpassword::prompt_password("Token: ")
+                            .map_err(|e| Error::Usage(format!("read token: {e}")))?;
+                    } else {
+                        input.token_command = Some(c);
+                    }
+                }
+                (None, None, false) => return Err(missing(caller.token_flag(), caller)),
+                // Only `sn init` can get here — `profile add` declares these
+                // as clap conflicts.
+                _ => {
+                    return Err(Error::Usage(
+                        "pass one of --token-command or --token, not both".into(),
+                    ));
+                }
+            }
+            match &input.token_command {
+                Some(c) if c.trim().is_empty() => {
+                    return Err(Error::Usage("--token-command must not be empty".into()));
+                }
+                Some(_) => {}
+                None => {
+                    input.token = input.token.trim().to_string();
+                    if input.token.is_empty() || !input.token.bytes().all(|b| b.is_ascii_graphic())
+                    {
+                        return Err(Error::Usage(
+                            "a token is required for token auth, and must be one word with no spaces"
+                                .into(),
+                        ));
+                    }
+                }
             }
         }
         AuthMethod::Oauth => {
@@ -395,14 +517,73 @@ pub(crate) fn resolve_input(
                     return Err(missing(caller.client_secret_flag(), caller));
                 }
                 (None, false, OAuthGrant::AuthorizationCode, _) => None,
+                // ServiceNow's JWT endpoint takes a secret unless it is marked
+                // Public Client, so it is optional here: offer the prompt, but
+                // an empty answer (or no terminal) means a public client.
+                (None, false, OAuthGrant::JwtBearer, true) => {
+                    let s = rpassword::prompt_password(
+                        "OAuth client_secret (leave empty for a public client): ",
+                    )
+                    .map_err(|e| Error::Usage(format!("read secret: {e}")))?;
+                    (!s.is_empty()).then_some(s)
+                }
+                (None, false, OAuthGrant::JwtBearer, false) => None,
             };
+
+            if input.grant == OAuthGrant::JwtBearer {
+                let key_file = match &args.jwt_key_file {
+                    Some(v) => v.clone(),
+                    None => ask(
+                        interactive,
+                        "JWT private key file (PEM): ",
+                        None,
+                        "--jwt-key-file",
+                        caller,
+                    )?,
+                };
+                let key_file = absolute_path(&key_file)?;
+                // Load it now: a path typo or an encrypted key is a local
+                // mistake, and should fail before anything is written — even
+                // under --no-verify.
+                crate::jwt::load_key(&key_file, args.jwt_alg)?;
+                let subject = match &args.jwt_subject {
+                    Some(v) => v.clone(),
+                    None => ask(
+                        interactive,
+                        "JWT subject (the user the token acts as, e.g. a user_name or email): ",
+                        None,
+                        "--jwt-subject",
+                        caller,
+                    )?,
+                };
+                if subject.trim().is_empty() {
+                    return Err(Error::Usage(
+                        "--jwt-subject is required for the jwt_bearer grant".into(),
+                    ));
+                }
+                let kid = match &args.jwt_kid {
+                    Some(v) => Some(v.clone()),
+                    None if interactive => Some(ask(
+                        true,
+                        "JWT key id (kid header of the verifier map entry; empty for none): ",
+                        Some(String::new()),
+                        "--jwt-kid",
+                        caller,
+                    )?),
+                    None => None,
+                };
+                input.jwt_key_file = Some(key_file);
+                input.jwt_subject = Some(subject.trim().to_string());
+                input.jwt_kid = kid.filter(|k| !k.trim().is_empty());
+                input.jwt_alg = args.jwt_alg;
+            }
 
             // The loopback redirect only exists in the browser flow; don't ask
             // for one under client_credentials. Left unset, `resolve_profile`
             // applies `default_redirect_uri()`.
             input.redirect_uri = match (&args.redirect_uri, input.grant) {
                 (Some(u), _) => Some(u.clone()),
-                (None, OAuthGrant::ClientCredentials) => None,
+                (None, OAuthGrant::ClientCredentials | OAuthGrant::JwtBearer) => None,
                 (None, OAuthGrant::AuthorizationCode) if interactive => {
                     let d = default_redirect_uri();
                     Some(ask(
@@ -419,6 +600,26 @@ pub(crate) fn resolve_input(
     }
 
     Ok(input)
+}
+
+/// Make a key-file path absolute (expanding a leading `~/`), so the stored
+/// profile works from any working directory.
+fn absolute_path(path: &str) -> Result<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(Error::Usage(
+            "--jwt-key-file is required for the jwt_bearer grant".into(),
+        ));
+    }
+    let expanded = match path.strip_prefix("~/") {
+        Some(rest) => directories::BaseDirs::new()
+            .map(|d| d.home_dir().join(rest))
+            .ok_or_else(|| Error::Config("cannot resolve the home directory for ~/".into()))?,
+        None => std::path::PathBuf::from(path),
+    };
+    let abs = std::path::absolute(&expanded)
+        .map_err(|e| Error::Usage(format!("bad --jwt-key-file path {path}: {e}")))?;
+    Ok(abs.to_string_lossy().into_owned())
 }
 
 /// Merge `input` into `config.toml` + `credentials.toml` and persist both.
@@ -513,6 +714,9 @@ fn save_profile_locked(
             // method's config and secrets so they can't leak or confuse.
             pc.auth = AuthMethod::Basic;
             pc.oauth = None;
+            pc.token_command = None;
+            cred.token = None;
+            cred.token_cache = None;
             cred.client_secret = None;
             cred.oauth_tokens = None;
             cred.api_key = None;
@@ -522,6 +726,9 @@ fn save_profile_locked(
         AuthMethod::Apikey => {
             pc.auth = AuthMethod::Apikey;
             pc.oauth = None;
+            pc.token_command = None;
+            cred.token = None;
+            cred.token_cache = None;
             cred.username = String::new();
             cred.password = String::new();
             cred.client_secret = None;
@@ -538,12 +745,37 @@ fn save_profile_locked(
                 token_path: existing.as_ref().and_then(|o| o.token_path.clone()),
                 grant: input.grant,
                 pkce: input.pkce,
+                jwt_key_file: input.jwt_key_file.clone(),
+                jwt_subject: input.jwt_subject.clone(),
+                jwt_kid: input.jwt_kid.clone(),
+                jwt_alg: input.jwt_alg,
             });
-            // Switching a basic/apikey profile to oauth clears the now-unused
-            // password and API key.
+            // Switching a basic/apikey/token profile to oauth clears the
+            // now-unused password, API key and token.
+            pc.token_command = None;
             cred.password = String::new();
             cred.api_key = None;
+            cred.token = None;
+            cred.token_cache = None;
             cred.client_secret = input.client_secret.clone();
+            // Tokens minted under the old client/grant/subject must not keep
+            // answering for the new configuration. (A failed verification's
+            // rollback puts them back along with everything else.)
+            cred.oauth_tokens = None;
+        }
+        AuthMethod::Token => {
+            pc.auth = AuthMethod::Token;
+            pc.oauth = None;
+            pc.token_command = input.token_command.clone();
+            cred.username = String::new();
+            cred.password = String::new();
+            cred.client_secret = None;
+            cred.oauth_tokens = None;
+            cred.api_key = None;
+            // Exactly one source survives: a command replaces a stored token
+            // and vice versa, and any cached result belongs to the old setup.
+            cred.token = input.token_command.is_none().then(|| input.token.clone());
+            cred.token_cache = None;
         }
     }
 
@@ -613,7 +845,7 @@ fn verify_profile(
     grant: OAuthGrant,
 ) -> Result<Option<String>> {
     match auth {
-        AuthMethod::Basic | AuthMethod::Apikey => {
+        AuthMethod::Basic | AuthMethod::Apikey | AuthMethod::Token => {
             // Scope resolution to this profile, independent of which one happens
             // to be the global default.
             let mut scoped = global.clone();
@@ -792,6 +1024,13 @@ fn add(global: &GlobalFlags, args: ProfileAddArgs) -> Result<()> {
         "auth": auth_str(input.auth),
         "verified": !args.no_verify,
     });
+    if matches!(input.auth, AuthMethod::Token) {
+        out["tokenSource"] = json!(if input.token_command.is_some() {
+            "command"
+        } else {
+            "static"
+        });
+    }
     if matches!(input.auth, AuthMethod::Oauth) {
         out["grant"] = json!(input.grant.as_str());
         out["loggedIn"] = json!(!args.no_verify);
@@ -861,13 +1100,35 @@ fn show(global: &GlobalFlags, name: Option<String>) -> Result<()> {
             // is to report is whether one is stored.
             out["hasApiKey"] = json!(cred.and_then(|c| c.api_key.as_ref()).is_some());
         }
+        AuthMethod::Token => {
+            // The command is configuration (it lives in config.toml); what it
+            // prints, and a stored token, are secrets and never shown.
+            match &p.token_command {
+                Some(c) => {
+                    out["tokenSource"] = json!("command");
+                    out["token_command"] = json!(c);
+                    out["cached"] = json!(cred.and_then(|c| c.token_cache.as_ref()).is_some());
+                }
+                None => {
+                    out["tokenSource"] = json!("static");
+                    out["hasToken"] = json!(cred.and_then(|c| c.token.as_ref()).is_some());
+                }
+            }
+        }
         AuthMethod::Oauth => {
             if let Some(o) = &p.oauth {
                 out["client_id"] = json!(o.client_id);
                 out["grant"] = json!(o.grant.as_str());
-                out["redirect_uri"] =
-                    json!(o.redirect_uri.clone().unwrap_or_else(default_redirect_uri));
-                out["pkce"] = json!(o.pkce);
+                if o.grant == OAuthGrant::JwtBearer {
+                    out["jwt_key_file"] = json!(o.jwt_key_file);
+                    out["jwt_subject"] = json!(o.jwt_subject);
+                    out["jwt_kid"] = json!(o.jwt_kid);
+                    out["jwt_alg"] = json!(o.jwt_alg.map(JwtAlg::as_str));
+                } else {
+                    out["redirect_uri"] =
+                        json!(o.redirect_uri.clone().unwrap_or_else(default_redirect_uri));
+                    out["pkce"] = json!(o.pkce);
+                }
             }
             let tokens = cred.and_then(|c| c.oauth_tokens.as_ref());
             out["loggedIn"] = json!(tokens.is_some());

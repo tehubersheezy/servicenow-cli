@@ -4,6 +4,8 @@ pub mod cli;
 pub mod client;
 pub mod config;
 pub mod error;
+pub mod external_token;
+pub mod jwt;
 pub mod oauth;
 pub mod observability;
 pub mod output;
