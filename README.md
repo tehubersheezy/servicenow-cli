@@ -77,6 +77,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn context`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
+| [`sn codesearch`](docs/usage.md#code-search) | Find where a script include, table, or function is referenced in the instance's code |
 | [`sn raw`](docs/usage.md#raw-rest-passthrough) | Call REST endpoints directly |
 | [`sn ping` / `sn open`](docs/usage.md#inspect-and-connect) | Check the connection or open a record in your browser |
 

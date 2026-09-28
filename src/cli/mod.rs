@@ -8,6 +8,7 @@ pub mod auth;
 pub mod catalog;
 pub mod change;
 pub mod cmdb;
+pub mod codesearch;
 pub mod completion;
 pub mod context;
 pub mod get_record;
@@ -58,6 +59,7 @@ pub use cmdb::{
     CmdbCreateArgs, CmdbGetArgs, CmdbListArgs, CmdbMetaArgs, CmdbRelationAddArgs,
     CmdbRelationDeleteArgs, CmdbRelationSub, CmdbSub, CmdbUpdateArgs,
 };
+pub use codesearch::CodesearchArgs;
 pub use completion::{CompletionArgs, Shell as CompletionShell};
 pub use context::{ContextSub, ContextTargetArgs};
 pub use get_record::GetRecordArgs;
@@ -385,6 +387,19 @@ pub enum Command {
         #[command(subcommand)]
         sub: ApiSub,
     },
+    /// Find a string in script and code fields across the instance, via the
+    /// Code Search API (`sn codesearch <TERM>`). One row per matching field.
+    ///
+    /// Searches every table the instance's Code Search is configured for (business rules,
+    /// script includes, UI actions, client scripts, ACLs, …) in every application scope, in one
+    /// call. Each row is `{table, sys_id, name, field, count, lines}`; `lines` holds each matching
+    /// line with its neighbours, `match` telling them apart. Feed `table` and `sys_id` to
+    /// `sn table get` or `sn open`.
+    ///
+    /// Results are limited to records the caller can read: a caller without admin (or a
+    /// delegated-developer role) typically sees few or none, under a successful exit. A search
+    /// over every table can take a while, so `--timeout` defaults to 120s here.
+    Codesearch(CodesearchArgs),
     /// Dump the full command tree as JSON for agent/MCP generation.
     Introspect,
     /// Get pipeline/deployment progress by ID.

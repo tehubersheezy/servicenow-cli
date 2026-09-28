@@ -200,6 +200,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Raw(args) => sn::cli::raw::run(&global, args),
         Command::Gr(args) => sn::cli::gr::run(&global, args),
         Command::Graphql(args) => sn::cli::graphql::run(&global, args),
+        Command::Codesearch(args) => sn::cli::codesearch::run(&global, args),
         Command::Completion(args) => sn::cli::completion::run(args),
     }
 }
