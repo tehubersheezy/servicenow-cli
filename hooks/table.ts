@@ -1,8 +1,12 @@
 // Pure parsing of `sn table` invocations and of what they printed.
 
 export type TableInvocation = {
+  bin: string
   verb: string
   table: string
+  // The record a get/update/delete named: a sys_id, or a number from `table:number`.
+  record: string | null
+  query: string | null
   args: string
   profile: string | null
   isPiped: boolean
@@ -13,6 +17,8 @@ export type Outcome = {
   summary: string
   records: number | null
   exitCode: number | null
+  // The sys_id of the one record the output held, when it held exactly one.
+  sysId: string | null
 }
 
 const VERBS = new Set(['list', 'get', 'create', 'update', 'delete'])
@@ -123,6 +129,18 @@ function profileOf(w: readonly string[]): string | null {
   return null
 }
 
+function queryOf(w: readonly string[]): string | null {
+  for (let i = 0; i < w.length; i++) {
+    const word = w[i] ?? ''
+    if (word === '-q' || word === '--query' || word === '--sysparm-query') return w[i + 1] ?? null
+    for (const flag of ['--query=', '--sysparm-query=']) {
+      if (word.startsWith(flag)) return word.slice(flag.length)
+    }
+  }
+
+  return null
+}
+
 function withoutProfile(w: readonly string[]): string[] {
   const out: string[] = []
   for (let i = 0; i < w.length; i++) {
@@ -178,11 +196,21 @@ export function parseSnTable(command: string): TableInvocation | null {
     const rest = withoutProfile(w.slice(j))
     const colon = target?.indexOf(':') ?? -1
     const table = target === undefined ? '?' : colon > 0 ? target.slice(0, colon) : target
-    if (target !== undefined && colon > 0) rest.unshift(target.slice(colon + 1))
+    let record: string | null = null
+    if (target !== undefined && colon > 0) {
+      record = target.slice(colon + 1)
+      rest.unshift(record)
+    } else if (verb === 'get' || verb === 'update' || verb === 'delete') {
+      const next = w[j]
+      record = next !== undefined && !next.startsWith('-') ? next : null
+    }
 
     return {
+      bin: bin.startsWith('/') ? bin : 'sn',
       verb,
       table,
+      record,
+      query: verb === 'list' ? queryOf(w) : null,
       args: rest.map(quoteForDisplay).join(' '),
       profile: profileOf(w),
       isPiped: seg.sep === '|',
@@ -224,29 +252,33 @@ function recordLabel(record: Record<string, unknown>): string | null {
   )
 }
 
-function describeStdout(out: string, verb: string): Pick<Outcome, 'summary' | 'records'> {
-  if (out === '') return { summary: 'no output', records: null }
+function describeStdout(out: string, verb: string): Pick<Outcome, 'summary' | 'records' | 'sysId'> {
+  if (out === '') return { summary: 'no output', records: null, sysId: null }
 
   try {
     const value: unknown = JSON.parse(out)
     if (Array.isArray(value)) {
-      return { summary: plural(value.length, 'record'), records: value.length }
+      return { summary: plural(value.length, 'record'), records: value.length, sysId: null }
     }
     if (value !== null && typeof value === 'object') {
       const record = value as Record<string, unknown>
       // A get is one record even when -f left sys_id out.
       if (verb === 'get' || 'sys_id' in record || 'record' in record) {
         const label = recordLabel(record)
-        return { summary: label ? `1 record · ${label}` : '1 record', records: 1 }
+        return {
+          summary: label ? `1 record · ${label}` : '1 record',
+          records: 1,
+          sysId: displayOf(record.sys_id),
+        }
       }
       const scalars = Object.entries(record)
         .map(([key, v]) => [key, displayOf(v)] as const)
         .filter(([, v]) => v !== null)
         .slice(0, 3)
         .map(([key, v]) => `${key}=${clip(v ?? '', 24)}`)
-      return { summary: scalars.length > 0 ? scalars.join(' · ') : 'object', records: null }
+      return { summary: scalars.length > 0 ? scalars.join(' · ') : 'object', records: null, sysId: null }
     }
-    return { summary: clip(String(value), 60), records: null }
+    return { summary: clip(String(value), 60), records: null, sysId: null }
   } catch {
     // Not one JSON document: JSONL (an --all walk) or text.
   }
@@ -260,9 +292,9 @@ function describeStdout(out: string, verb: string): Pick<Outcome, 'summary' | 'r
       return false
     }
   })
-  if (isJsonl) return { summary: plural(lines.length, 'record'), records: lines.length }
+  if (isJsonl) return { summary: plural(lines.length, 'record'), records: lines.length, sysId: null }
 
-  return { summary: plural(lines.length, 'line'), records: null }
+  return { summary: plural(lines.length, 'line'), records: null, sysId: null }
 }
 
 function firstLine(text: string): string | null {
@@ -295,6 +327,7 @@ export function summarizeOutput(stdout: string, stderr: string, isPiped: boolean
     summary: parts.join(' · '),
     records: isPiped ? null : described.records,
     exitCode: 0,
+    sysId: isPiped ? null : described.sysId,
   }
 }
 
@@ -332,7 +365,26 @@ export function summarizeError(text: string): Outcome {
     summary: detail === null ? head : `${head} · ${clip(detail, 120)}`,
     records: null,
     exitCode,
+    sysId: null,
   }
+}
+
+// The `sn open` argv that shows what a call read or wrote in the browser: a
+// list call's (filtered) list view, any other call's record form. Null when
+// there is nothing to show: a failure, a delete, a record the call never named.
+export function openArgv(call: TableInvocation, outcome: Outcome): string[] | null {
+  if (outcome.status !== 'ok' || call.table === '?' || call.verb === 'delete') return null
+
+  let target: string[]
+  if (call.verb === 'list') {
+    target = call.query === null ? [call.table] : [call.table, '-q', call.query]
+  } else {
+    const record = outcome.sysId ?? call.record
+    if (record === null) return null
+    target = [`${call.table}:${record}`]
+  }
+
+  return [call.bin, 'open', ...target, ...(call.profile === null ? [] : ['-p', call.profile])]
 }
 
 export function formatMs(ms: number): string {

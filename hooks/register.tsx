@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register, ToolCallResult } from 'claude-code'
 
 import type { SnPanelCall, SnPanelTotals } from '../types'
-import { formatMs, parseSnTable, summarizeError, summarizeOutput } from './table'
+import { formatMs, openArgv, parseSnTable, summarizeError, summarizeOutput } from './table'
 import type { Outcome, TableInvocation } from './table'
 
 const PANE = 'sn-table'
@@ -19,16 +19,16 @@ const COLOR = { running: 'yellow', ok: 'green', failed: 'red' } as const
 
 function outcomeOf(ran: ToolCallResult<'Bash'>, invocation: TableInvocation): Outcome {
   if (ran.deny !== undefined) {
-    return { status: 'failed', summary: `denied · ${ran.deny}`, records: null, exitCode: null }
+    return { status: 'failed', summary: `denied · ${ran.deny}`, records: null, exitCode: null, sysId: null }
   }
   if (ran.isError) {
     return summarizeError(ran.text ?? (typeof ran.result === 'string' ? ran.result : ''))
   }
   if (ran.result.interrupted) {
-    return { status: 'failed', summary: 'interrupted', records: null, exitCode: null }
+    return { status: 'failed', summary: 'interrupted', records: null, exitCode: null, sysId: null }
   }
   if (ran.result.backgroundTaskId !== undefined) {
-    return { status: 'ok', summary: 'running in background', records: null, exitCode: null }
+    return { status: 'ok', summary: 'running in background', records: null, exitCode: null, sysId: null }
   }
 
   return summarizeOutput(ran.result.stdout, ran.result.stderr, invocation.isPiped, invocation.verb)
@@ -64,6 +64,7 @@ export const register: Register = on => {
       summary: 'running',
       records: null,
       ms: null,
+      open: null,
     }
     await update($, calls, list => [...list, entry].slice(-KEEP))
     if (!(await read($, autoOpened))) {
@@ -77,10 +78,11 @@ export const register: Register = on => {
     try {
       const ms = Math.round((await $.clock.now()) - startedAt)
       const outcome = outcomeOf(ran, invocation)
+      const open = openArgv(invocation, outcome)
       await update($, calls, list =>
         list.map(one =>
           one.id === entry.id
-            ? { ...one, status: outcome.status, summary: outcome.summary, records: outcome.records, ms }
+            ? { ...one, status: outcome.status, summary: outcome.summary, records: outcome.records, ms, open }
             : one,
         ),
       )
@@ -107,6 +109,20 @@ export const register: Register = on => {
       .slice(0, 6)
       .map(([table, n]) => `${table} ${n}`)
       .join(' · ')
+
+    const openInBrowser = async (call: SnPanelCall, argv: readonly string[]) => {
+      const what = call.verb === 'list' ? `the ${call.table} list` : argv[2]
+      try {
+        const ran = await $.process.run(argv)
+        $.ui.toast(
+          ran.exitCode === 0
+            ? `Opened ${what} in the browser`
+            : `sn open: ${summarizeError(`Exit code ${ran.exitCode}\n${ran.stderr}`).summary}`,
+        )
+      } catch (error) {
+        $.ui.toast(`sn open could not start: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
 
     return (
       <Box flexDirection="column">
@@ -136,7 +152,18 @@ export const register: Register = on => {
               <Text color={COLOR[call.status]} bold wrap="truncate-end">
                 {`${GLYPH[call.status]} ${call.verb} ${call.table}${call.profile ? ` @${call.profile}` : ''}`}
               </Text>
-              <Text dimColor>{call.ms === null ? '' : formatMs(call.ms)}</Text>
+              <Box flexDirection="row" gap={1}>
+                <Text dimColor>{call.ms === null ? '' : formatMs(call.ms)}</Text>
+                {Array.isArray(call.open) && (
+                  <Button
+                    key={`open-${call.id}`}
+                    label="Open"
+                    onPress={() => {
+                      if (Array.isArray(call.open)) void openInBrowser(call, call.open)
+                    }}
+                  />
+                )}
+              </Box>
             </Box>
             {call.args !== '' && (
               <Text dimColor wrap="truncate-end">
