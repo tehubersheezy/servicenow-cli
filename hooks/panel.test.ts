@@ -58,6 +58,11 @@ test('reads -q wherever and however clap accepts it', async () => {
   ]) {
     expect(parseSnTable(command)).toMatchObject({ verb: 'list', table: 'incident', query: 'active=true' })
   }
+  expect(parseSnTable('sn table incident \\\n  -q "active=true^priority=1" \\\n  -f number')).toMatchObject({
+    verb: 'list',
+    query: 'active=true^priority=1',
+    args: '-q "active=true^priority=1" -f number',
+  })
   expect(parseSnTable('sn table list -q active=true incident --all')?.args).toBe('-q active=true --all')
   expect(parseSnTable('sn table get incident -f number 0123abcd')).toMatchObject({
     verb: 'get',
@@ -192,4 +197,62 @@ test('a Bash sn table call lands in the totals and the pane', async ($, on) => {
   await ui.press({ key: 'clear' })
   expect(await ui.find({ type: 'Text', text: /No sn table commands yet/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a failed Open is logged with the argv, stderr and the sn that answered', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/me', PATH: '/usr/bin' })
+  const files = new Map<string, string>([['/home/me/.claude/sn-panel.log', '{"event":"earlier"}\n']])
+  const toasts: string[] = []
+  const stderr = `{"error":{"message":"error: unexpected argument '-q' found"}}`
+  on('fs.exists', ($, e) => ({ value: files.has(e.path) }))
+  on('fs.read', ($, e) => ({ value: files.get(e.path) ?? '' }))
+  on('fs.write', ($, e) => {
+    files.set(e.path, e.text)
+    return { value: undefined }
+  })
+  on('process.run', ($, e) => ({
+    value: {
+      exitCode: e.argv[1] === '--version' ? 0 : 1,
+      stdout: e.argv[1] === '--version' ? 'sn 0.13.1\n' : '',
+      stderr: e.argv[1] === '--version' ? '' : stderr,
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
+  }))
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('tool.call', { tool: 'Bash' }, () => ({
+    result: { stdout: '[{"sys_id":"a"}]', stderr: '', interrupted: false },
+  }))
+
+  await $.tool.call({ tool: 'Bash', command: 'sn table list incident -q active=true' })
+  const ui = await $.ui.mount({
+    plugin: 'sn',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'sn-table',
+    props: PANE_PROPS,
+  })
+  const open = await ui.find({ type: 'Button', text: 'Open' })
+  await ui.press({ key: open?.key ?? '' })
+  await ui.unmount()
+
+  expect(toasts).toEqual([
+    "sn open: exit 1 usage · error: unexpected argument '-q' found · logged to /home/me/.claude/sn-panel.log",
+  ])
+  const lines = (files.get('/home/me/.claude/sn-panel.log') ?? '').trim().split('\n')
+  expect(lines.length).toBe(2)
+  expect(JSON.parse(lines[1] ?? '')).toEqual({
+    at: '1970-01-01T00:00:01.000Z',
+    event: 'open.failed',
+    argv: ['sn', 'open', 'incident', '-q', 'active=true'],
+    exitCode: 1,
+    stderr,
+    stdout: '',
+    version: 'sn 0.13.1',
+    PATH: '/usr/bin',
+  })
 })

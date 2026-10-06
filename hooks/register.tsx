@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, ToolCallResult } from 'claude-code'
+import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 
 import type { SnPanelCall, SnPanelTotals } from '../types'
 import { formatMs, openArgv, parseSnTable, summarizeError, summarizeOutput } from './table'
@@ -13,6 +13,42 @@ const EMPTY: SnPanelTotals = { calls: 0, ok: 0, failed: 0, records: 0, byTable: 
 const calls = atom({ plugin: 'sn', key: 'calls' } as const, [])
 const totals = atom({ plugin: 'sn', key: 'totals' } as const, EMPTY)
 const autoOpened = atom({ plugin: 'sn', key: 'autoOpened' } as const, false)
+
+const LOG_NAME = 'sn-panel.log'
+const LOG_KEEP = 200
+
+// Where the panel's own failures are kept, beside Claude Code's other files.
+// Null when the environment names no home to put it under.
+async function logFile($: EngineInterface): Promise<string | null> {
+  const configDir = await $.env.get('CLAUDE_CONFIG_DIR')
+  if (configDir) return `${configDir}/${LOG_NAME}`
+  const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+
+  return home ? `${home}/.claude/${LOG_NAME}` : null
+}
+
+// Records a failure of the panel itself, never of the sn call it watched: one
+// JSON object per line, newest last, the last LOG_KEEP kept. Answers the file
+// it wrote to, for the toast. Logging must never fail its caller.
+async function logFailure(
+  $: EngineInterface,
+  event: string,
+  detail: Record<string, unknown>,
+): Promise<string | null> {
+  try {
+    const line = JSON.stringify({ at: new Date(await $.clock.now()).toISOString(), event, ...detail })
+    $.ui.log(`sn panel: ${line}`, { to: 'debug' })
+    const path = await logFile($)
+    if (path === null) return null
+    const before = (await $.fs.exists(path)) ? await $.fs.read(path) : ''
+    const lines = [...before.split('\n').filter(one => one !== ''), line].slice(-LOG_KEEP)
+    await $.fs.write(path, `${lines.join('\n')}\n`)
+
+    return path
+  } catch {
+    return null
+  }
+}
 
 const GLYPH = { running: '…', ok: '✓', failed: '✗' } as const
 const COLOR = { running: 'yellow', ok: 'green', failed: 'red' } as const
@@ -93,8 +129,12 @@ export const register: Register = on => {
         records: t.records + (outcome.records ?? 0),
         byTable: { ...t.byTable, [invocation.table]: (t.byTable[invocation.table] ?? 0) + 1 },
       }))
-    } catch {
+    } catch (error) {
       // Leave the entry as it stood.
+      await logFailure($, 'bookkeeping.failed', {
+        command: e.command,
+        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      })
     }
 
     return ran
@@ -110,17 +150,39 @@ export const register: Register = on => {
       .map(([table, n]) => `${table} ${n}`)
       .join(' · ')
 
+    // A failed Open is logged with what would explain it from outside the
+    // session: the argv, the whole of stderr, and which sn answered to that name.
     const openInBrowser = async (call: SnPanelCall, argv: readonly string[]) => {
       const what = call.verb === 'list' ? `the ${call.table} list` : argv[2]
+      const logged = (path: string | null) => (path === null ? '' : ` · logged to ${path}`)
       try {
         const ran = await $.process.run(argv)
-        $.ui.toast(
-          ran.exitCode === 0
-            ? `Opened ${what} in the browser`
-            : `sn open: ${summarizeError(`Exit code ${ran.exitCode}\n${ran.stderr}`).summary}`,
+        if (ran.exitCode === 0) {
+          $.ui.toast(`Opened ${what} in the browser`)
+          return
+        }
+        const version = await $.process.run([argv[0] ?? 'sn', '--version']).then(
+          v => v.stdout.trim(),
+          () => null,
         )
+        const path = await logFailure($, 'open.failed', {
+          argv,
+          exitCode: ran.exitCode,
+          stderr: ran.stderr,
+          stdout: ran.stdout,
+          version,
+          PATH: (await $.env.get('PATH')) ?? null,
+        })
+        const { summary } = summarizeError(`Exit code ${ran.exitCode}\n${ran.stderr}`)
+        $.ui.toast(`sn open: ${summary}${logged(path)}`)
       } catch (error) {
-        $.ui.toast(`sn open could not start: ${error instanceof Error ? error.message : String(error)}`)
+        const message = error instanceof Error ? error.message : String(error)
+        const path = await logFailure($, 'open.unstartable', {
+          argv,
+          error: message,
+          PATH: (await $.env.get('PATH')) ?? null,
+        })
+        $.ui.toast(`sn open could not start: ${message}${logged(path)}`)
       }
     }
 

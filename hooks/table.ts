@@ -138,11 +138,15 @@ function lex(text: string): Word[] {
     if (c === '`' || (c === '$' && (next === '' || /[\w{(@*#?!$-]/.test(next)))) isDynamic = true
     if (quote === '"') {
       if (c === '"') quote = null
+      else if (c === '\\' && next === '\n') i++
       else if (c === '\\' && next !== '' && '$`"\\'.includes(next)) word += text.charAt(++i)
       else word += c
       continue
     }
-    if (c === "'" || c === '"') {
+    // A backslash-newline continues the line; it is not a word of its own.
+    if (c === '\\' && next === '\n') {
+      i++
+    } else if (c === "'" || c === '"') {
       quote = c
       hasWord = true
     } else if (c === '\\' && next !== '') {

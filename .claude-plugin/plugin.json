@@ -1,7 +1,7 @@
 {
   "name": "sn",
   "description": "ServiceNow CLI wrapper — table CRUD, change management, CMDB, attachments, service catalog, import sets, CI reconciliation, CICD, aggregates, and schema discovery",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Abey Ahmad"
