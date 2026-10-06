@@ -10,6 +10,9 @@ export type TableInvocation = {
   args: string
   profile: string | null
   isPiped: boolean
+  // The table, query or profile came from a shell expansion ($VAR, $(…), `…`).
+  // Only the shell knows its value, so there is nothing truthful to open.
+  isDynamic: boolean
 }
 
 export type Outcome = {
@@ -22,15 +25,42 @@ export type Outcome = {
 }
 
 const VERBS = new Set(['list', 'get', 'create', 'update', 'delete'])
-const GLOBAL_VALUE_FLAGS = new Set([
-  '-p',
-  '--profile',
-  '--output',
-  '--timeout',
-  '--proxy',
-  '--ca-cert',
-  '--proxy-ca-cert',
+// The flags of `sn table` and the globals that consume the next word. A flag
+// missing here has its value read as a positional: `list -q active=true
+// incident` would name a table called `active=true`.
+const VALUE_LONGS = new Set([
+  'profile',
+  'output',
+  'timeout',
+  'proxy',
+  'ca-cert',
+  'proxy-ca-cert',
+  'query',
+  'sysparm-query',
+  'fields',
+  'sysparm-fields',
+  'setlimit',
+  'limit',
+  'setLimit',
+  'sysparm-limit',
+  'page-size',
+  'offset',
+  'sysparm-offset',
+  'display-value',
+  'sysparm-display-value',
+  'view',
+  'sysparm-view',
+  'query-category',
+  'sysparm-query-category',
+  'max-records',
+  'paginate',
+  'resume-from',
+  'data',
+  'field',
 ])
+const VALUE_SHORTS = 'pqfDF'
+const QUERY_FLAGS = new Set(['-q', '--query', '--sysparm-query'])
+const PROFILE_FLAGS = new Set(['-p', '--profile'])
 // Words that can sit in front of a command without being the command.
 const LEADERS = new Set(['time', 'command', 'exec', 'env', 'nohup', 'then', 'do', 'else'])
 const EXIT_MEANING: Record<number, string> = {
@@ -85,68 +115,111 @@ export function segments(command: string): Segment[] {
   return out
 }
 
-export function words(text: string): string[] {
-  const out: string[] = []
+type Word = { text: string; isDynamic: boolean }
+
+// Shell words with their quoting removed. A word is dynamic when the shell
+// substitutes part of it before sn runs, so its text here is not its value.
+function lex(text: string): Word[] {
+  const out: Word[] = []
   let word = ''
   let hasWord = false
+  let isDynamic = false
   let quote: string | null = null
 
   for (let i = 0; i < text.length; i++) {
     const c = text.charAt(i)
-    if (quote !== null) {
-      if (c === quote) quote = null
-      else if (c === '\\' && quote === '"' && i + 1 < text.length) word += text.charAt(++i)
+    const next = text.charAt(i + 1)
+    if (quote === "'") {
+      if (c === "'") quote = null
+      else word += c
+      continue
+    }
+    // A `$` ending the text is a `$(` that segments() split at.
+    if (c === '`' || (c === '$' && (next === '' || /[\w{(@*#?!$-]/.test(next)))) isDynamic = true
+    if (quote === '"') {
+      if (c === '"') quote = null
+      else if (c === '\\' && next !== '' && '$`"\\'.includes(next)) word += text.charAt(++i)
       else word += c
       continue
     }
     if (c === "'" || c === '"') {
       quote = c
       hasWord = true
-    } else if (c === '\\' && i + 1 < text.length) {
+    } else if (c === '\\' && next !== '') {
       word += text.charAt(++i)
       hasWord = true
     } else if (/\s/.test(c)) {
-      if (hasWord) out.push(word)
+      if (hasWord) out.push({ text: word, isDynamic })
       word = ''
       hasWord = false
+      isDynamic = false
     } else {
       word += c
       hasWord = true
     }
   }
-  if (hasWord) out.push(word)
+  if (hasWord) out.push({ text: word, isDynamic })
 
   return out
 }
 
-function profileOf(w: readonly string[]): string | null {
-  for (let i = 0; i < w.length; i++) {
-    const word = w[i] ?? ''
-    if (word === '-p' || word === '--profile') return w[i + 1] ?? null
-    if (word.startsWith('--profile=')) return word.slice('--profile='.length)
-  }
+type Arg =
+  | { kind: 'positional'; word: Word; at: number }
+  // `name` keeps its dashes; `width` is how many words the option spans.
+  | { kind: 'option'; name: string; value: Word | null; at: number; width: number }
 
-  return null
-}
+// Sorts argv into positionals and options the way clap reads it: `--flag
+// value`, `--flag=value`, `-q value`, `-qvalue`, `-q=value`, a short cluster
+// ending in a value flag (`-dq value`), and `--` ending the options.
+function scan(w: readonly Word[], from: number): Arg[] {
+  const out: Arg[] = []
 
-function queryOf(w: readonly string[]): string | null {
-  for (let i = 0; i < w.length; i++) {
-    const word = w[i] ?? ''
-    if (word === '-q' || word === '--query' || word === '--sysparm-query') return w[i + 1] ?? null
-    for (const flag of ['--query=', '--sysparm-query=']) {
-      if (word.startsWith(flag)) return word.slice(flag.length)
+  for (let i = from; i < w.length; i++) {
+    const word = w[i]
+    if (word === undefined) break
+    const { text } = word
+    if (text === '--') {
+      for (let k = i + 1; k < w.length; k++) {
+        const rest = w[k]
+        if (rest !== undefined) out.push({ kind: 'positional', word: rest, at: k })
+      }
+      break
     }
-  }
-
-  return null
-}
-
-function withoutProfile(w: readonly string[]): string[] {
-  const out: string[] = []
-  for (let i = 0; i < w.length; i++) {
-    const word = w[i] ?? ''
-    if (word === '-p' || word === '--profile') i++
-    else if (!word.startsWith('--profile=')) out.push(word)
+    if (text.startsWith('--')) {
+      const eq = text.indexOf('=')
+      const next = w[i + 1]
+      if (eq > 0) {
+        const value = { text: text.slice(eq + 1), isDynamic: word.isDynamic }
+        out.push({ kind: 'option', name: text.slice(0, eq), value, at: i, width: 1 })
+      } else if (VALUE_LONGS.has(text.slice(2)) && next !== undefined) {
+        out.push({ kind: 'option', name: text, value: next, at: i, width: 2 })
+        i++
+      } else {
+        out.push({ kind: 'option', name: text, value: null, at: i, width: 1 })
+      }
+    } else if (text.startsWith('-') && text.length > 1) {
+      for (let k = 1; k < text.length; k++) {
+        const name = `-${text.charAt(k)}`
+        if (!VALUE_SHORTS.includes(text.charAt(k))) {
+          out.push({ kind: 'option', name, value: null, at: i, width: 1 })
+          continue
+        }
+        const attached = text.slice(k + 1).replace(/^=/, '')
+        const next = w[i + 1]
+        if (attached !== '') {
+          const value = { text: attached, isDynamic: word.isDynamic }
+          out.push({ kind: 'option', name, value, at: i, width: 1 })
+        } else if (next !== undefined) {
+          out.push({ kind: 'option', name, value: next, at: i, width: 2 })
+          i++
+        } else {
+          out.push({ kind: 'option', name, value: null, at: i, width: 1 })
+        }
+        break
+      }
+    } else {
+      out.push({ kind: 'positional', word, at: i })
+    }
   }
 
   return out
@@ -160,60 +233,68 @@ function quoteForDisplay(word: string): string {
 // Covers the implied verb too: `sn table incident` lists, `sn table
 // incident <sys_id>` and `sn table incident:INC0010001` get.
 export function parseSnTable(command: string): TableInvocation | null {
+  let isInBackticks = false
+
   for (const seg of segments(command)) {
-    const w = words(seg.text)
+    // A backtick that opens a substitution cuts the command short of its end.
+    const isCutShort = seg.sep === '`' && !isInBackticks
+    if (seg.sep === '`') isInBackticks = !isInBackticks
+
+    const w = lex(seg.text)
     let i = 0
-    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i] ?? '') || LEADERS.has(w[i] ?? ''))) {
+    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]?.text ?? '') || LEADERS.has(w[i]?.text ?? ''))) {
       i++
     }
-    const bin = w[i]
+    const bin = w[i]?.text
     if (bin === undefined || (bin !== 'sn' && !bin.endsWith('/sn'))) continue
 
-    let j = i + 1
-    const nextPositional = (): string | undefined => {
-      while (j < w.length) {
-        const word = w[j++] ?? ''
-        if (!word.startsWith('-')) return word
-        if (GLOBAL_VALUE_FLAGS.has(word)) j++
-      }
+    const parsed = scan(w, i + 1)
+    const positionals = parsed.filter(arg => arg.kind === 'positional')
+    const options = parsed.filter(arg => arg.kind === 'option')
+    const group = positionals[0]
+    if (group?.word.text !== 'table') continue
 
-      return undefined
-    }
-    if (nextPositional() !== 'table') continue
-
-    const first = nextPositional()
+    const named = positionals[1]
+    const hasVerb = named !== undefined && VERBS.has(named.word.text)
+    const target = positionals[hasVerb ? 2 : 1]
+    const second = positionals[hasVerb ? 3 : 2]
+    const targetText = target?.word.text ?? ''
     let verb = 'list'
-    let target: string | undefined
-    if (first !== undefined && VERBS.has(first)) {
-      verb = first
-      target = nextPositional()
-    } else if (first !== undefined) {
-      const after = w[j]
-      target = first
-      verb = first.includes(':') || (after !== undefined && !after.startsWith('-')) ? 'get' : 'list'
-    }
+    if (hasVerb) verb = named.word.text
+    else if (targetText.includes(':') || second !== undefined) verb = 'get'
 
-    const rest = withoutProfile(w.slice(j))
-    const colon = target?.indexOf(':') ?? -1
-    const table = target === undefined ? '?' : colon > 0 ? target.slice(0, colon) : target
+    const colon = targetText.indexOf(':')
+    const table = target === undefined ? '?' : colon > 0 ? targetText.slice(0, colon) : targetText
+    // Which part of a dynamic `table:$ID` word the shell fills in.
+    const isExpanded = (word: Word | undefined, part: string) => word?.isDynamic === true && /[$`]/.test(part)
     let record: string | null = null
-    if (target !== undefined && colon > 0) {
-      record = target.slice(colon + 1)
-      rest.unshift(record)
-    } else if (verb === 'get' || verb === 'update' || verb === 'delete') {
-      const next = w[j]
-      record = next !== undefined && !next.startsWith('-') ? next : null
+    if (colon > 0) record = targetText.slice(colon + 1)
+    else if (verb === 'get' || verb === 'update' || verb === 'delete') record = second?.word.text ?? null
+    if (record !== null && isExpanded(colon > 0 ? target?.word : second?.word, record)) record = null
+
+    const query = verb === 'list' ? (options.find(opt => QUERY_FLAGS.has(opt.name))?.value ?? null) : null
+    const profile = options.find(opt => PROFILE_FLAGS.has(opt.name))?.value ?? null
+
+    const hidden = new Set<number>()
+    if (hasVerb) hidden.add(named.at)
+    if (target !== undefined) hidden.add(target.at)
+    for (const opt of options) {
+      if (PROFILE_FLAGS.has(opt.name)) for (let k = 0; k < opt.width; k++) hidden.add(opt.at + k)
     }
+    const rest = w.filter((_, at) => at > group.at && !hidden.has(at)).map(word => word.text)
+    if (colon > 0) rest.unshift(targetText.slice(colon + 1))
 
     return {
       bin: bin.startsWith('/') ? bin : 'sn',
       verb,
       table,
       record,
-      query: verb === 'list' ? queryOf(w) : null,
+      query: query?.text ?? null,
       args: rest.map(quoteForDisplay).join(' '),
-      profile: profileOf(w),
+      profile: profile?.text ?? null,
       isPiped: seg.sep === '|',
+      isDynamic:
+        isCutShort || isExpanded(target?.word, table) || query?.isDynamic === true || profile?.isDynamic === true,
     }
   }
 
@@ -371,9 +452,10 @@ export function summarizeError(text: string): Outcome {
 
 // The `sn open` argv that shows what a call read or wrote in the browser: a
 // list call's (filtered) list view, any other call's record form. Null when
-// there is nothing to show: a failure, a delete, a record the call never named.
+// there is nothing to show: a failure, a delete, a record the call never named,
+// a table or query only the shell knew.
 export function openArgv(call: TableInvocation, outcome: Outcome): string[] | null {
-  if (outcome.status !== 'ok' || call.table === '?' || call.verb === 'delete') return null
+  if (outcome.status !== 'ok' || call.table === '?' || call.verb === 'delete' || call.isDynamic) return null
 
   let target: string[]
   if (call.verb === 'list') {

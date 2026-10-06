@@ -10,6 +10,7 @@ export type SnPanelCall = {
   args: string
   profile: string | null
   isPiped: boolean
+  isDynamic: boolean
   status: SnPanelStatus
   summary: string
   records: number | null
