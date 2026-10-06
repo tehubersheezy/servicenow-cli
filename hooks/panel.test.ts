@@ -22,6 +22,7 @@ test('parses explicit, implied and reference forms', async () => {
     args: '-q active=true --setlimit 5',
     profile: null,
     isPiped: false,
+    isDynamic: false,
   })
   expect(parseSnTable('sn -p devitil table incident')?.verb).toBe('list')
   expect(parseSnTable('sn -p devitil table incident')?.profile).toBe('devitil')
@@ -42,6 +43,30 @@ test('parses explicit, implied and reference forms', async () => {
   })
   expect(parseSnTable('sn change list')).toBeNull()
   expect(parseSnTable('grep "sn table" README.md')).toBeNull()
+})
+
+test('reads -q wherever and however clap accepts it', async () => {
+  for (const command of [
+    'sn table list incident -q active=true',
+    'sn table list incident -qactive=true',
+    'sn table list incident -q=active=true',
+    'sn table list incident -dq active=true',
+    'sn table list incident --sysparm-query active=true',
+    'sn table list -q active=true incident',
+    'sn table -q active=true incident',
+    'sn table list --setlimit 5 -f number,state incident -q active=true',
+  ]) {
+    expect(parseSnTable(command)).toMatchObject({ verb: 'list', table: 'incident', query: 'active=true' })
+  }
+  expect(parseSnTable('sn table list -q active=true incident --all')?.args).toBe('-q active=true --all')
+  expect(parseSnTable('sn table get incident -f number 0123abcd')).toMatchObject({
+    verb: 'get',
+    record: '0123abcd',
+  })
+  expect(parseSnTable(`sn table list incident -q 'a=$1' -f "x\\y"`)).toMatchObject({
+    query: 'a=$1',
+    isDynamic: false,
+  })
 })
 
 test('summarizes arrays, records, JSONL and errors', async () => {
@@ -91,6 +116,23 @@ test('Open shows the list view or the record form, never a failure or a delete',
     'incident:abc',
   ])
   expect(openArgv(parse('sn table delete incident abc --yes'), ok)).toBeNull()
+  // A query, table or profile the shell filled in is not known here.
+  for (const command of [
+    'sn table list incident -q "$Q"',
+    'sn table list incident -q "sys_created_on>$(date +%F)"',
+    'sn table list incident -q $(cat query.txt)',
+    'sn table list incident -q `cat query.txt`',
+    'sn table list "$TABLE"',
+    'sn -p "$P" table list incident',
+  ]) {
+    expect(openArgv(parse(command), ok)).toBeNull()
+  }
+  expect(openArgv(parse('sn table get "incident:$N"'), { ...ok, sysId: 'abc' })).toEqual([
+    'sn',
+    'open',
+    'incident:abc',
+  ])
+  expect(openArgv(parse('sn table update incident "$ID" -F state=2'), ok)).toBeNull()
   expect(openArgv(parse('sn table list foo'), { ...ok, status: 'failed' })).toBeNull()
 })
 
