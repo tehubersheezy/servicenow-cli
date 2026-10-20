@@ -22,10 +22,17 @@
 #      policy prohibits the merge" — so dispatching CI at the branch can
 #      never unblock the PR, and the approve step below is the whole
 #      mechanism. Also measured: GITHUB_TOKEN may approve the runs its own
-#      PR parked (given `actions: write` and the setting below), so the
-#      loop runs unattended end to end — proven by bot PR #98, which went
-#      refresh → self-approved native runs → MERGE STATE CLEAN with no
-#      human touch.
+#      PR parked (given `actions: write` and the setting below) — proven by
+#      bot PR #98, which went refresh → self-approved native runs → MERGE
+#      STATE CLEAN with no human touch.
+#
+# CLEAN is not merged. Until 2026-10-20 nothing clicked merge, so every yank
+# or advisory still held the daily Security run red until a human did:
+# 2026-09-15→21 (#102) and 2026-10-01→20 (#105, which sat green for three
+# weeks). The last step now queues auto-merge, which needs the repo setting
+# "Allow auto-merge" (enabled 2026-10-20). A merge made with GITHUB_TOKEN
+# triggers no push workflows on main, so the next daily Security run is the
+# first to see the new lockfile.
 #
 # One rolling branch (bot/lockfile-refresh), force-pushed: an unmerged
 # refresh is superseded, its open PR just gains the newer commit, and the
@@ -113,6 +120,7 @@ jobs:
             echo "> native runs satisfy main's required contexts (test ×3, msrv). If a"
             echo "> run still shows as awaiting approval, the token wasn't allowed to"
             echo "> approve it — one manual Approve-and-run click unblocks the merge."
+            echo "> Auto-merge is queued: it squash-merges once those contexts pass."
           } > /tmp/pr-body.md
           existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')
           if [ -z "$existing" ]; then
@@ -149,3 +157,16 @@ jobs:
               echo "::warning::could not approve run $id (GITHUB_TOKEN may not approve runs it caused); approve manually: gh api -X POST repos/$GITHUB_REPOSITORY/actions/runs/$id/approve"
             fi
           done
+
+      - name: Queue the merge
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          # Without this the PR reaches CLEAN and waits for a human (header).
+          # Same degrade rule as the approve step: if the repo's auto-merge
+          # setting is ever switched off, warn and leave a mergeable PR rather
+          # than fail a refresh that otherwise worked.
+          if gh pr merge "$BRANCH" --auto --squash; then
+            echo "auto-merge queued for $BRANCH"
+          else
+            echo "::warning::could not queue auto-merge (is 'Allow auto-merge' on?); merge manually: gh pr merge $BRANCH --squash"
+          fi
