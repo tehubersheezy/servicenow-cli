@@ -48,8 +48,10 @@ getrandom = "0.2"
 # Blocking WebSocket for the AMB record watcher. Deliberately *not*
 # tokio-tungstenite: Bayeux's /meta/connect is a long-poll, not a heartbeat, so
 # the watcher is a single sequential read loop and needs no async runtime.
-# webpki roots to match reqwest's `rustls-tls` trust store.
-tungstenite = { version = "0.30", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
+# Only `__rustls-tls`: amb.rs always hands tungstenite its own rustls connector
+# (built from `webpki-roots` 1.x below), so tungstenite's `rustls-tls-webpki-roots`
+# would only add the stale webpki-roots 0.26 shim that RUSTSEC-2026-0381 flags.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake", "__rustls-tls"] }
 ctrlc = "3"
 # The websocket opens its own TLS connection, so --insecure/--ca-cert have to be
 # honored here too. `ring` (not the aws-lc-rs default) because that is the
