@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.1 (2026-10-21)
+
+A security update for the TLS stack. Upgrading is recommended.
+
+### Added
+
+- **`sn table` panel** in the Claude Code plugin: a side pane that summarizes each `sn table` call and opens its list or record in the browser (`/sn-panel`).
+
+### Security
+
+- TLS uses rustls 0.23.46, which fixes RUSTSEC-2026-0346, -0347, -0348 and -0349.
+- Certificate verification rejects the distrusted emSign intermediates (rustls-webpki 0.103.16 and webpki-roots 1.0.10; RUSTSEC-2026-0381, -0382).
+
 ## 0.14.0 (2026-09-28)
 
 This release brings Flow Designer troubleshooting, code search, and background scripts to the terminal, along with more login options and resumable record exports.
