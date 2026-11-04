@@ -77,7 +77,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn catalog`](docs/usage.md#service-catalog) | Browse the Service Catalog and place orders |
 | [`sn variables`](docs/agent-guide.md#catalog-variables-variables) | Read catalog variables, or write them and verify the result |
 | [`sn identify`](docs/usage.md#identification--reconciliation) | Identify and reconcile configuration items |
-| [`sn app` / `sn updateset` / `sn atf`](docs/usage.md#cicd-operations) | Install and publish apps, move update sets, and run Automated Test Framework suites |
+| [`sn cicd`](docs/usage.md#cicd-operations) | Install and publish apps, move update sets, run Automated Test Framework suites, and poll their progress |
 | [`sn context`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn decision`](docs/usage.md#decision-tables) | List and inspect decision tables, and evaluate one against inputs |

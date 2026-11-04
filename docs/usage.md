@@ -134,8 +134,8 @@ sn table delete incident <sys_id> --yes
 without it exits 1 naming the operation and its target rather than prompting into a void. Every
 destructive command carries the same guard, not only the ones spelled `delete`: `table delete`,
 `change delete`, `change task delete`, `change conflict remove`, `attachment delete`,
-`cmdb relation delete`, `catalog cart-remove`, `catalog cart-empty`, `updateset back-out`,
-`app rollback`, and `profile remove`.
+`cmdb relation delete`, `catalog cart-remove`, `catalog cart-empty`, `cicd updateset back-out`,
+`cicd app rollback`, and `profile remove`.
 
 ## Pagination
 
@@ -562,31 +562,31 @@ sn identify query-enhanced --data @query.json --data-source "discovery"
 
 ## CICD operations
 
-`app`, `updateset`, and `atf run` are asynchronous — they return a progress object and run in the background on the instance. Add `--wait` to block until the operation finishes and emit the final result, and `--wait-timeout <SECS>` to bound that wait (on expiry `sn` exits 3 with a pointer to `sn progress`). Without `--wait`, take the id from `links.progress.id` and poll manually with `sn progress <id>`.
+`cicd app`, `cicd updateset`, and `cicd atf run` are asynchronous — they return a progress object and run in the background on the instance. Add `--wait` to block until the operation finishes and emit the final result, and `--wait-timeout <SECS>` to bound that wait (on expiry `sn` exits 3 with a pointer to `sn cicd progress`). Without `--wait`, take the id from `links.progress.id` and poll manually with `sn cicd progress <id>`.
 
 ```bash
 # App Repository lifecycle
-sn app install  --scope x_myapp --version 1.2.0 --wait
-sn app publish  --scope x_myapp --version 1.3.0 --dev-notes "Bug fixes" --wait
-sn app rollback --scope x_myapp --version 1.1.0 --wait --yes
+sn cicd app install  --scope x_myapp --version 1.2.0 --wait
+sn cicd app publish  --scope x_myapp --version 1.3.0 --dev-notes "Bug fixes" --wait
+sn cicd app rollback --scope x_myapp --version 1.1.0 --wait --yes
 
 # Update sets
-sn updateset create --name "My Changes" --description "Sprint 42 work"
-sn updateset retrieve --update-set-id <id> --auto-preview
-sn updateset preview <remote_update_set_id> --wait
-sn updateset commit  <remote_update_set_id> --wait
-sn updateset commit-multiple --ids id1,id2,id3
-sn updateset back-out --update-set-id <id> --wait --yes
+sn cicd updateset create --name "My Changes" --description "Sprint 42 work"
+sn cicd updateset retrieve --update-set-id <id> --auto-preview
+sn cicd updateset preview <remote_update_set_id> --wait
+sn cicd updateset commit  <remote_update_set_id> --wait
+sn cicd updateset commit-multiple --ids id1,id2,id3
+sn cicd updateset back-out --update-set-id <id> --wait --yes
 
 # ATF suites
-sn atf run --suite-name "Regression Suite" --wait --wait-timeout 900
-sn atf results <result_id>
+sn cicd atf run --suite-name "Regression Suite" --wait --wait-timeout 900
+sn cicd atf results <result_id>
 
 # Poll an operation already in flight
-sn progress <progress_id>
+sn cicd progress <progress_id>
 ```
 
-`app rollback` and `updateset back-out` require `--yes` without a terminal, the same guard the
+`cicd app rollback` and `cicd updateset back-out` require `--yes` without a terminal, the same guard the
 deletes carry. Back-out reverses tracked configuration changes and can encounter
 conflicts; it is not a general data restore. See the ServiceNowDocs
 [back-out procedure](https://github.com/ServiceNow/ServiceNowDocs/blob/brazil/markdown/application-development/system-update-sets/t_BackOutUpdateSet.md).

@@ -289,6 +289,7 @@ async fn wait_keeps_the_envelope_under_output_raw() {
                 "--compact",
                 "--output",
                 "raw",
+                "cicd",
                 "app",
                 "install",
                 "--scope",
@@ -334,7 +335,7 @@ async fn failed_wait_omits_status_code_from_the_error_envelope() {
     let tmp = profile_dir(&server.uri());
     tokio::task::spawn_blocking(move || {
         let out = sn_cmd(tmp.path())
-            .args(["app", "install", "--scope", "x_acme", "--wait"])
+            .args(["cicd", "app", "install", "--scope", "x_acme", "--wait"])
             .assert()
             .code(2);
         let env = stderr_envelope(&out);

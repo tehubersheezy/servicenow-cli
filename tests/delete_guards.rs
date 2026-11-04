@@ -142,7 +142,7 @@ fn profile_remove_without_yes_is_guarded() {
 #[test]
 fn updateset_back_out_without_yes_is_guarded() {
     assert_guarded(
-        &["updateset", "back-out", "--update-set-id", "us001"],
+        &["cicd", "updateset", "back-out", "--update-set-id", "us001"],
         "back out",
         "update set us001",
     );
@@ -152,6 +152,7 @@ fn updateset_back_out_without_yes_is_guarded() {
 fn app_rollback_without_yes_is_guarded() {
     assert_guarded(
         &[
+            "cicd",
             "app",
             "rollback",
             "--scope",
@@ -328,6 +329,7 @@ async fn updateset_back_out_with_yes_proceeds() {
         let out = cmd
             .args([
                 "--compact",
+                "cicd",
                 "updateset",
                 "back-out",
                 "--update-set-id",
@@ -361,6 +363,7 @@ async fn app_rollback_with_yes_proceeds() {
         let out = cmd
             .args([
                 "--compact",
+                "cicd",
                 "app",
                 "rollback",
                 "--scope",

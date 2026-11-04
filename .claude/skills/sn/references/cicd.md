@@ -11,7 +11,7 @@ verbs; this is the part that breaks scripts.
 |---|---|---|
 | Succeeded | `0` | the final progress result |
 | Operation failed or was cancelled | `2` | **empty** — progress object is on stderr under `.error.sn_error` |
-| `--wait-timeout` expired | `3` | **empty** — pointer to `sn progress <id>` |
+| `--wait-timeout` expired | `3` | **empty** — pointer to `sn cicd progress <id>` |
 
 So reading stdout on a failure branch gets you nothing. A failed operation carries **no
 `status_code`**: the HTTP call succeeded, the operation didn't.
@@ -36,8 +36,8 @@ id lives at `links.progress.id`** — there is no top-level `progress_id` in the
 that being the CLI's argument name.
 
 ```bash
-id=$(sn app install --scope x_myapp --version 1.2.0 | jq -r '.links.progress.id')
-sn progress "$id"
+id=$(sn cicd app install --scope x_myapp --version 1.2.0 | jq -r '.links.progress.id')
+sn cicd progress "$id"
 ```
 
 If the initial response has no `links.progress.id`, the CLI emits that response

@@ -8,6 +8,7 @@ pub mod auth;
 pub mod cache;
 pub mod catalog;
 pub mod change;
+pub mod cicd;
 pub mod cmdb;
 pub mod codesearch;
 pub mod completion;
@@ -63,6 +64,7 @@ pub use change::{
     ChangeTaskGetArgs, ChangeTaskListArgs, ChangeTaskSub, ChangeTaskUpdateArgs, ChangeType,
     ChangeUpdateArgs,
 };
+pub use cicd::CicdSub;
 pub use cmdb::{
     CmdbCreateArgs, CmdbGetArgs, CmdbListArgs, CmdbMetaArgs, CmdbRelationAddArgs,
     CmdbRelationDeleteArgs, CmdbRelationSub, CmdbSub, CmdbUpdateArgs,
@@ -215,6 +217,27 @@ fn usage_group(err: &clap::Error) -> Option<String> {
     let text = usage.to_string();
     let mut parts = text.split_whitespace().rev();
     (parts.next()? == "<COMMAND>").then(|| parts.next().map(str::to_string))?
+}
+
+/// Top-level commands that moved under `sn cicd` (0.15.0). Nothing else
+/// answers to these names, so an `InvalidSubcommand` for one at the top level
+/// gets pointed at its new home instead of clap's near-miss guess (`app` → `api`).
+const MOVED_TO_CICD: &[&str] = &["app", "updateset", "atf", "progress"];
+
+/// `sn app …` → "moved to `sn cicd app`". Only for the top level: a group
+/// that rejects the token is answered by [`valid_subcommands`] instead.
+pub fn moved_command_hint(err: &clap::Error) -> Option<String> {
+    use clap::error::{ContextKind, ContextValue};
+    // The root's usage line is `sn <COMMAND>`, so its group reads as `sn`.
+    if usage_group(err).is_some_and(|g| g != "sn") {
+        return None;
+    }
+    let ContextValue::String(token) = err.get(ContextKind::InvalidSubcommand)? else {
+        return None;
+    };
+    MOVED_TO_CICD
+        .contains(&token.as_str())
+        .then(|| format!("  `sn {token}` moved to `sn cicd {token}`"))
 }
 
 /// The subcommands a group accepts, for an error message that would otherwise
@@ -432,18 +455,11 @@ pub enum Command {
     Codesearch(CodesearchArgs),
     /// Dump the full command tree as JSON for agent/MCP generation.
     Introspect,
-    /// Get pipeline/deployment progress by ID.
-    Progress(ProgressArgs),
-    /// App repository operations (install, publish, rollback).
-    App {
+    /// CI/CD API: app repository, update-set lifecycle, ATF runs, and the
+    /// progress of their async jobs.
+    Cicd {
         #[command(subcommand)]
-        sub: AppSub,
-    },
-    /// Update Set lifecycle operations.
-    #[command(name = "updateset")]
-    UpdateSet {
-        #[command(subcommand)]
-        sub: UpdateSetSub,
+        sub: CicdSub,
     },
     /// Instance-side session context: the application scope and update set the
     /// caller's tracked writes are captured under. Bare `sn context` shows it.
@@ -462,11 +478,6 @@ pub enum Command {
     Scores {
         #[command(subcommand)]
         sub: ScoresSub,
-    },
-    /// Automated Test Framework operations.
-    Atf {
-        #[command(subcommand)]
-        sub: AtfSub,
     },
     /// Change Management operations (normal, emergency, standard).
     Change {

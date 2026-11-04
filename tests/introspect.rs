@@ -99,14 +99,14 @@ fn command_paths_are_unique() {
     assert!(dupes.is_empty(), "duplicate command paths: {dupes:#?}");
 }
 
-/// The filter keys on clap's *action*, not on the arg name. `sn app install`
+/// The filter keys on clap's *action*, not on the arg name. `sn cicd app install`
 /// takes a real `--version <VERSION>`; filtering by name would have deleted it
 /// along with clap's own `--version` flag.
 #[test]
 fn builtins_go_but_a_real_version_option_stays() {
     let tree = tree();
     for sub in ["install", "publish", "rollback"] {
-        let args = find_sub(find_sub(&tree, "app"), sub)["args"]
+        let args = find_sub(find_sub(find_sub(&tree, "cicd"), "app"), sub)["args"]
             .as_array()
             .unwrap()
             .clone();

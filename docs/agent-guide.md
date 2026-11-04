@@ -43,8 +43,8 @@ Non-obvious shapes worth knowing:
 | `api spec --format yaml` | YAML text |
 | `attachment download` | raw bytes, or `{"path","size"}` with `--out <file>` |
 | `aggregate` | `{"stats":{...}}` — but with `--group-by`, an **array** of `{groupby_fields,stats}` |
-| `app` / `updateset` / `atf run` | progress object with `status_label` + `links.progress.id` |
-| `progress` | `{status_label, percent_complete, status_message}` |
+| `cicd app` / `cicd updateset` / `cicd atf run` | progress object with `status_label` + `links.progress.id` |
+| `cicd progress` | `{status_label, percent_complete, status_message}` |
 | `scores unfavorite` | the endpoint's body, or `{"ok":true,"uuid":"..."}` when there is none — it emitted nothing at all before. `scores favorite` passes its body through unchanged, which is `null` where the instance answers with no content |
 | `ping` | see [`sn ping`](#sn-ping) — 14 keys, and `username` is the *instance's* answer |
 | `doctor` | see [`sn doctor`](#sn-doctor) — the report is on stdout **even on exit 2**; `checks[].status` is `pass`, `fail` or `unavailable` |
@@ -763,8 +763,8 @@ destroying something without the word "delete" anywhere in the argv:
 | `cmdb relation delete` | `delete relation rel1 on cmdb_ci_server/abc requires --yes …` |
 | `catalog cart-remove` | `remove cart item abc requires --yes …` |
 | `catalog cart-empty` | `empty cart abc requires --yes …` |
-| `updateset back-out` | `back out update set abc requires --yes …` |
-| `app rollback` | `roll back app x_myapp to version 1.1.0 requires --yes …` |
+| `cicd updateset back-out` | `back out update set abc requires --yes …` |
+| `cicd app rollback` | `roll back app x_myapp to version 1.1.0 requires --yes …` |
 | `profile remove` | `remove profile ci2 and its stored credentials requires --yes …` |
 
 The message names the verb the command uses and the target it was about to act
@@ -842,7 +842,7 @@ support subsets, so check their `--help` instead of assuming every flag applies.
 | `--paginate keyset\|offset` / `--resume-from <sys_id>` | (CLI only) | `table list --all` | Walk strategy (keyset by default) / continue an interrupted keyset stream |
 | `--query-category <cat>` | `sysparm_query_category` | list | Index selection |
 | `--output`, `--profile`, `-d`/`-dd`/`-ddd` | (CLI only) | all | See relevant sections |
-| `--yes` / `-y` | (CLI only) | **destructive subcommands only** — not global | Skip the confirmation; required on a non-TTY. Every `delete`, plus `change conflict remove`, `catalog cart-remove`/`cart-empty`, `updateset back-out`, `app rollback`, `profile remove` |
+| `--yes` / `-y` | (CLI only) | **destructive subcommands only** — not global | Skip the confirmation; required on a non-TTY. Every `delete`, plus `change conflict remove`, `catalog cart-remove`/`cart-empty`, `cicd updateset back-out`, `cicd app rollback`, `profile remove` |
 
 ## Aggregate
 
@@ -1118,16 +1118,16 @@ sn identify create-update-enhanced --data @payload.json --data-source "my_discov
 sn identify query-enhanced --data @query.json
 ```
 
-## CICD (app, updateset, atf)
+## CICD (`sn cicd`)
 
-`app`, `updateset`, and `atf run` are **asynchronous** — they return a progress
+`cicd app`, `cicd updateset`, and `cicd atf run` are **asynchronous** — they return a progress
 object with `links.progress.id` immediately. `status` codes: `0` Pending, `1`
 Running, `2` Successful, `3` Failed, `4` Cancelled.
 
 **Preferred: `--wait`** blocks until the operation finishes (polling
 `GET /api/sn_cicd/progress/{id}` every 2s internally), then emits the final
 progress result. `--wait-timeout <SECS>` bounds the wait; on expiry the command
-exits 3 pointing you to `sn progress <id>`. `--output raw` and `--output table`
+exits 3 pointing you to `sn cicd progress <id>`. `--output raw` and `--output table`
 are honored under `--wait` — raw used to make `--wait` a silent no-op that
 emitted the initial, unpolled response.
 
@@ -1139,7 +1139,7 @@ stdout**. So reading the command's stdout on a failure branch gets you an empty
 string:
 
 ```bash
-if out=$(sn app install --scope x_myapp --version 1.2.0 --wait --wait-timeout 300 2>/tmp/sn.err); then
+if out=$(sn cicd app install --scope x_myapp --version 1.2.0 --wait --wait-timeout 300 2>/tmp/sn.err); then
   echo "installed"                                    # exit 0 ⇒ status "2", nothing else to check
 else
   case $? in
@@ -1163,7 +1163,7 @@ The numeric `status` is the contract; the label is for humans.
 
 ```bash
 while true; do
-  r=$(sn progress "$id") || exit $?
+  r=$(sn cicd progress "$id") || exit $?
   case "$(jq -r '.status' <<<"$r")" in
     2)   break ;;                                              # successful
     3|4) jq -r '.status_message' <<<"$r" >&2; exit 1 ;;        # failed / cancelled
@@ -1176,27 +1176,27 @@ done
 `--scope` or `--sys-id`:
 
 ```bash
-sn app install  --scope x_myapp --version 1.2.0 --wait
-sn app publish  --scope x_myapp --version 1.3.0 --dev-notes "Fix approval NPE" --wait
-sn app rollback --scope x_myapp --version 1.1.0 --wait --yes     # --version required; --yes skips confirmation
+sn cicd app install  --scope x_myapp --version 1.2.0 --wait
+sn cicd app publish  --scope x_myapp --version 1.3.0 --dev-notes "Fix approval NPE" --wait
+sn cicd app rollback --scope x_myapp --version 1.1.0 --wait --yes     # --version required; --yes skips confirmation
 ```
 
 **Update Set lifecycle** — create → (make changes) → retrieve → preview → commit:
 
 ```bash
-sn updateset create --name "Sprint 42" --description "ITSM tweaks"            # {"sys_id":"...","state":"in progress"}
-sn updateset retrieve --update-set-id <remote_sys_id> --auto-preview --wait   # --auto-preview previews right after retrieval
-sn updateset preview <remote_id> --wait
-sn updateset commit  <remote_id> --wait
-sn updateset commit-multiple --ids id1,id2,id3
-sn updateset back-out --update-set-id <sys_id> --wait --yes   # backs out tracked configuration changes
+sn cicd updateset create --name "Sprint 42" --description "ITSM tweaks"            # {"sys_id":"...","state":"in progress"}
+sn cicd updateset retrieve --update-set-id <remote_sys_id> --auto-preview --wait   # --auto-preview previews right after retrieval
+sn cicd updateset preview <remote_id> --wait
+sn cicd updateset commit  <remote_id> --wait
+sn cicd updateset commit-multiple --ids id1,id2,id3
+sn cicd updateset back-out --update-set-id <sys_id> --wait --yes   # backs out tracked configuration changes
 ```
 
 **ATF** — run a suite by name or id, then fetch detailed results by result sys_id:
 
 ```bash
-sn atf run --suite-name "Regression Suite" --wait     # or --suite-id; also --browser-name, --run-in-cloud, --performance-run
-sn atf results <result_id>                            # {"status":"success","tests_total":38,"tests_passed":38,"tests_failed":0}
+sn cicd atf run --suite-name "Regression Suite" --wait     # or --suite-id; also --browser-name, --run-in-cloud, --performance-run
+sn cicd atf results <result_id>                            # {"status":"success","tests_total":38,"tests_passed":38,"tests_failed":0}
 ```
 
 ## Performance Analytics scorecards
@@ -1341,8 +1341,8 @@ argument-less stub, and emitting it gave each real command a same-named twin.
   criteria, use `table list --query "..."` and check how many records matched.
 - **Missing `--yes` on a destructive command** in CI/agent contexts → immediate
   exit 1 usage error (non-TTY never prompts). Every `delete` subcommand, plus
-  `change conflict remove`, `catalog cart-remove`/`cart-empty`, `updateset
-  back-out`, `app rollback` and `profile remove`.
+  `change conflict remove`, `catalog cart-remove`/`cart-empty`, `cicd updateset
+  back-out`, `cicd app rollback` and `profile remove`.
 - **Treating every exit 4 as "log in again"** → 403 is exit 4 too, and an ACL
   denial does not get better with a fresh token. Check `.error.status_code`.
 - **Combining `--all` with `--output raw` or `--output table`** → exit 1. Use
@@ -1379,5 +1379,5 @@ JSON. This avoids treating flags from one command as valid on another.
 | Create, update, or delete | [Writing records](#writing-records-create-update-delete) |
 | Select scope and update set | [Session context](#session-context-context) |
 | Watch for changes | [Live watching](usage.md#watching-records-live) |
-| Run deployment or test operations | [CICD](#cicd-app-updateset-atf) |
+| Run deployment or test operations | [CICD](#cicd-sn-cicd) |
 | Interpret output or failure | [Output and exit codes](#output-errors--exit-codes-read-first) |

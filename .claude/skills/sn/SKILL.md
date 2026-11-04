@@ -90,7 +90,7 @@ get labels — and dates localized to the caller's timezone. A localized date fe
   land in the dropped-term case above.
 - **Bound every watch** (`--max-events` / `--duration` / `--idle-timeout`), and note it
   requires `-q`; there is no bare "watch this table" form.
-- **`updateset back-out` and `app rollback` deserve a human.** They can affect
+- **`cicd updateset back-out` and `cicd app rollback` deserve a human.** They can affect
   many configuration records. Establish the target and intended reversal from the user's
   request before running either command.
 - **Pipe secrets** (`--password-stdin`, `--client-secret-stdin`, `--api-key-stdin`,

@@ -1,9 +1,9 @@
 use clap::error::ErrorKind;
 use is_terminal::IsTerminal;
 use sn::cli::{
-    ApiSub, AppSub, AtfSub, AttachmentSub, CacheSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command,
-    ContextSub, DecisionSub, IdentifySub, ImportSub, PlaybookSub, SchemaSub, ScoresSub, ScriptSub,
-    TableSub, UpdateSetSub, UserSub, VariablesSub,
+    ApiSub, AttachmentSub, CacheSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command, ContextSub,
+    DecisionSub, IdentifySub, ImportSub, PlaybookSub, SchemaSub, ScoresSub, ScriptSub, TableSub,
+    UserSub, VariablesSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -66,6 +66,9 @@ fn subcommand_hint(err: &clap::Error) -> Option<String> {
     if err.kind() != ErrorKind::InvalidSubcommand {
         return None;
     }
+    if let Some(moved) = sn::cli::moved_command_hint(err) {
+        return Some(moved);
+    }
     let (group, names) = sn::cli::valid_subcommands(err)?;
     Some(format!("  `sn {group}` subcommands: {}", names.join(", ")))
 }
@@ -108,32 +111,13 @@ fn run(cli: Cli) -> Result<()> {
             ApiSub::Search(args) => sn::cli::api::search(&global, args),
             ApiSub::Spec(args) => sn::cli::api::spec(&global, args),
         },
-        Command::Progress(args) => sn::cli::progress::run(&global, args),
-        Command::App { sub } => match sub {
-            AppSub::Install(args) => sn::cli::app::install(&global, args),
-            AppSub::Publish(args) => sn::cli::app::publish(&global, args),
-            AppSub::Rollback(args) => sn::cli::app::rollback(&global, args),
-        },
-        Command::UpdateSet { sub } => match sub {
-            UpdateSetSub::Create(args) => sn::cli::update_set::create(&global, args),
-            UpdateSetSub::Retrieve(args) => sn::cli::update_set::retrieve(&global, args),
-            UpdateSetSub::Preview(args) => sn::cli::update_set::preview(&global, args),
-            UpdateSetSub::Commit(args) => sn::cli::update_set::commit(&global, args),
-            UpdateSetSub::CommitMultiple(args) => {
-                sn::cli::update_set::commit_multiple(&global, args)
-            }
-            UpdateSetSub::BackOut(args) => sn::cli::update_set::back_out(&global, args),
-        },
+        Command::Cicd { sub } => sn::cli::cicd::run(&global, sub),
         Command::Context { sub } => match sub {
             None => sn::cli::context::show(&global),
             Some(ContextSub::Scope(args)) => sn::cli::context::set_scope(&global, args),
             Some(ContextSub::Updateset(args)) => sn::cli::context::set_updateset(&global, args),
         },
         Command::Flow { sub } => sn::cli::flow::run(&global, sub),
-        Command::Atf { sub } => match sub {
-            AtfSub::Run(args) => sn::cli::atf::run(&global, args),
-            AtfSub::Results(args) => sn::cli::atf::results(&global, args),
-        },
         Command::Aggregate(args) => sn::cli::aggregate::run(&global, args),
         Command::Scores { sub } => match sub {
             ScoresSub::List(args) => sn::cli::scores::list(&global, *args),

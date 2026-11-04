@@ -120,7 +120,7 @@ pub(crate) fn wait_for_completion(
                     && std::time::Instant::now() >= d
                 {
                     return Err(Error::Transport(format!(
-                        "--wait timed out after {}s; operation still running, poll with `sn progress {}`",
+                        "--wait timed out after {}s; operation still running, poll with `sn cicd progress {}`",
                         wait_timeout.unwrap_or_default(),
                         progress_id
                     )));

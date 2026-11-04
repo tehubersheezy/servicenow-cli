@@ -55,7 +55,7 @@ fn describe_command(cmd: &ClapCommand, name: &str) -> Value {
 
 /// `--help` and `--version` are clap's own: they exit before any handler runs,
 /// so a generated tool schema has no use for them. Match on the action rather
-/// than the name — `sn app install --version <VERSION>` is a real option that
+/// than the name — `sn cicd app install --version <VERSION>` is a real option that
 /// takes a value, and filtering by name would delete it.
 fn is_builtin(a: &Arg) -> bool {
     matches!(

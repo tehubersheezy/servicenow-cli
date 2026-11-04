@@ -40,7 +40,7 @@ async fn progress_get_unwraps_result() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args(["--compact", "progress", "prog123"])
+            .args(["--compact", "cicd", "progress", "prog123"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -78,7 +78,14 @@ async fn app_install_posts_with_scope_query_param() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args(["--compact", "app", "install", "--scope", "x_acme_myapp"])
+            .args([
+                "--compact",
+                "cicd",
+                "app",
+                "install",
+                "--scope",
+                "x_acme_myapp",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -121,6 +128,7 @@ async fn update_set_create_posts_with_name_param() {
         let out = cmd
             .args([
                 "--compact",
+                "cicd",
                 "updateset",
                 "create",
                 "--name",
@@ -171,6 +179,7 @@ async fn update_set_retrieve_uses_update_source_param_names() {
         let out = cmd
             .args([
                 "--compact",
+                "cicd",
                 "updateset",
                 "retrieve",
                 "--update-set-id",
@@ -221,7 +230,7 @@ async fn atf_run_posts_with_suite_name_param() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args(["--compact", "atf", "run", "--suite-name", "MySuite"])
+            .args(["--compact", "cicd", "atf", "run", "--suite-name", "MySuite"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -340,7 +349,7 @@ async fn atf_results_get_unwraps_result() {
     tokio::task::spawn_blocking(move || {
         let mut cmd = sn_cmd(tmp.path());
         let out = cmd
-            .args(["--compact", "atf", "results", "res456"])
+            .args(["--compact", "cicd", "atf", "results", "res456"])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -402,7 +411,15 @@ async fn app_install_wait_polls_until_complete() {
     );
     tokio::task::spawn_blocking(move || {
         let out = sn_cmd(tmp.path())
-            .args(["--compact", "app", "install", "--scope", "x_test", "--wait"])
+            .args([
+                "--compact",
+                "cicd",
+                "app",
+                "install",
+                "--scope",
+                "x_test",
+                "--wait",
+            ])
             .assert()
             .success();
         let stdout = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -414,4 +431,21 @@ async fn app_install_wait_polls_until_complete() {
     })
     .await
     .unwrap();
+}
+
+#[test]
+fn old_top_level_names_point_at_sn_cicd() {
+    for name in ["app", "updateset", "atf", "progress"] {
+        let out = assert_cmd::Command::cargo_bin("sn")
+            .unwrap()
+            .args([name, "x"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{name}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains(&format!("moved to `sn cicd {name}`")),
+            "{name}: {stderr}"
+        );
+    }
 }
