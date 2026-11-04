@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.15.0 (2026-11-04)
+
+`sn get` now reads the state you'd otherwise check in the UI: the current scope and update set, properties, script source, record XML, your roles and work queue, and recent logs.
+
+### New commands
+
+- **`sn get <noun>`** — `scope`, `updateset` (state, change count, latest changes; any set by name), `property` (a trailing `*` lists by prefix), `script` (by name across includes, business rules, client scripts, UI actions, UI scripts, jobs and fix scripts; `--source` prints the code), `xml` (a record's unload XML), `choices`, `plugin`, `me` (roles and groups), `instance` (release, build, patch, node), `mine` (your open tasks and unassigned group work), `last` (the task you last updated) and `logs` (`--since`, `--level`, `--mine`, `--grep`). A filter the instance drops is an error, never a page of unrelated rows.
+- **`sn set scope` / `sn set updateset`** — switch the session's scope or update set; the same as `sn context scope|updateset`.
+- **Claude Code panel 1.2.0** — lists every `sn` call by kind with filters, summarizes what came back, and opens the record or list in the browser or the call's full output.
+
+### Breaking
+
+- `sn app`, `sn updateset`, `sn atf` and `sn progress` moved under `sn cicd` (`sn cicd app …`). Subcommands, flags and output are unchanged; the old names exit 1 naming the new one.
+- `sn context` reports the instance's own resolution of scope and update set, and drops `source`, `preference_stale` and `note`. Accounts that cannot select update sets get an error.
+
+### Fixed
+
+- `sn context` no longer reports a completed, ignored or other-scope update set as current (#118).
+- Selecting the update set that is already current succeeds instead of failing with a 400.
+
 ## 0.14.1 (2026-10-21)
 
 A security update for the TLS stack. Upgrading is recommended.
