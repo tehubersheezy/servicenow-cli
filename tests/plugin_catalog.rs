@@ -124,7 +124,11 @@ fn plugin_catalog_matches_introspect() {
         std::fs::write(PATH, &expected).unwrap();
         return;
     }
-    let actual = std::fs::read_to_string(PATH).unwrap_or_default();
+    // A Windows checkout may hold the file with CRLF line endings
+    // (core.autocrlf); the content is what has to match.
+    let actual = std::fs::read_to_string(PATH)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         actual == expected,
         "hooks/catalog.ts is out of date with `sn introspect`; regenerate it with \
