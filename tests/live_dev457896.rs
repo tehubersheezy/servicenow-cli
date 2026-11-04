@@ -1,16 +1,16 @@
-// Live end-to-end tests against the dev380385 ServiceNow instance.
+// Live end-to-end tests against the dev457896 ServiceNow instance.
 //
-// These tests use the developer's on-disk `dev380385` profile (created via
+// These tests use the developer's on-disk `dev457896` profile (created via
 // `sn init`) and exercise the real ServiceNow REST API. They verify that
 // profile switching works against a real instance, and that the env-var
 // contract holds end-to-end (not just at the unit/mock layer).
 //
 // Tagged `#[ignore]` so they don't run by default. Run them with:
 //
-//     cargo test --release --test live_dev380385 -- --ignored --test-threads=1
+//     cargo test --release --test live_dev457896 -- --ignored --test-threads=1
 //
 // Required setup:
-//   - `sn init --profile dev380385` against https://dev380385.service-now.com
+//   - `sn init --profile dev457896` against https://dev457896.service-now.com
 //   - The instance must be awake and reachable from this host
 //
 // Each test sets `--timeout 60` because dev instances sleep when idle and
@@ -21,8 +21,8 @@
 use assert_cmd::Command;
 use serde_json::Value;
 
-const PROFILE: &str = "dev380385";
-const EXPECTED_INSTANCE: &str = "https://dev380385.service-now.com";
+const PROFILE: &str = "dev457896";
+const EXPECTED_INSTANCE: &str = "dev457896.service-now.com";
 
 /// Build a `Command` invocation of `sn` that:
 ///   - bumps timeout to 60s (handles dev-instance wake from idle)
@@ -41,7 +41,7 @@ fn sn_cmd() -> Command {
     cmd
 }
 
-/// Skip if the `dev380385` profile is not configured on this host. Returns
+/// Skip if the `dev457896` profile is not configured on this host. Returns
 /// `true` if tests should run, `false` if they should bail.
 fn profile_exists() -> bool {
     let out = Command::cargo_bin("sn")
@@ -174,12 +174,12 @@ fn live_user_shell_env_does_not_leak() {
     require_profile!();
     // Reproduce the shape of a developer's stale shell environment — env vars
     // that point at a different ServiceNow instance with credentials that
-    // would be rejected by dev380385. The dev380385 profile must still
+    // would be rejected by dev457896. The dev457896 profile must still
     // authenticate correctly, proving the env vars are ignored.
     sn_cmd()
         .env("SN_INSTANCE_URL", "https://other-instance.example.com")
         .env("SN_USERNAME", "stale-shell-user")
-        .env("SN_PASSWORD", "definitely-the-wrong-password-for-dev380385")
+        .env("SN_PASSWORD", "definitely-the-wrong-password-for-dev457896")
         .args(["--profile", PROFILE, "--timeout", "60", "ping"])
         .assert()
         .success();
