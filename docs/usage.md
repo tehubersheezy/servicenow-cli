@@ -327,9 +327,9 @@ sn context scope x_myapp
 sn context updateset "Sprint 12 fixes"
 ```
 
-This requires access to scope and update-set records. Setters read back the result to
-verify it; an update set must be in progress and belong to the current scope. See the
-[agent guide](agent-guide.md#session-context-context) for how stale preferences are reported.
+Admin only. The answer is the instance's own resolution, the same one the UI picker shows.
+Setters read back the result to verify it; an update set must be in progress and belong to
+the current scope. See the [agent guide](agent-guide.md#session-context-context).
 
 ## Aggregate queries
 
