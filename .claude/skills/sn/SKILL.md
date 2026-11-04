@@ -54,6 +54,8 @@ Silent: `jq` prints empty and exits 0, so a wrong path reads as "no data".
 | `change nextstates` | a list of `{value,label}` | three keys: `available_states`, `state_label`, **`state_transitions`** (conditions + `transition_available`) |
 | `cmdb get` | `.name` | **`.attributes.name`** — top level is only `attributes` + relations |
 | `sn get` | `.number` | **`.record.number`** — top level is `{table, sys_id, record, variables, journal}` |
+| `sn get updateset` | `.state == "in_progress"` | **`.in_progress`** — the stored state is `"in progress"`, with a space |
+| `sn get plugin` | `.installed` | an **array** even for one id: `.[0].installed` |
 | `aggregate --group-by` | `.stats.groupby_fields` | top level becomes an **array**; `groupby_fields` is a **sibling** of `stats` |
 | `aggregate --sum-fields` | `.stats.sum` | **`.stats.sum.<field>`** — sum/avg/min/max nest per field |
 | `aggregate --count` | a number | a **string**: `"70"`; `gr --count` instead returns `{count: 70}` |
