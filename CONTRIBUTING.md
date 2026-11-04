@@ -30,7 +30,7 @@ cargo test --test new_apis          # one test file
 cargo test --lib query::            # tests in a module
 ```
 
-The tests in `tests/live_dev380385.rs` are ignored by default. They require a configured
+The tests in `tests/live_dev457896.rs` are ignored by default. They require a configured
 development instance; see that file before opting into a live run. The `fuzz/` crate
 is a separate workspace and is not included in these commands.
 
@@ -42,7 +42,8 @@ is a separate workspace and is not included in these commands.
 3. Register the module and command in `src/cli/mod.rs`, then wire dispatch in `src/main.rs`.
 4. Add integration tests in `tests/`, including output and error behavior.
 5. Update `docs/usage.md`, the README command index, and relevant setup or agent guidance.
-   Update `CLAUDE.md` for architectural changes and `CHANGELOG.md` for the release.
+   Update the matching file in `.claude/rules/` for architectural changes (`CLAUDE.md` only for
+   rules every session needs) and `CHANGELOG.md` for the release.
 
 The local skill is `.claude/skills/sn/SKILL.md`; the distributable copy is
 `skills/sn/SKILL.md`. Keep their bodies and all files in `references/` identical.

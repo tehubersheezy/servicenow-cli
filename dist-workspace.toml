@@ -25,7 +25,7 @@ install-updater = false
 github-attestations = true
 # release.yml is hand-edited on top of the dist output (SHA-pinned actions,
 # job-scoped token permissions, hash-verified installer downloads — see
-# CLAUDE.md "CI/CD"); without this, `dist plan` in the release workflow fails
+# .claude/rules/ci.md); without this, `dist plan` in the release workflow fails
 # on the drift. Re-running `dist generate` reverts those edits — re-apply them.
 allow-dirty = ["ci"]
 

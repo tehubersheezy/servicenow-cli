@@ -20,7 +20,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 // Those names belonged to a previous design and were intentionally removed.
 //
 // The ONLY env vars currently consulted are `SN_CONFIG_DIR` (config directory
-// selection) plus the proxy/TLS set documented in CLAUDE.md:
+// selection) plus the proxy/TLS set documented in .claude/rules/proxy-tls.md:
 //   - SN_PROXY
 //   - SN_NO_PROXY
 //   - SN_INSECURE

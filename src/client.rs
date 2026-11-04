@@ -974,7 +974,7 @@ impl Client {
     }
 
     /// Stream records by keyset: every page is "rows after the last `sys_id`
-    /// seen, sorted by `sys_id`". See [`KeysetPlan`] and CLAUDE.md "Pagination".
+    /// seen, sorted by `sys_id`". See [`KeysetPlan`] and `.claude/rules/pagination.md`.
     pub fn paginate_keyset(
         &self,
         path: &str,
