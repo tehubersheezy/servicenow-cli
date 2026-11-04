@@ -88,7 +88,11 @@ fn run(cli: Cli) -> Result<()> {
             TableSub::Update(args) => sn::cli::table::update(&global, args),
             TableSub::Delete(args) => sn::cli::table::delete(&global, args),
         },
-        Command::Get(args) => sn::cli::get_record::run(&global, args),
+        Command::Get(args) => sn::cli::get::run(&global, args),
+        Command::Set { sub } => match sub {
+            ContextSub::Scope(args) => sn::cli::context::set_scope(&global, args),
+            ContextSub::Updateset(args) => sn::cli::context::set_updateset(&global, args),
+        },
         Command::Journal(args) => sn::cli::journal::run(&global, args),
         Command::Variables { sub } => match sub {
             VariablesSub::Get(args) => sn::cli::variables::get(&global, args),

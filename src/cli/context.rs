@@ -82,15 +82,15 @@ struct UpdateSetRow {
 
 /// The current update set as the platform reports it.
 #[derive(Debug, Clone, PartialEq)]
-struct CurrentUpdateSet {
-    sys_id: String,
-    name: String,
+pub(crate) struct CurrentUpdateSet {
+    pub(crate) sys_id: String,
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Clone)]
-struct ContextState {
-    scope: ScopeRow,
-    update_set: CurrentUpdateSet,
+pub(crate) struct ContextState {
+    pub(crate) scope: ScopeRow,
+    pub(crate) update_set: CurrentUpdateSet,
 }
 
 pub fn show(global: &GlobalFlags) -> Result<()> {
@@ -133,6 +133,12 @@ pub fn set_updateset(global: &GlobalFlags, args: ContextTargetArgs) -> Result<()
     let client = connect(global)?;
     let previous = read_context(&client)?;
     let set = resolve_update_set(&client, target, &previous.scope)?;
+    // Already current: nothing to switch. The picker refuses this case with a
+    // 400 "Cannot set update set as current" (measured 2026-11-04,
+    // dev457896), which would report a no-op as a failure.
+    if previous.update_set.sys_id == set.sys_id {
+        return write_response(global, &context_json(&previous, Some(&previous)));
+    }
 
     let resp = client.put(PICKER_UPDATESET, &[], &json!({ "sysId": set.sys_id }))?;
     if resp.pointer("/result/success").and_then(Value::as_bool) != Some(true) {
@@ -160,7 +166,7 @@ pub fn set_updateset(global: &GlobalFlags, args: ContextTargetArgs) -> Result<()
 }
 
 /// Ask the platform for the resolved context: one `GET …/current`.
-fn read_context(client: &Client) -> Result<ContextState> {
+pub(crate) fn read_context(client: &Client) -> Result<ContextState> {
     parse_current(&client.get(PICKER_CURRENT, &[])?)
 }
 
@@ -281,7 +287,7 @@ pub(crate) fn resolve_scope(client: &Client, target: &str) -> Result<ScopeRow> {
 /// column's value is `in progress`, not `in_progress`, and the wrong spelling
 /// silently matches nothing (measured — every real set then "failed" the
 /// diagnostic re-query's explanation instead).
-const STATE_IN_PROGRESS: &str = "in progress";
+pub(crate) const STATE_IN_PROGRESS: &str = "in progress";
 
 /// `updateset <TARGET>` resolution, restricted to in-progress sets in the
 /// current scope — the same population the UI picker offers. The OR group

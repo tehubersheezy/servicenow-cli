@@ -54,8 +54,12 @@ pub struct GetRecordArgs {
     /// table — the standard ones (INC, CHG, CTASK, PRB, REQ, RITM, SCTASK, KB,
     /// SIR) are built in, any other is looked up in the instance's sys_number
     /// table (admin-readable by default) and cached.
-    #[arg(value_name = "REF")]
-    pub reference: String,
+    ///
+    /// In place of a reference, a noun reads one piece of caller or instance
+    /// state instead: `sn get scope`, `sn get updateset`, `sn get me`, … (see
+    /// the subcommand list).
+    #[arg(value_name = "REF", required = true)]
+    pub reference: Option<String>,
     /// Comma-separated fields to return on the record (variables and journal
     /// are unaffected).
     #[arg(long, short = 'f', alias = "sysparm-fields")]
@@ -88,20 +92,11 @@ pub fn run(global: &GlobalFlags, args: GetRecordArgs) -> Result<()> {
                 .into(),
         ));
     }
-    let parsed = parse_get_ref(&args.reference)?;
+    let token = args.reference.as_deref().unwrap_or_default();
+    let parsed = parse_get_ref(token).map_err(|e| crate::cli::get::noun_hint(token, e))?;
 
     let client = connect(global)?;
-    let (table, found) = match parsed {
-        GetRef::Ref(r) => match resolve_and_journal(&client, &r, false)? {
-            Some(found) => (r.table, found),
-            None => return Err(not_found(&r)),
-        },
-        GetRef::Bare { number, prefix } => resolve_bare(&client, number, &prefix)?,
-    };
-    let Found {
-        sys_id, entries, ..
-    } = found;
-
+    let (table, found) = locate(&client, parsed, true)?;
     let q = GetQuery {
         fields: args.fields,
         display_value: args.display_value.display_value.map(Into::into),
@@ -109,6 +104,37 @@ pub fn run(global: &GlobalFlags, args: GetRecordArgs) -> Result<()> {
         view: args.view,
         query_no_domain: bool_opt(args.query_no_domain),
     };
+    emit_composite(global, &client, &table, found, &q)
+}
+
+/// Resolve a parsed reference to its table and row (and, `with_journal`, the
+/// row's journal entries) — the GraphQL step every `sn get` read starts with.
+pub(crate) fn locate(
+    client: &Client,
+    parsed: GetRef,
+    with_journal: bool,
+) -> Result<(String, Found)> {
+    match parsed {
+        GetRef::Ref(r) => match resolve_and_journal(client, &r, false, with_journal)? {
+            Some(found) => Ok((r.table, found)),
+            None => Err(not_found(&r)),
+        },
+        GetRef::Bare { number, prefix } => resolve_bare(client, number, &prefix, with_journal),
+    }
+}
+
+/// The composite answer for a located row: the record body (shaped by `q`),
+/// its catalog variables, and its journal.
+pub(crate) fn emit_composite(
+    global: &GlobalFlags,
+    client: &Client,
+    table: &str,
+    found: Found,
+    q: &GetQuery,
+) -> Result<()> {
+    let Found {
+        sys_id, entries, ..
+    } = found;
     let resp = client.get(&format!("/api/now/table/{table}/{sys_id}"), &q.to_pairs())?;
     // Always unwrapped: `--output raw` was rejected above, because a composite
     // built from three requests has no single envelope to keep.
@@ -116,8 +142,8 @@ pub fn run(global: &GlobalFlags, args: GetRecordArgs) -> Result<()> {
 
     // An sc_task's variable pool lives on its request item; every other table
     // holds its own. The hop is the one extra request, and only for sc_task.
-    let (var_table, var_sys_id, _) = resolve_target(&client, &table, &sys_id)?;
-    let variables = fetch_vars_unchecked(&client, &var_table, &var_sys_id)?;
+    let (var_table, var_sys_id, _) = resolve_target(client, table, &sys_id)?;
+    let variables = fetch_vars_unchecked(client, &var_table, &var_sys_id)?;
 
     let out = json!({
         "table": table,
@@ -137,19 +163,24 @@ pub fn run(global: &GlobalFlags, args: GetRecordArgs) -> Result<()> {
 /// `sys_number` once: if the prefix now belongs to another table (a
 /// renumbered stock table, a stale cache entry) the lookup is retried there;
 /// otherwise the original not-found stands.
-fn resolve_bare(client: &Client, number: String, prefix: &str) -> Result<(String, Found)> {
+fn resolve_bare(
+    client: &Client,
+    number: String,
+    prefix: &str,
+    with_journal: bool,
+) -> Result<(String, Found)> {
     let (table, source) = resolve_prefix(client, prefix)?;
     let mut r = RecordRef {
         table,
         id: RefId::Number(number),
     };
-    let mut found = resolve_and_journal(client, &r, true)?;
+    let mut found = resolve_and_journal(client, &r, true, with_journal)?;
     if found.is_none()
         && source != PrefixSource::Instance
         && let Some(table) = recheck_prefix(client, prefix, &r.table)
     {
         r.table = table;
-        found = resolve_and_journal(client, &r, true)?;
+        found = resolve_and_journal(client, &r, true, with_journal)?;
     }
     let Some(mut found) = found else {
         return Err(not_found(&r));
@@ -159,8 +190,8 @@ fn resolve_bare(client: &Client, number: String, prefix: &str) -> Result<(String
 }
 
 /// The row step 1 matched.
-struct Found {
-    sys_id: String,
+pub(crate) struct Found {
+    pub(crate) sys_id: String,
     /// The row's `sys_class_name`, when it was selected, is a valid table
     /// name, and differs from the table queried.
     class: Option<String>,
@@ -189,17 +220,23 @@ fn not_found(r: &RecordRef) -> Error {
 
 /// One GraphQL document: resolve the reference to a sys_id and fetch the
 /// journal streams with it (entries newest first). `Ok(None)` when no row
-/// matched. `with_class` also selects `sys_class_name`.
-fn resolve_and_journal(
+/// matched. `with_class` also selects `sys_class_name`; without
+/// `with_journal` the document resolves the row alone.
+pub(crate) fn resolve_and_journal(
     client: &Client,
     r: &RecordRef,
     mut with_class: bool,
+    with_journal: bool,
 ) -> Result<Option<Found>> {
     let condition = match &r.id {
         RefId::SysId(id) => format!("sys_id={id}"),
         RefId::Number(n) => format!("number={n}"),
     };
-    let mut journal_cols = vec!["comments", "work_notes"];
+    let mut journal_cols = if with_journal {
+        vec!["comments", "work_notes"]
+    } else {
+        Vec::new()
+    };
     let table = &r.table;
 
     loop {

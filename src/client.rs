@@ -614,6 +614,25 @@ impl Client {
         Ok((v, cookies))
     }
 
+    /// `GET path?query` for a text body (a classic-UI processor's XML export),
+    /// returned unparsed. Error statuses map exactly as on the JSON verbs.
+    pub fn get_text(&self, path: &str, query: &[(String, String)]) -> Result<String> {
+        let url = self.url(path);
+        let req = self.http.request(Method::GET, &url).query(query);
+        let resp = self.send(req, "GET", &url)?;
+        let status = resp.status();
+        let tx = transaction_id(&resp);
+        log_response_headers(resp.headers());
+        let text = resp
+            .text()
+            .map_err(|e| Error::Transport(format!("read body: {e}")))?;
+        log_body("<", &text);
+        if !status.is_success() {
+            return Err(from_http_text(status, tx, &text));
+        }
+        Ok(text)
+    }
+
     /// `GET path` for its side effect alone: the status is the whole answer,
     /// and the body (an HTML page, for `/logout.do`) is discarded unread.
     pub fn get_discard(&self, path: &str) -> Result<StatusCode> {

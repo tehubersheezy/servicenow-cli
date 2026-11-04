@@ -16,6 +16,7 @@ pub mod context;
 pub mod decision;
 pub mod doctor;
 pub mod flow;
+pub mod get;
 pub mod get_record;
 pub mod gr;
 pub mod graphql;
@@ -75,6 +76,7 @@ pub use context::{ContextSub, ContextTargetArgs};
 pub use decision::{DecisionListArgs, DecisionRunArgs, DecisionShowArgs, DecisionSub};
 pub use doctor::DoctorArgs;
 pub use flow::FlowSub;
+pub use get::{GetArgs, GetNoun};
 pub use get_record::GetRecordArgs;
 pub use gr::GrArgs;
 pub use graphql::GraphqlArgs;
@@ -281,6 +283,13 @@ fn with_usage(cmd: clap::Command, path: &str) -> clap::Command {
 /// clap would derive anyway — the tree is walked before `build()` fills them in.
 fn usage_line(path: &str, cmd: &clap::Command) -> String {
     let mut usage = String::from(path);
+    // A command that takes either a subcommand or its own positionals
+    // (`sn get <REF>` / `sn get <NOUN>`) gets one line per form.
+    if cmd.is_args_conflicts_with_subcommands_set() && cmd.get_positionals().next().is_some() {
+        let noun = cmd.get_subcommand_value_name().unwrap_or("COMMAND");
+        let leaf = leaf_usage(path, cmd);
+        return format!("{leaf}\n       {path} <{noun}> [OPTIONS]");
+    }
     if cmd.get_subcommands().next().is_some() {
         // A group whose bare invocation is itself a command (`sn context`)
         // has an optional subcommand; promise `[COMMAND]`, not `<COMMAND>`.
@@ -291,6 +300,12 @@ fn usage_line(path: &str, cmd: &clap::Command) -> String {
         });
         return usage;
     }
+    leaf_usage(path, cmd)
+}
+
+/// `path <POSITIONALS> [OPTIONS]`.
+fn leaf_usage(path: &str, cmd: &clap::Command) -> String {
+    let mut usage = String::from(path);
     for arg in cmd.get_positionals() {
         let name = arg
             .get_value_names()
@@ -412,9 +427,17 @@ pub enum Command {
         #[command(subcommand)]
         sub: TableSub,
     },
-    /// Get one record by reference — with its variables and journal entries
-    /// (`sn get table:sys_id`, `sn get incident:INC0010001`, `sn get INC0010001`).
-    Get(GetRecordArgs),
+    /// Read one thing: a record by reference — with its variables and journal
+    /// entries (`sn get INC0010001`, `sn get incident:<sys_id>`) — or a noun
+    /// (`sn get scope`, `sn get updateset`, `sn get me`, `sn get logs`, …).
+    Get(GetArgs),
+    /// Change the session context: the application scope or update set the
+    /// caller's tracked writes are captured under (`sn set scope x_app`,
+    /// `sn set updateset "My fixes"`). Verified by re-read.
+    Set {
+        #[command(subcommand)]
+        sub: ContextSub,
+    },
     /// Comments and work notes for one record, parsed into entries (`sn journal <TABLE> <SYS_ID>`).
     Journal(JournalArgs),
     /// Catalog variables on a record: read, and write with verification.

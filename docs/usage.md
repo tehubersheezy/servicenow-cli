@@ -104,6 +104,33 @@ unambiguous — a `table:id` reference is a `get`, a bare noun is a `list`, and 
 plus sys_id is a `get`. A misspelled verb stays an error: `sn table lst incident`
 still tells you it meant `list`.
 
+### `sn get` nouns
+
+In place of a record reference, `sn get` takes a noun and reads one piece of caller or
+instance state:
+
+```bash
+sn get scope                          # current application scope: version, vendor prefix
+sn get updateset                      # current update set: state, change count, latest 10 changes
+sn get updateset "Sprint 12" --all    # any set by name or sys_id, every change
+sn get property glide.ui.session_timeout
+sn get property 'glide.ui.session*'   # trailing * lists by prefix
+sn get script JSUtil --source > JSUtil.js   # script include, business rule, UI action, …
+sn get xml INC0010001 > inc.xml       # unload XML, importable on another instance
+sn get choices incident.state
+sn get plugin com.snc.incident sn_access_analyzer
+sn get me                             # your record, roles, direct roles, groups
+sn get instance                       # release, build tag, patch, node
+sn get mine                           # your open tasks + unassigned work in your groups
+sn get last                           # the task you last updated, read like `sn get <REF>`
+sn get logs --since 1h --mine --grep denied
+```
+
+Every noun that filters checks each returned row against its filter, so a query term the
+instance drops is an error (exit 2), not a page of strangers. `scope`, `updateset`,
+`instance`, `plugin`, `logs` and runtime-only properties need admin. `sn set scope` and
+`sn set updateset` change the context (see [Session context](#session-context)).
+
 Note that `--display-value true` (the default) also renders dates in the calling user's
 timezone and locale format, and a display-formatted date cannot be fed back into an
 encoded query. Use `--display-value false` when a value has to round-trip.
@@ -322,9 +349,9 @@ for response shapes, record-producer variables, and limitations.
 View or switch the application scope and update set used for tracked configuration writes:
 
 ```bash
-sn context
-sn context scope x_myapp
-sn context updateset "Sprint 12 fixes"
+sn context                            # or: sn get scope / sn get updateset for detail
+sn set scope x_myapp                  # same as: sn context scope x_myapp
+sn set updateset "Sprint 12 fixes"    # same as: sn context updateset …
 ```
 
 Admin only. The answer is the instance's own resolution, the same one the UI picker shows.
@@ -1010,6 +1037,8 @@ renders columns for interactive reading.
 | `table list`, schema lists | JSON array; `table list --all` streams JSONL unless `--array` is set |
 | `table get/create/update` | One record object |
 | `get` | `{table, sys_id, record, variables, journal}`; `--output raw` is unsupported |
+| `get <noun>` | One object (`scope`, `updateset`, `property`, `script`, `me`, `instance`), or an array (`plugin`, `mine`, `logs`, a `property` prefix); `last` is shaped like `get` |
+| `get xml`, `get script --source` | Text, not JSON: the unload XML / the script source; `--output` is refused |
 | `cmdb get` | Object containing `attributes` and relationships |
 | Typed `delete` commands | Empty on success |
 | `aggregate` | Stats object, or an array of groups with `--group-by` |

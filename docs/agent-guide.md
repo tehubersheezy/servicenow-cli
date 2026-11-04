@@ -505,6 +505,13 @@ doesn't define, exits 1; specify `table:number` or `table:sys_id` instead.
 To find a record by other criteria, use `list --query "..."`; use `--limit 2` and
 check the result count when the query is supposed to identify exactly one record.
 
+**`sn get <noun>` reads state an agent otherwise assembles by hand** — `scope`,
+`updateset`, `property <name>`, `script <name>` (`--source` for the text), `xml <REF>`,
+`choices <table.field>`, `plugin <id>…`, `me`, `instance`, `mine`, `last`, `logs`. Each
+fails closed: a filter the instance drops is exit 2, and a name that matches several
+records (business rules share names) is exit 1 listing them. `sn get --help` lists the
+nouns and `sn get <noun> --help` their flags.
+
 **The read verb may be omitted on `table` and `cmdb`.** Both map to a REST path
 that is already `{noun}/{id}`, so for a read the verb is implied by whether you
 supplied an id:
@@ -802,9 +809,13 @@ sn context                                  # where would my tracked writes land
 ```
 
 ```bash
-sn context scope x_myapp_scope              # by scope name, display name, or sys_id
-sn context updateset "Sprint 12 fixes"      # by name or sys_id; in-progress, current scope only
+sn set scope x_myapp_scope                  # by scope name, display name, or sys_id
+sn set updateset "Sprint 12 fixes"          # by name or sys_id; in-progress, current scope only
+sn get updateset                            # the current set's state, change count, latest changes
 ```
+
+`sn set scope|updateset` and `sn context scope|updateset` are the same commands.
+Selecting the set that is already current is a no-op success.
 
 Setters report the full new context plus a `previous` block. Switching scope
 also moves the update set to the target scope's remembered (or default) set —

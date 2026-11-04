@@ -63,6 +63,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | Commands | What they cover |
 |---|---|
 | [`sn get` / `sn table`](docs/usage.md#reading-records) | Look up records by number or sys_id; create, update, and delete records |
+| [`sn get <noun>`](docs/usage.md#sn-get-nouns) | Read the current scope, update set, a property, a script's source, a record's XML, your roles, your open work, recent logs |
 | [`sn watch`](docs/usage.md#watching-records-live) | Stream record changes as they happen |
 | [`sn schema`](docs/usage.md#schema-discovery) | Find tables, columns, and available choice values |
 | [`sn journal`](docs/usage.md#journal-comments-and-work-notes) | Read comments and work notes as structured entries |
@@ -78,7 +79,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn variables`](docs/agent-guide.md#catalog-variables-variables) | Read catalog variables, or write them and verify the result |
 | [`sn identify`](docs/usage.md#identification--reconciliation) | Identify and reconcile configuration items |
 | [`sn cicd`](docs/usage.md#cicd-operations) | Install and publish apps, move update sets, run Automated Test Framework suites, and poll their progress |
-| [`sn context`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
+| [`sn context` / `sn set`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn decision`](docs/usage.md#decision-tables) | List and inspect decision tables, and evaluate one against inputs |
 | [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
