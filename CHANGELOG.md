@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.16.0 (2026-11-05)
+
+`sn xml` copies records between instances as unload XML, with their journal entries and attachments.
+
+### New commands
+
+- **`sn xml export <TABLE> <QUERY>`** — writes the records a query matches as unload XML. A column the table doesn't have is an error, never an unfiltered export. Works with basic and OAuth profiles.
+- **`sn xml import <FILE>`** — loads an export onto an instance, from a file or stdin. Needs the admin role and `--yes`. Exit 0 means the file was uploaded: the instance doesn't report whether rows loaded, so check the records afterwards.
+
+### Breaking
+
+- `sn get xml` is removed. Use `sn xml export <table> number=<number>`.
+
 ## 0.15.0 (2026-11-04)
 
 `sn get` now reads the state you'd otherwise check in the UI: the current scope and update set, properties, script source, record XML, your roles and work queue, and recent logs.
