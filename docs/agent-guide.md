@@ -506,7 +506,7 @@ To find a record by other criteria, use `list --query "..."`; use `--limit 2` an
 check the result count when the query is supposed to identify exactly one record.
 
 **`sn get <noun>` reads state an agent otherwise assembles by hand** — `scope`,
-`updateset`, `property <name>`, `script <name>` (`--source` for the text), `xml <REF>`,
+`updateset`, `property <name>`, `script <name>` (`--source` for the text),
 `choices <table.field>`, `plugin <id>…`, `me`, `instance`, `mine`, `last`, `logs`. Each
 fails closed: a filter the instance drops is exit 2, and a name that matches several
 records (business rules share names) is exit 1 listing them. `sn get --help` lists the

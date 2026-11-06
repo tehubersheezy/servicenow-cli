@@ -116,7 +116,6 @@ sn get updateset "Sprint 12" --all    # any set by name or sys_id, every change
 sn get property glide.ui.session_timeout
 sn get property 'glide.ui.session*'   # trailing * lists by prefix
 sn get script JSUtil --source > JSUtil.js   # script include, business rule, UI action, …
-sn get xml INC0010001 > inc.xml       # unload XML, importable on another instance
 sn get choices incident.state
 sn get plugin com.snc.incident sn_access_analyzer
 sn get me                             # your record, roles, direct roles, groups
@@ -539,6 +538,33 @@ sn import create u_staging_table --field u_name="Server-01" --field u_ip="10.0.1
 sn import bulk u_staging_table --data '[{"u_name":"Server-01"},{"u_name":"Server-02"}]'
 sn import get u_staging_table <sys_id>
 ```
+
+## XML export and import
+
+Copy records between instances as unload XML, the UI's Export > XML and Import XML:
+
+```bash
+sn xml export incident "active=true^priority=1" > p1.xml
+sn xml export incident number=INC0010001 --limit 1 > inc.xml
+sn --profile target xml import p1.xml --yes
+
+# Or pipe one instance into another
+sn --profile source xml export sys_user_group active=true | sn --profile target xml import - --yes
+```
+
+The export includes journal entries and attachments and keeps sys_ids and system fields. A query naming
+a column the table doesn't have exits 1, because the instance would drop that term and export
+unfiltered rows. The instance caps an export at `glide.xml.export.limit` (10,000 by default) without
+saying so, so split larger sets with narrower queries.
+
+An import writes directly to the tables the file names, skips business rules, overwrites rows
+with the same sys_id, and honours `action="DELETE"`, so it needs `--yes` and the admin role.
+**The instance reports nothing about the load:** a bad file, an unknown table or a non-admin caller
+also answers success. Exit 0 means the file was uploaded, so check the records afterwards.
+`sn xml import` can't run under `sn impersonate`.
+
+Both verbs work with basic and OAuth profiles. Under OAuth the export opens a short-lived UI
+session, because the instance refuses bearer tokens on its export endpoint.
 
 ## Service Catalog
 
@@ -1038,7 +1064,7 @@ renders columns for interactive reading.
 | `table get/create/update` | One record object |
 | `get` | `{table, sys_id, record, variables, journal}`; `--output raw` is unsupported |
 | `get <noun>` | One object (`scope`, `updateset`, `property`, `script`, `me`, `instance`), or an array (`plugin`, `mine`, `logs`, a `property` prefix); `last` is shaped like `get` |
-| `get xml`, `get script --source` | Text, not JSON: the unload XML / the script source; `--output` is refused |
+| `xml export`, `get script --source` | Text, not JSON: the unload XML / the script source; `--output` is refused |
 | `cmdb get` | Object containing `attributes` and relationships |
 | Typed `delete` commands | Empty on success |
 | `aggregate` | Stats object, or an array of groups with `--group-by` |

@@ -42,6 +42,7 @@ pub mod update_set;
 pub mod user;
 pub mod variables;
 pub mod watch;
+pub mod xml;
 
 pub use aggregate::AggregateArgs;
 pub use api::{ApiListArgs, ApiSearchArgs, ApiSpecArgs, ApiSub, SpecFormat};
@@ -103,6 +104,7 @@ pub use update_set::{
 pub use user::UserSub;
 pub use variables::{VariablesGetArgs, VariablesSetArgs, VariablesSub};
 pub use watch::{Operation, WatchArgs, WatchLimits};
+pub use xml::{XmlExportArgs, XmlImportArgs, XmlSub};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
@@ -521,6 +523,12 @@ pub enum Command {
     Import {
         #[command(subcommand)]
         sub: ImportSub,
+    },
+    /// Move records between instances as unload XML: export a query, import
+    /// the file.
+    Xml {
+        #[command(subcommand)]
+        sub: XmlSub,
     },
     /// Service Catalog operations (catalogs, items, cart, ordering).
     Catalog {

@@ -8,7 +8,7 @@ use serde_json::Value;
 /// A platform identifier (table, field, plugin id): letters, digits, `_`,
 /// `.`, `-`. It rides in a URL path or an encoded query, so anything else
 /// is refused before the network.
-pub(super) fn identifier<'a>(raw: &'a str, what: &str) -> Result<&'a str> {
+pub(crate) fn identifier<'a>(raw: &'a str, what: &str) -> Result<&'a str> {
     let s = raw.trim();
     let ok = !s.is_empty()
         && s.chars()

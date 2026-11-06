@@ -3,7 +3,7 @@ use is_terminal::IsTerminal;
 use sn::cli::{
     ApiSub, AttachmentSub, CacheSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command, ContextSub,
     DecisionSub, IdentifySub, ImportSub, PlaybookSub, SchemaSub, ScoresSub, ScriptSub, TableSub,
-    UserSub, VariablesSub,
+    UserSub, VariablesSub, XmlSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -163,6 +163,10 @@ fn run(cli: Cli) -> Result<()> {
             ImportSub::Create(args) => sn::cli::import::create(&global, args),
             ImportSub::Bulk(args) => sn::cli::import::bulk(&global, args),
             ImportSub::Get(args) => sn::cli::import::get(&global, args),
+        },
+        Command::Xml { sub } => match sub {
+            XmlSub::Export(args) => sn::cli::xml::export(&global, args),
+            XmlSub::Import(args) => sn::cli::xml::import(&global, args),
         },
         Command::Catalog { sub } => match sub {
             CatalogSub::List(args) => sn::cli::catalog::list(&global, args),

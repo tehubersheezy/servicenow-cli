@@ -9,7 +9,6 @@ use wiremock::matchers::{body_string_contains, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const SET: &str = "37d4d5b03da7031074a2476226988e43";
-const HEX: &str = "1c741bd70b2322007518478d83673af3";
 
 fn profile_for(uri: &str) -> tempfile::TempDir {
     write_profiles(
@@ -132,32 +131,6 @@ async fn updateset_change_from_another_set_is_a_dropped_term() {
     assert_eq!(code, 2, "{err}");
     assert!(stdout.is_empty());
     assert!(err["error"].get("status_code").is_none(), "{err}");
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn xml_export_of_two_records_is_refused_and_not_written() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/api/now/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
-            "GlideRecord_Query": {"incident": {"_rowCount": 1, "_results": [
-                {"sys_id": {"value": HEX}}]}}}})))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/incident.do"))
-        .and(query_param("sysparm_record_count", "2"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(format!(
-            "<unload><incident action=\"INSERT_OR_UPDATE\"><sys_id>{HEX}</sys_id></incident>\
-             <incident action=\"INSERT_OR_UPDATE\"><sys_id>other</sys_id></incident></unload>"
-        )))
-        .mount(&server)
-        .await;
-
-    let (code, stdout, _) = run(server.uri(), vec!["get", "xml", "incident:x"]).await;
-    // `incident:x` resolves as a number lookup; the GraphQL mock answers it.
-    assert_eq!(code, 2);
-    assert!(stdout.is_empty(), "{stdout}");
 }
 
 #[tokio::test(flavor = "current_thread")]
