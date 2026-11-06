@@ -1,6 +1,6 @@
 ---
 name: sn
-description: Run ServiceNow operations through the `sn` CLI — read and write incidents, changes, problems, requests, CMDB CIs, catalog items, attachments, journal comments, update sets and ATF runs against the user's instance. Use whenever the user says sn, ServiceNow or SNOW, names an instance, pastes a record number (INC…, CHG…, RITM…, PRB…, TASK…), asks to look up or file or update a ticket, wants live record updates, or asks a question whose answer lives in a ServiceNow table.
+description: Run ServiceNow operations through the `sn` CLI — read and write incidents, changes, problems, requests, CMDB CIs, catalog items, attachments, journal comments, XML exports, update sets and ATF runs against the user's instance. Use whenever the user says sn, ServiceNow or SNOW, names an instance, pastes a record number (INC…, CHG…, RITM…, PRB…, TASK…), asks to look up or file or update a ticket, wants live record updates, or asks a question whose answer lives in a ServiceNow table.
 allowed-tools: Bash(sn *)
 ---
 
@@ -105,6 +105,12 @@ get labels — and dates localized to the caller's timezone. A localized date fe
   support headless setup. Data commands never open a browser.
 - **Journal has no write verb**: add a note with
   `sn table update incident <sys_id> --field work_notes="..."`.
+- **`sn xml import` exit 0 means the file uploaded, not that anything loaded.** The instance
+  answers the same empty 200 to a load, a bad file, an unknown table and a non-admin caller,
+  so read the records back. A load skips business rules, overwrites rows by sys_id and
+  honours `action="DELETE"`, so read the file before importing one you didn't export.
+- **`sn xml export` stops at `glide.xml.export.limit` (10,000 by default) without saying so.**
+  When a set may be larger, compare `sn aggregate --count` and split with narrower queries.
 
 ## Where to go next
 
