@@ -32,7 +32,7 @@ use crate::cli::auth::non_empty;
 use crate::cli::flow::FlowSub;
 use crate::cli::flow::debug::FlowDebugSub;
 use crate::cli::kernel::{SessionScope, build_client, build_profile};
-use crate::cli::{Cli, Command, GlobalFlags, OutputMode};
+use crate::cli::{Cli, Command, GlobalFlags, OutputMode, XmlSub};
 use crate::client::{Client, SESSION_COOKIE, SessionJar};
 use crate::error::{Error, NO_HTTP_STATUS, Result};
 use crate::observability::{self, log_note};
@@ -271,6 +271,9 @@ fn refusal(cmd: &Command) -> Option<&'static str> {
         Command::Script { .. } => {
             "`sn script run` mints its own UI session for sys.scripts.do, not this one"
         }
+        Command::Xml {
+            sub: XmlSub::Import(_),
+        } => "`sn xml import` mints its own UI session for sys_upload.do, not this one",
         _ => return None,
     })
 }

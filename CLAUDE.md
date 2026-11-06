@@ -103,6 +103,6 @@ Design rationale, protocol notes and measured instance behavior live in `.claude
 | `plugin.md` | skill policy, `sn table` panel hooks |
 | `ci.md` | workflows, lockfile refresh, action pinning |
 | `changelog.md` | release-note style, the masked-output trap in full |
-| `commands/<name>.md` | endpoints and quirks for `change`, `cmdb`, `api`, `codesearch`, `graphql`/`gr`, `doctor`, `flow`, `script`, `decision`, `playbook`, `context`, `get` (nouns and `sn set`), and `catalog`/`import`/`identify`/`schema` |
+| `commands/<name>.md` | endpoints and quirks for `change`, `cmdb`, `api`, `codesearch`, `graphql`/`gr`, `doctor`, `flow`, `script`, `decision`, `playbook`, `context`, `get` (nouns and `sn set`), `xml`, and `catalog`/`import`/`identify`/`schema` |
 
 Keep this file under 200 lines. It holds only what every session needs; anything specific to one area goes in that area's rule file.

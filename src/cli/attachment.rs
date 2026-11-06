@@ -204,7 +204,7 @@ fn stream_to_file(global: &GlobalFlags, download: &mut Download, out_path: &str)
 /// amount of cleanup here can undo it. The only honest signal left is refusing
 /// to exit 0 — the error envelope on stderr (naming how many bytes were already
 /// emitted) plus a nonzero exit. `--out` is the safe form for anything large.
-fn stream_to_stdout(download: &mut Download) -> Result<()> {
+pub(crate) fn stream_to_stdout(download: &mut Download) -> Result<()> {
     let stdout = io::stdout();
     let mut sink = stdout.lock();
     match download.copy_to(&mut sink) {

@@ -63,7 +63,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | Commands | What they cover |
 |---|---|
 | [`sn get` / `sn table`](docs/usage.md#reading-records) | Look up records by number or sys_id; create, update, and delete records |
-| [`sn get <noun>`](docs/usage.md#sn-get-nouns) | Read the current scope, update set, a property, a script's source, a record's XML, your roles, your open work, recent logs |
+| [`sn get <noun>`](docs/usage.md#sn-get-nouns) | Read the current scope, update set, a property, a script's source, your roles, your open work, recent logs |
 | [`sn watch`](docs/usage.md#watching-records-live) | Stream record changes as they happen |
 | [`sn schema`](docs/usage.md#schema-discovery) | Find tables, columns, and available choice values |
 | [`sn journal`](docs/usage.md#journal-comments-and-work-notes) | Read comments and work notes as structured entries |
@@ -73,6 +73,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn playbook`](docs/usage.md#playbooks) | List, trigger, and launch playbook executions on a record |
 | [`sn change`](docs/usage.md#change-management) | Manage change requests, tasks, affected CIs, conflicts, and approvals |
 | [`sn attachment`](docs/usage.md#attachments) | Upload and download record attachments |
+| [`sn xml`](docs/usage.md#xml-export-and-import) | Export records as unload XML and import the file on another instance |
 | [`sn cmdb`](docs/usage.md#cmdb) | Manage configuration items and their relationships; inspect class schemas |
 | [`sn import`](docs/usage.md#import-sets) | Load data into import staging tables |
 | [`sn catalog`](docs/usage.md#service-catalog) | Browse the Service Catalog and place orders |

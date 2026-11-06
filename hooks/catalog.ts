@@ -57,7 +57,6 @@ export const CATALOG: CatalogNode = {
         "updateset": { operands: ["set"], values: ["limit"], shorts: "l", sub: {} },
         "property": { operands: ["name"], values: ["scope"], shorts: "", sub: {} },
         "script": { operands: ["name"], values: ["scope","type"], shorts: "t", sub: {} },
-        "xml": { operands: ["reference"], values: [], shorts: "", sub: {} },
         "choices": { operands: ["column","field"], values: [], shorts: "", sub: {} },
         "plugin": { operands: ["ids"], values: [], shorts: "", sub: {} },
         "me": { operands: [], values: [], shorts: "", sub: {} },
@@ -286,6 +285,15 @@ export const CATALOG: CatalogNode = {
         "create": { operands: ["staging_table"], values: ["data","field"], shorts: "DF", sub: {} },
         "bulk": { operands: ["staging_table"], values: ["data"], shorts: "D", sub: {} },
         "get": { operands: ["staging_table","sys_id"], values: [], shorts: "", sub: {} },
+      },
+    },
+    "xml": {
+      operands: [],
+      values: [],
+      shorts: "",
+      sub: {
+        "export": { operands: ["table","query"], values: ["limit"], shorts: "l", sub: {} },
+        "import": { operands: ["file"], values: [], shorts: "", sub: {} },
       },
     },
     "catalog": {

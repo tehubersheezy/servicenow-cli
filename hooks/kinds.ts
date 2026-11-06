@@ -38,6 +38,7 @@ const BY_COMMAND: Record<string, Kind> = {
   'identify create-update-enhanced': 'write',
   'scores favorite': 'write',
   'scores unfavorite': 'write',
+  'xml import': 'write',
   'script run': 'run',
   completion: 'session',
   impersonate: 'session',

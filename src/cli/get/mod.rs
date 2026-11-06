@@ -7,7 +7,7 @@
 //! holds a `:` or ends in a counter's digits, and no noun does — so clap's
 //! subcommand match decides it, with no lookup.
 
-mod common;
+pub(crate) mod common;
 mod instance;
 mod last;
 mod logs;
@@ -17,7 +17,6 @@ mod plugin;
 mod property;
 mod scope;
 mod script;
-mod xml;
 
 use crate::cli::GlobalFlags;
 use crate::cli::get_record::GetRecordArgs;
@@ -31,7 +30,6 @@ pub use plugin::PluginArgs;
 pub use property::PropertyArgs;
 pub use scope::UpdatesetArgs;
 pub use script::{ScriptArgs, ScriptType};
-pub use xml::XmlArgs;
 
 #[derive(clap::Args, Debug)]
 #[command(
@@ -60,9 +58,6 @@ pub enum GetNoun {
     /// A script's source by name: script includes, business rules, client
     /// scripts, UI actions, UI scripts, scheduled jobs and fix scripts.
     Script(ScriptArgs),
-    /// A record's unload XML — the UI's "Export → XML", importable on another
-    /// instance. Written to stdout as XML, not JSON.
-    Xml(XmlArgs),
     /// A column's choice list (`sn get choices incident.state`).
     Choices(ChoicesArgs),
     /// Whether plugins are installed and active, by plugin id.
@@ -81,12 +76,11 @@ pub enum GetNoun {
 
 /// The nouns, for the hint a near-miss token gets. Pinned to [`GetNoun`] by a
 /// test so the two cannot drift.
-const NOUNS: [&str; 12] = [
+const NOUNS: [&str; 11] = [
     "scope",
     "updateset",
     "property",
     "script",
-    "xml",
     "choices",
     "plugin",
     "me",
@@ -116,7 +110,6 @@ pub fn run(global: &GlobalFlags, args: GetArgs) -> Result<()> {
         GetNoun::Updateset(a) => scope::updateset(global, a),
         GetNoun::Property(a) => property::run(global, a),
         GetNoun::Script(a) => script::run(global, a),
-        GetNoun::Xml(a) => xml::run(global, a),
         GetNoun::Choices(a) => choices(global, a),
         GetNoun::Plugin(a) => plugin::run(global, a),
         GetNoun::Me => me::run(global),

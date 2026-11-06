@@ -2,6 +2,7 @@ use crate::config::ResolvedProfile;
 use crate::error::{Error, Result};
 use crate::observability::{log_body, log_request, log_response, log_response_headers};
 use crate::query::{is_cursor_safe, keyset_query};
+use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::{Client as ReqwestClient, Response};
 use reqwest::header::{
     ACCEPT, CONTENT_TYPE, COOKIE, HeaderMap, HeaderValue, LOCATION, SET_COOKIE, USER_AGENT,
@@ -431,6 +432,11 @@ impl Client {
         &self.base_url
     }
 
+    /// How this client authenticates.
+    pub fn auth(&self) -> &Auth {
+        &self.auth
+    }
+
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path)
     }
@@ -614,25 +620,6 @@ impl Client {
         Ok((v, cookies))
     }
 
-    /// `GET path?query` for a text body (a classic-UI processor's XML export),
-    /// returned unparsed. Error statuses map exactly as on the JSON verbs.
-    pub fn get_text(&self, path: &str, query: &[(String, String)]) -> Result<String> {
-        let url = self.url(path);
-        let req = self.http.request(Method::GET, &url).query(query);
-        let resp = self.send(req, "GET", &url)?;
-        let status = resp.status();
-        let tx = transaction_id(&resp);
-        log_response_headers(resp.headers());
-        let text = resp
-            .text()
-            .map_err(|e| Error::Transport(format!("read body: {e}")))?;
-        log_body("<", &text);
-        if !status.is_success() {
-            return Err(from_http_text(status, tx, &text));
-        }
-        Ok(text)
-    }
-
     /// `GET path` for its side effect alone: the status is the whole answer,
     /// and the body (an HTML page, for `/logout.do`) is discarded unread.
     pub fn get_discard(&self, path: &str) -> Result<StatusCode> {
@@ -767,25 +754,55 @@ impl Client {
         let names: Vec<&str> = fields.iter().map(|(k, _)| *k).collect();
         log_body(">", &format!("<form: {}>", names.join(", ")));
 
-        let sensitive = |raw: &str, what: &str| {
-            HeaderValue::from_str(raw)
-                .map(|mut v| {
-                    v.set_sensitive(true);
-                    v
-                })
-                .map_err(|_| Error::Instance {
-                    message: format!("the session's {what} is not a valid header value"),
-                    detail: None,
-                })
-        };
         let req = self
-            .http
-            .request(Method::POST, &url)
-            .header(ACCEPT, "text/html")
-            .header(COOKIE, sensitive(&session.cookie, "cookies")?)
+            .ui_request(&url, session)?
             .header(USER_TOKEN_HEADER, sensitive(&session.token, "CSRF token")?)
             .form(&fields);
-        let resp = self.send(req, "POST", &url)?;
+        self.send_ui(req, &url)
+    }
+
+    /// POST one file as `multipart/form-data` to a classic-UI processor inside
+    /// `session`, carrying the session exactly as [`Self::post_ui_form`] does.
+    /// `sysparm_ck` goes first, ahead of `fields`. Like that method it returns
+    /// the response unjudged; the file's bytes are logged by size only.
+    pub fn post_ui_upload(
+        &self,
+        path: &str,
+        session: &UiSession,
+        fields: &[(String, String)],
+        file: UiFile,
+    ) -> Result<UiResponse> {
+        let url = self.url(path);
+        log_body(">", &format!("<multipart: {} bytes>", file.bytes.len()));
+        let part = Part::bytes(file.bytes)
+            .file_name(file.name)
+            .mime_str("text/xml")
+            .map_err(|e| Error::Transport(format!("build upload: {e}")))?;
+        let mut form = Form::new().text("sysparm_ck", session.token.clone());
+        for (k, v) in fields {
+            form = form.text(k.clone(), v.clone());
+        }
+        let req = self
+            .ui_request(&url, session)?
+            .header(USER_TOKEN_HEADER, sensitive(&session.token, "CSRF token")?)
+            .multipart(form.part(file.field, part));
+        self.send_ui(req, &url)
+    }
+
+    fn ui_request(
+        &self,
+        url: &str,
+        session: &UiSession,
+    ) -> Result<reqwest::blocking::RequestBuilder> {
+        Ok(self
+            .http
+            .request(Method::POST, url)
+            .header(ACCEPT, "text/html")
+            .header(COOKIE, sensitive(&session.cookie, "cookies")?))
+    }
+
+    fn send_ui(&self, req: reqwest::blocking::RequestBuilder, url: &str) -> Result<UiResponse> {
+        let resp = self.send(req, "POST", url)?;
         let status = resp.status().as_u16();
         let transaction_id = transaction_id(&resp);
         log_response_headers(resp.headers());
@@ -853,6 +870,27 @@ impl std::fmt::Debug for UiSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("UiSession { .. }")
     }
+}
+
+/// A session credential as a header value, redacted from reqwest's own output.
+fn sensitive(raw: &str, what: &str) -> Result<HeaderValue> {
+    HeaderValue::from_str(raw)
+        .map(|mut v| {
+            v.set_sensitive(true);
+            v
+        })
+        .map_err(|_| Error::Instance {
+            message: format!("the session's {what} is not a valid header value"),
+            detail: None,
+        })
+}
+
+/// The file part of [`Client::post_ui_upload`].
+pub struct UiFile {
+    /// The form field the processor reads the file from.
+    pub field: &'static str,
+    pub name: String,
+    pub bytes: Vec<u8>,
 }
 
 /// What a classic-UI processor answered ([`Client::post_ui_form`]), unjudged.

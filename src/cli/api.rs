@@ -645,7 +645,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
 /// `path?k=v&…`, form-encoded, for the binary fetch that carries no query
 /// parameters of its own. Built through `Url` rather than by hand so a space or
 /// `&` in an API name cannot break out of its parameter.
-fn path_with_query(path: &str, query: &[(String, String)]) -> String {
+pub(crate) fn path_with_query(path: &str, query: &[(String, String)]) -> String {
     let mut url = reqwest::Url::parse("https://encoder.invalid/").expect("static URL parses");
     url.query_pairs_mut()
         .extend_pairs(query.iter().map(|(k, v)| (k.as_str(), v.as_str())));
