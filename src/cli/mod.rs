@@ -1,6 +1,7 @@
 pub mod aggregate;
 pub mod api;
 pub mod app;
+pub mod app_manager;
 pub mod args;
 pub mod atf;
 pub mod attachment;
@@ -39,7 +40,6 @@ pub mod scores;
 pub mod script;
 pub mod table;
 pub mod update_set;
-pub mod user;
 pub mod variables;
 pub mod watch;
 pub mod xml;
@@ -47,6 +47,7 @@ pub mod xml;
 pub use aggregate::AggregateArgs;
 pub use api::{ApiListArgs, ApiSearchArgs, ApiSpecArgs, ApiSub, SpecFormat};
 pub use app::{AppInstallArgs, AppPublishArgs, AppRollbackArgs, AppSub};
+pub use app_manager::AppManagerSub;
 pub use args::{BodyArgs, DisplayValueArg, DisplayValueOpt, Paging, SetLimit, WaitArgs};
 pub use atf::{AtfResultsArgs, AtfRunArgs, AtfSub};
 pub use attachment::{
@@ -101,7 +102,6 @@ pub use update_set::{
     UpdateSetBackOutArgs, UpdateSetCommitMultipleArgs, UpdateSetCreateArgs, UpdateSetIdArg,
     UpdateSetRetrieveArgs, UpdateSetSub,
 };
-pub use user::UserSub;
 pub use variables::{VariablesGetArgs, VariablesSetArgs, VariablesSub};
 pub use watch::{Operation, WatchArgs, WatchLimits};
 pub use xml::{XmlExportArgs, XmlImportArgs, XmlSub};
@@ -210,17 +210,27 @@ fn implied_verb_argv(
         .collect()
 }
 
-/// The command group an error came from, read back out of its usage line —
-/// which [`usage_line`] renders as `sn <path> <COMMAND>`.
-fn usage_group(err: &clap::Error) -> Option<String> {
+/// The command path an error came from (`["sn", "cicd", "app"]`), read back
+/// out of its usage line — which [`usage_line`] renders as `sn <path> <COMMAND>`.
+/// `None` for anything but a group that rejected its subcommand.
+fn usage_path(err: &clap::Error) -> Option<Vec<String>> {
     use clap::error::{ContextKind, ContextValue};
 
     let ContextValue::StyledStr(usage) = err.get(ContextKind::Usage)? else {
         return None;
     };
     let text = usage.to_string();
-    let mut parts = text.split_whitespace().rev();
-    (parts.next()? == "<COMMAND>").then(|| parts.next().map(str::to_string))?
+    let mut words: Vec<&str> = text.split_whitespace().collect();
+    if words.pop()? != "<COMMAND>" {
+        return None;
+    }
+    let start = words.iter().position(|w| *w == "sn")?;
+    Some(words[start..].iter().map(|w| w.to_string()).collect())
+}
+
+/// The last word of [`usage_path`]: the group itself, `sn` for the root.
+fn usage_group(err: &clap::Error) -> Option<String> {
+    usage_path(err)?.pop()
 }
 
 /// Top-level commands that moved under `sn cicd` (0.15.0). Nothing else
@@ -228,8 +238,10 @@ fn usage_group(err: &clap::Error) -> Option<String> {
 /// gets pointed at its new home instead of clap's near-miss guess (`app` → `api`).
 const MOVED_TO_CICD: &[&str] = &["app", "updateset", "atf", "progress"];
 
-/// `sn app …` → "moved to `sn cicd app`". Only for the top level: a group
-/// that rejects the token is answered by [`valid_subcommands`] instead.
+/// Top-level names that no longer exist, and where each went: `sn app …` →
+/// "moved to `sn cicd app`", `sn user` → `sn get me`, `sn context` → `sn get`
+/// / `sn set`. Only for the top level: a group that rejects the token is
+/// answered by [`valid_subcommands`] instead.
 pub fn moved_command_hint(err: &clap::Error) -> Option<String> {
     use clap::error::{ContextKind, ContextValue};
     // The root's usage line is `sn <COMMAND>`, so its group reads as `sn`.
@@ -239,36 +251,40 @@ pub fn moved_command_hint(err: &clap::Error) -> Option<String> {
     let ContextValue::String(token) = err.get(ContextKind::InvalidSubcommand)? else {
         return None;
     };
-    MOVED_TO_CICD
-        .contains(&token.as_str())
-        .then(|| format!("  `sn {token}` moved to `sn cicd {token}`"))
+    match token.as_str() {
+        "user" => Some("  `sn user me` was removed; use `sn get me`".into()),
+        "context" => Some(
+            "  `sn context` was removed; read with `sn get scope` / `sn get updateset`, \
+             switch with `sn set scope` / `sn set updateset`"
+                .into(),
+        ),
+        t if MOVED_TO_CICD.contains(&t) => Some(format!("  `sn {t}` moved to `sn cicd {t}`")),
+        _ => None,
+    }
 }
 
 /// The subcommands a group accepts, for an error message that would otherwise
-/// name none of them. `None` when the group can't be resolved.
+/// name none of them, with the group's path below `sn` (`cicd app`). `None`
+/// when the group can't be resolved.
 pub fn valid_subcommands(err: &clap::Error) -> Option<(String, Vec<String>)> {
-    let group = usage_group(err)?;
+    let path = usage_path(err)?;
+    let below: Vec<&str> = path.iter().skip(1).map(String::as_str).collect();
     let mut cmd = command();
     cmd.build();
-    let node = find_command(&cmd, &group)?;
+    let node = find_command(&cmd, &below)?;
     let names: Vec<String> = node
         .get_subcommands()
         .filter(|s| s.get_name() != "help")
         .map(|s| s.get_name().to_string())
         .collect();
-    (!names.is_empty()).then_some((group, names))
+    (!names.is_empty() && !below.is_empty()).then(|| (below.join(" "), names))
 }
 
-fn find_command<'a>(cmd: &'a clap::Command, name: &str) -> Option<&'a clap::Command> {
-    for sub in cmd.get_subcommands() {
-        if sub.get_name() == name {
-            return Some(sub);
-        }
-        if let Some(found) = find_command(sub, name) {
-            return Some(found);
-        }
-    }
-    None
+/// Walk the tree by full path. A bare name is not enough: `sn script` and
+/// `sn get script` are different commands.
+fn find_command<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap::Command> {
+    path.iter()
+        .try_fold(cmd, |node, name| node.find_subcommand(name))
 }
 
 fn with_usage(cmd: clap::Command, path: &str) -> clap::Command {
@@ -293,8 +309,8 @@ fn usage_line(path: &str, cmd: &clap::Command) -> String {
         return format!("{leaf}\n       {path} <{noun}> [OPTIONS]");
     }
     if cmd.get_subcommands().next().is_some() {
-        // A group whose bare invocation is itself a command (`sn context`)
-        // has an optional subcommand; promise `[COMMAND]`, not `<COMMAND>`.
+        // A group whose bare invocation is itself a command has an optional
+        // subcommand; promise `[COMMAND]`, not `<COMMAND>`.
         usage.push_str(if cmd.is_subcommand_required_set() {
             " <COMMAND>"
         } else {
@@ -336,7 +352,7 @@ fn leaf_usage(path: &str, cmd: &clap::Command) -> String {
 #[command(
     name = "sn",
     version,
-    about = "ServiceNow CLI (Table API + schema + CICD)",
+    about = "ServiceNow CLI for scripts and coding agents: JSON on stdout, JSON errors on stderr",
     disable_version_flag = true,
     after_help = "BODY INPUT (write commands accept any of these):\n  --data '<inline JSON>'             inline JSON object\n  --data @body.json                  read body from a file (multi-line safe)\n  --data @-                          read body from stdin (e.g. piped from jq)\n  --field name=value                 set one field\n  --field description=@notes.md      read one field's value from a file\n\nEXAMPLES:\n  sn table update incident <sys_id> --data @body.json\n  sn table update incident <sys_id> --field description=@notes.md\n  jq '.fields' patch.json | sn table update incident <sys_id> --data @-"
 )]
@@ -424,23 +440,27 @@ pub enum Command {
         #[command(subcommand)]
         sub: ProfileSub,
     },
-    /// Table API CRUD.
+    /// Read and write records in any table (Table API).
     Table {
         #[command(subcommand)]
         sub: TableSub,
     },
-    /// Read one thing: a record by reference — with its variables and journal
-    /// entries (`sn get INC0010001`, `sn get incident:<sys_id>`) — or a noun
-    /// (`sn get scope`, `sn get updateset`, `sn get me`, `sn get logs`, …).
+    /// Read one thing: a record by reference, or a noun (scope, updateset, me, logs, …).
+    ///
+    /// A record comes with its variables and journal entries (`sn get INC0010001`,
+    /// `sn get incident:<sys_id>`). A noun reads something else (`sn get scope`,
+    /// `sn get updateset`, `sn get me`, `sn get logs`, …).
     Get(GetArgs),
-    /// Change the session context: the application scope or update set the
+    /// Switch the application scope or update set. Verified by re-read.
+    ///
+    /// Changes the session context: the application scope or update set the
     /// caller's tracked writes are captured under (`sn set scope x_app`,
-    /// `sn set updateset "My fixes"`). Verified by re-read.
+    /// `sn set updateset "My fixes"`).
     Set {
         #[command(subcommand)]
         sub: ContextSub,
     },
-    /// Comments and work notes for one record, parsed into entries (`sn journal <TABLE> <SYS_ID>`).
+    /// Comments and work notes for one record, parsed into entries.
     Journal(JournalArgs),
     /// Catalog variables on a record: read, and write with verification.
     Variables {
@@ -449,13 +469,15 @@ pub enum Command {
     },
     /// Watch records in a table change in real time (AMB websocket). Streams JSONL.
     Watch(WatchArgs),
-    /// Schema discovery.
+    /// List tables, columns and choice values from the instance.
     Schema {
         #[command(subcommand)]
         sub: SchemaSub,
     },
-    /// Offline schema index: build it once, then list tables and columns (and
-    /// complete them in the shell) with no network.
+    /// Offline schema index: list tables and columns with no network.
+    ///
+    /// Build it once, then list tables and columns (and complete them in the
+    /// shell) offline.
     Cache {
         #[command(subcommand)]
         sub: CacheSub,
@@ -465,8 +487,9 @@ pub enum Command {
         #[command(subcommand)]
         sub: ApiSub,
     },
-    /// Find a string in script and code fields across the instance, via the
-    /// Code Search API (`sn codesearch <TERM>`). One row per matching field.
+    /// Find a string in script and code fields across the instance.
+    ///
+    /// Uses the Code Search API (`sn codesearch <TERM>`). One row per matching field.
     ///
     /// Searches every table the instance's Code Search is configured for (business rules,
     /// script includes, UI actions, client scripts, ACLs, …) in every application scope, in one
@@ -480,17 +503,19 @@ pub enum Command {
     Codesearch(CodesearchArgs),
     /// Dump the full command tree as JSON for agent/MCP generation.
     Introspect,
-    /// CI/CD API: app repository, update-set lifecycle, ATF runs, and the
-    /// progress of their async jobs.
+    /// Application Manager: list, search and show store apps and plugins, and install a plugin.
+    ///
+    /// Covers installed, updatable and available ones (`sn appmanager list`,
+    /// `sn appmanager search <TERM>`, `sn appmanager show <ID>`, `sn appmanager
+    /// install <PLUGIN_ID>`). The app repository is `sn cicd app`.
+    Appmanager {
+        #[command(subcommand)]
+        sub: AppManagerSub,
+    },
+    /// CI/CD API: app repository, update sets, ATF runs and async job progress.
     Cicd {
         #[command(subcommand)]
         sub: CicdSub,
-    },
-    /// Instance-side session context: the application scope and update set the
-    /// caller's tracked writes are captured under. Bare `sn context` shows it.
-    Context {
-        #[command(subcommand)]
-        sub: Option<ContextSub>,
     },
     /// Flow Designer flows and subflows: find, inspect, and debug them.
     Flow {
@@ -514,7 +539,7 @@ pub enum Command {
         #[command(subcommand)]
         sub: AttachmentSub,
     },
-    /// CMDB Instance and Meta operations.
+    /// CMDB CIs by class: list, get, create, update, relations and class metadata.
     Cmdb {
         #[command(subcommand)]
         sub: CmdbSub,
@@ -550,24 +575,20 @@ pub enum Command {
         #[command(subcommand)]
         sub: IdentifySub,
     },
-    /// Show the currently authenticated user.
-    User {
-        #[command(subcommand)]
-        sub: UserSub,
-    },
     /// Health check the configured instance (auth + latency + build version).
     Ping,
-    /// Run one sn command as another user, then end the impersonation
-    /// (`sn impersonate <USER> -- <COMMAND>...`).
+    /// Run one sn command as another user, then end the impersonation.
     Impersonate(ImpersonateArgs),
-    /// Preflight the instance in one round trip: who you are, whether you are
-    /// admin, and pass/fail checks for required roles, plugins and properties.
+    /// Preflight the instance: who you are, plus role, plugin and property checks.
+    ///
+    /// One round trip: who you are, whether you are admin, and pass/fail checks
+    /// for required roles, plugins and properties.
     Doctor(DoctorArgs),
-    /// Open a record form or a list view in the web UI (`sn open <table> [<sys_id> | -q <query>]`).
+    /// Open a record form or a list view in the web UI.
     Open(OpenArgs),
     /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).
     Raw(RawArgs),
-    /// Read records via GraphQL with dot-walked reference fields (`sn gr <TABLE> -f <FIELDS>`).
+    /// Read records via GraphQL with dot-walked reference fields.
     Gr(GrArgs),
     /// Run a GraphQL query against POST /api/now/graphql (`sn graphql <QUERY>`).
     Graphql(GraphqlArgs),
@@ -576,8 +597,9 @@ pub enum Command {
         #[command(subcommand)]
         sub: ScriptSub,
     },
-    /// Generate a shell completion script (`sn completion <SHELL>`; `--dynamic`
-    /// adds table and column names from `sn cache`).
+    /// Generate a shell completion script.
+    ///
+    /// `--dynamic` adds table and column names from `sn cache`.
     Completion(CompletionArgs),
 }
 

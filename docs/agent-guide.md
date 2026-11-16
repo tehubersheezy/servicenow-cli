@@ -74,7 +74,7 @@ useful for support requests. `resume_from` appears only on a
 **Every key but `message` may be absent**, and `status_code` in particular. Two
 examples that omit it because no HTTP status describes the failure are: a CICD
 operation the instance reported as failed *inside* a 200 under `--wait`, and a
-read whose scripted query the instance silently dropped (`sn user me`). It is
+read whose scripted query the instance silently dropped (`sn get me`). It is
 never `0` — no HTTP response carries that — so a `jq` test has to tolerate a
 missing key (`jq -r '.error.status_code'` prints `null`, which no comparison
 against a status will match).
@@ -287,8 +287,8 @@ sn ping
 
 **Never derive identity from `sn table list sys_user --limit 1`.** A bare limited
 read of `sys_user` returns whichever row sorts first — a stranger, reported with
-full confidence. `sn ping` and `sn user me` both ask endpoints that name the
-caller directly (`sn user me` resolves the caller's sys_id, then reads that one
+full confidence. `sn ping` and `sn get me` both ask endpoints that name the
+caller directly (`sn get me` resolves the caller's sys_id, then reads that one
 record), and both refuse to answer rather than hand back an arbitrary row.
 
 ### `sn doctor`
@@ -466,6 +466,24 @@ often finds nothing.
   Search application (`sn_codesearch`) is missing. A search over every table
   can take tens of seconds, so `--timeout` defaults to 120s for this command.
 
+### Finding apps and plugins (`sn appmanager`)
+
+```bash
+sn appmanager search change --kind plugin        # installed plugins matching "change"
+sn appmanager list --updates                     # what has an update available
+sn appmanager show com.snc.change_management     # {installed, version, product, …}
+sn appmanager install com.snc.document_management --yes --wait   # activate a plugin; permanent
+```
+
+- Rows are `{kind, id, name, scope, version, latest_version, installed, update_available, …}`;
+  pass a row's `id` to `show`.
+- `show` on an unknown id is exit 2, never `installed: false`. Plugin list rows have a null
+  `version`; `show` has it.
+- `install` is plugins only and irreversible. It is asynchronous like `sn cicd`: pass `--wait`.
+  Already installed is exit 1; an unknown id is exit 2.
+- Needs admin or an Application Manager role (exit 4 otherwise). To assert several plugins at
+  once, use `sn doctor --need-plugin`.
+
 ## Reading records (`list`, `get`)
 
 ```bash
@@ -507,7 +525,7 @@ check the result count when the query is supposed to identify exactly one record
 
 **`sn get <noun>` reads state an agent otherwise assembles by hand** — `scope`,
 `updateset`, `property <name>`, `script <name>` (`--source` for the text),
-`choices <table.field>`, `plugin <id>…`, `me`, `instance`, `mine`, `last`, `logs`. Each
+`choices <table.field>`, `me`, `instance`, `mine`, `last`, `logs`. Each
 fails closed: a filter the instance drops is exit 2, and a name that matches several
 records (business rules share names) is exit 1 listing them. `sn get --help` lists the
 nouns and `sn get <noun> --help` their flags.
@@ -757,8 +775,8 @@ gets a `[y/N]` prompt):
 sn table delete incident c7d8e9f0a1b2 --yes
 ```
 
-**The guard is not only on `delete`.** Eleven commands are gated, six of them
-destroying something without the word "delete" anywhere in the argv:
+**The guard is not only on `delete`.** Twelve commands are gated, seven of them
+without the word "delete" anywhere in the argv:
 
 | command | refusal message without `--yes` |
 |---|---|
@@ -772,6 +790,7 @@ destroying something without the word "delete" anywhere in the argv:
 | `catalog cart-empty` | `empty cart abc requires --yes …` |
 | `cicd updateset back-out` | `back out update set abc requires --yes …` |
 | `cicd app rollback` | `roll back app x_myapp to version 1.1.0 requires --yes …` |
+| `appmanager install` | `install plugin com.snc.incident requires --yes …` |
 | `profile remove` | `remove profile ci2 and its stored credentials requires --yes …` |
 
 The message names the verb the command uses and the target it was about to act
@@ -792,29 +811,26 @@ sn table update incident c7d8e9f0a1b2 --input-display-value --field state="In Pr
 
 On writes, `--fields` narrows only the *response*, never the request body.
 
-## Session context (`context`)
+## Session context (`set`)
 
 Every tracked write (`sys_script`, `sys_properties`, dictionary, ACLs, …) is
 captured under the API account's **current application scope and update set**
-— per-user, server-side state you otherwise never see over REST. `sn context`
-asks the instance for it in one round trip; the setters move it and verify by
-re-read.
+— per-user, server-side state you otherwise never see over REST. `sn get scope`
+and `sn get updateset` ask the instance for it; the setters move it and verify
+by re-read.
 
 ```bash
-sn context                                  # where would my tracked writes land?
+sn get scope                                # which scope would my tracked writes land in?
+sn get updateset                            # and which set: state, change count, latest changes
+sn set scope x_myapp_scope                  # by scope name, display name, or sys_id
+sn set updateset "Sprint 12 fixes"          # by name or sys_id; in-progress, current scope only
 ```
 ```json
 {"scope":{"sys_id":"global","name":"Global","scope":"global"},
- "update_set":{"sys_id":"0c4d…a438","name":"Default"}}
+ "update_set":{"sys_id":"0c4d…a438","name":"Default"},
+ "previous":{"scope":{…},"update_set":{…}}}
 ```
 
-```bash
-sn set scope x_myapp_scope                  # by scope name, display name, or sys_id
-sn set updateset "Sprint 12 fixes"          # by name or sys_id; in-progress, current scope only
-sn get updateset                            # the current set's state, change count, latest changes
-```
-
-`sn set scope|updateset` and `sn context scope|updateset` are the same commands.
 Selecting the set that is already current is a no-op success.
 
 Setters report the full new context plus a `previous` block. Switching scope
@@ -823,7 +839,7 @@ the same coupling the UI pickers apply.
 
 - **The answer is the instance's own resolution**, the same one the UI picker
   shows: if your preferred update set was completed, ignored, or belongs to
-  another scope, `sn context` reports the set your next tracked write will
+  another scope, `sn get updateset` reports the set your next tracked write will
   actually use. Reading it saves that resolution back to your preferences, as
   every UI page load does; where writes land is unchanged.
 - **Admin only.** An account that cannot select update sets gets an explicit
@@ -853,7 +869,7 @@ support subsets, so check their `--help` instead of assuming every flag applies.
 | `--paginate keyset\|offset` / `--resume-from <sys_id>` | (CLI only) | `table list --all` | Walk strategy (keyset by default) / continue an interrupted keyset stream |
 | `--query-category <cat>` | `sysparm_query_category` | list | Index selection |
 | `--output`, `--profile`, `-d`/`-dd`/`-ddd` | (CLI only) | all | See relevant sections |
-| `--yes` / `-y` | (CLI only) | **destructive subcommands only** — not global | Skip the confirmation; required on a non-TTY. Every `delete`, plus `change conflict remove`, `catalog cart-remove`/`cart-empty`, `cicd updateset back-out`, `cicd app rollback`, `profile remove` |
+| `--yes` / `-y` | (CLI only) | **destructive subcommands only** — not global | Skip the confirmation; required on a non-TTY. Every `delete`, plus `change conflict remove`, `catalog cart-remove`/`cart-empty`, `cicd updateset back-out`, `cicd app rollback`, `appmanager install`, `profile remove` |
 
 ## Aggregate
 
@@ -1241,7 +1257,7 @@ Filters: `--uuid <csv>`, `--favorites`, `--key`, `--target`, `--contains <csv>`,
 ```bash
 sn ping                                  # health check (auth + latency + identity + build); see `sn ping`
 sn doctor --need-role itil --need-plugin com.snc.incident   # preflight: exit 2 unless every check passes; see `sn doctor`
-sn user me                               # the caller's own sys_user record, read by sys_id
+sn get me                                # the caller: user record, roles and groups, read by sys_id
 sn api list                              # which REST APIs this instance publishes
 sn open incident a1b2c3 --print-url        # print the record URL; omit the flag to open it
 sn open incident -q "active=true"          # open the filtered list view; -q is refused with a record
@@ -1257,7 +1273,7 @@ sn cache tables cmdb_ci_                 # table names by prefix — no network
 sn introspect                            # full command tree as JSON — auto-generate MCP / function-call schemas
 ```
 
-`sn user me` asks the instance for the caller's sys_id and reads that one
+`sn get me` asks the instance for the caller's sys_id and reads that one
 `sys_user` row — no `javascript:` term on the wire, so the query cannot be
 silently dropped. On an instance that can't name the caller it falls back to the
 scripted read, and if *that* query is dropped (proved by a second row coming
@@ -1388,7 +1404,7 @@ JSON. This avoids treating flags from one command as valid on another.
 | Read by number or sys_id | [Reading records](#reading-records-list-get) |
 | Read fields through references | [Dot-walked reads](usage.md#dot-walked-reads-sn-gr) |
 | Create, update, or delete | [Writing records](#writing-records-create-update-delete) |
-| Select scope and update set | [Session context](#session-context-context) |
+| Select scope and update set | [Session context](#session-context-set) |
 | Watch for changes | [Live watching](usage.md#watching-records-live) |
 | Run deployment or test operations | [CICD](#cicd-sn-cicd) |
 | Interpret output or failure | [Output and exit codes](#output-errors--exit-codes-read-first) |

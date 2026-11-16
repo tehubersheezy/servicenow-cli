@@ -58,7 +58,6 @@ export const CATALOG: CatalogNode = {
         "property": { operands: ["name"], values: ["scope"], shorts: "", sub: {} },
         "script": { operands: ["name"], values: ["scope","type"], shorts: "t", sub: {} },
         "choices": { operands: ["column","field"], values: [], shorts: "", sub: {} },
-        "plugin": { operands: ["ids"], values: [], shorts: "", sub: {} },
         "me": { operands: [], values: [], shorts: "", sub: {} },
         "instance": { operands: [], values: [], shorts: "", sub: {} },
         "mine": { operands: [], values: ["limit","table"], shorts: "l", sub: {} },
@@ -119,6 +118,17 @@ export const CATALOG: CatalogNode = {
     },
     "codesearch": { operands: ["term"], values: ["limit","scope","table"], shorts: "", sub: {} },
     "introspect": { operands: [], values: [], shorts: "", sub: {} },
+    "appmanager": {
+      operands: [],
+      values: [],
+      shorts: "",
+      sub: {
+        "list": { operands: [], values: ["kind","limit","offset"], shorts: "kl", sub: {} },
+        "search": { operands: ["term"], values: ["kind","limit","offset"], shorts: "kl", sub: {} },
+        "show": { operands: ["id"], values: ["kind"], shorts: "k", sub: {} },
+        "install": { operands: ["id"], values: ["wait-timeout"], shorts: "", sub: {} },
+      },
+    },
     "cicd": {
       operands: [],
       values: [],
@@ -157,15 +167,6 @@ export const CATALOG: CatalogNode = {
           },
         },
         "progress": { operands: ["progress_id"], values: [], shorts: "", sub: {} },
-      },
-    },
-    "context": {
-      operands: [],
-      values: [],
-      shorts: "",
-      sub: {
-        "scope": { operands: ["target"], values: [], shorts: "", sub: {} },
-        "updateset": { operands: ["target"], values: [], shorts: "", sub: {} },
       },
     },
     "flow": {
@@ -348,14 +349,6 @@ export const CATALOG: CatalogNode = {
         "query": { operands: [], values: ["data","data-source","field"], shorts: "DF", sub: {} },
         "create-update-enhanced": { operands: [], values: ["data","data-source","field","options"], shorts: "DF", sub: {} },
         "query-enhanced": { operands: [], values: ["data","data-source","field","options"], shorts: "DF", sub: {} },
-      },
-    },
-    "user": {
-      operands: [],
-      values: [],
-      shorts: "",
-      sub: {
-        "me": { operands: [], values: [], shorts: "", sub: {} },
       },
     },
     "ping": { operands: [], values: [], shorts: "", sub: {} },

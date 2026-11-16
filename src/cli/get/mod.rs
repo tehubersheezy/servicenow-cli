@@ -13,7 +13,6 @@ mod last;
 mod logs;
 mod me;
 mod mine;
-mod plugin;
 mod property;
 mod scope;
 mod script;
@@ -26,7 +25,6 @@ use clap::Subcommand;
 pub use last::LastArgs;
 pub use logs::{LogLevel, LogsArgs};
 pub use mine::MineArgs;
-pub use plugin::PluginArgs;
 pub use property::PropertyArgs;
 pub use scope::UpdatesetArgs;
 pub use script::{ScriptArgs, ScriptType};
@@ -60,8 +58,9 @@ pub enum GetNoun {
     Script(ScriptArgs),
     /// A column's choice list (`sn get choices incident.state`).
     Choices(ChoicesArgs),
-    /// Whether plugins are installed and active, by plugin id.
-    Plugin(PluginArgs),
+    /// Removed in favor of `sn appmanager show`; kept so the old spelling says so.
+    #[command(hide = true)]
+    Plugin(PluginGoneArgs),
     /// The calling user: their record, roles and groups.
     Me,
     /// The instance: release, build, patch and the node that answered.
@@ -74,21 +73,27 @@ pub enum GetNoun {
     Logs(LogsArgs),
 }
 
-/// The nouns, for the hint a near-miss token gets. Pinned to [`GetNoun`] by a
-/// test so the two cannot drift.
-const NOUNS: [&str; 11] = [
+/// The nouns, for the hint a near-miss token gets. Pinned to [`GetNoun`]'s
+/// visible variants by a test so the two cannot drift.
+const NOUNS: [&str; 10] = [
     "scope",
     "updateset",
     "property",
     "script",
     "choices",
-    "plugin",
     "me",
     "instance",
     "mine",
     "last",
     "logs",
 ];
+
+#[derive(clap::Args, Debug)]
+pub struct PluginGoneArgs {
+    /// Plugin ids, as `sn get plugin` took them.
+    #[arg(value_name = "PLUGIN_ID")]
+    pub ids: Vec<String>,
+}
 
 #[derive(clap::Args, Debug)]
 pub struct ChoicesArgs {
@@ -111,7 +116,11 @@ pub fn run(global: &GlobalFlags, args: GetArgs) -> Result<()> {
         GetNoun::Property(a) => property::run(global, a),
         GetNoun::Script(a) => script::run(global, a),
         GetNoun::Choices(a) => choices(global, a),
-        GetNoun::Plugin(a) => plugin::run(global, a),
+        GetNoun::Plugin(_) => Err(Error::Usage(
+            "`sn get plugin` was removed: `sn appmanager show <ID>` reports one plugin (installed, \
+             version, product), and `sn doctor --need-plugin <ID>,<ID>` checks several at once"
+                .into(),
+        )),
         GetNoun::Me => me::run(global),
         GetNoun::Instance => instance::run(global),
         GetNoun::Mine(a) => mine::run(global, a),
@@ -184,6 +193,7 @@ mod tests {
     fn noun_list_matches_the_enum() {
         let names: Vec<String> = Probe::command()
             .get_subcommands()
+            .filter(|c| !c.is_hide_set())
             .map(|c| c.get_name().to_string())
             .collect();
         assert_eq!(names, NOUNS);

@@ -94,14 +94,14 @@ fn live_ping_returns_correct_instance() {
 
 #[test]
 #[ignore]
-fn live_user_me_returns_authed_user() {
+fn live_get_me_returns_authed_user() {
     require_profile!();
     let out = sn_cmd()
-        .args(["--profile", PROFILE, "--timeout", "60", "user", "me"])
+        .args(["--profile", PROFILE, "--timeout", "60", "get", "me"])
         .output()
         .expect("spawn sn");
-    assert!(out.status.success(), "user me failed: {:?}", out);
-    let v: Value = serde_json::from_slice(&out.stdout).expect("user me stdout is JSON");
+    assert!(out.status.success(), "get me failed: {:?}", out);
+    let v: Value = serde_json::from_slice(&out.stdout).expect("get me stdout is JSON");
     let user_name = v["user_name"].as_str().expect("user_name field present");
     assert!(
         !user_name.is_empty(),

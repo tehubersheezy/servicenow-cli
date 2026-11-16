@@ -47,6 +47,9 @@ background operation was observed to completion.
 Prefer `--wait` with a `--wait-timeout` when you can: one command, and the timeout bounds a
 stall instead of hanging. `--wait` honors `--output raw`.
 
+`sn appmanager install <PLUGIN_ID> --yes` follows the same contract: `--wait`, the same exit codes,
+and `sn cicd progress <id>` for a manual poll.
+
 ## The two that deserve a human
 
 Both require `--yes` without a terminal and prompt on a terminal unless it is supplied.

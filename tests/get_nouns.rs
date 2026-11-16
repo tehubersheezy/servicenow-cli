@@ -209,6 +209,18 @@ async fn set_updateset_to_the_current_set_skips_the_picker() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn the_removed_context_command_points_at_get_and_set() {
+    for args in [vec!["context"], vec!["context", "scope", "x_app"]] {
+        let (code, stdout, err) = run("http://127.0.0.1:9".into(), args).await;
+        assert_eq!(code, 1, "{err}");
+        assert!(stdout.is_empty());
+        let message = err["error"]["message"].as_str().unwrap();
+        assert!(message.contains("`sn get scope`"), "{message}");
+        assert!(message.contains("`sn set scope`"), "{message}");
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn logs_older_than_the_window_are_a_dropped_term() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

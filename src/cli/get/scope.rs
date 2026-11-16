@@ -1,5 +1,5 @@
-//! `sn get scope` and `sn get updateset`: the session context `sn context`
-//! reports, filled out with the records it names.
+//! `sn get scope` and `sn get updateset`: the session context, filled out
+//! with the records it names.
 //!
 //! The *which* comes from the platform's own resolution (`context::read_context`,
 //! one `GET …/concoursepicker/current`); the detail is one read of the named

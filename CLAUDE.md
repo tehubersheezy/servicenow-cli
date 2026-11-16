@@ -94,7 +94,7 @@ Design rationale, protocol notes and measured instance behavior live in `.claude
 | `config-files.md` | config dir, atomic writes, lock sidecar, write ordering |
 | `profiles.md` | profile resolution, `sn init` vs `sn profile add` |
 | `auth-oauth.md` | OAuth grants, JWT bearer, API key, external token command |
-| `identity.md` | how `whoami`/`ping`/`user me` name the caller |
+| `identity.md` | how `whoami`/`ping`/`get me` name the caller |
 | `impersonation.md` | session-held hop, verification, teardown |
 | `cicd-async.md` | `--wait`, progress status values |
 | `watch-amb.md` | AMB websocket protocol, session reaping, rotation, markers |
@@ -103,6 +103,6 @@ Design rationale, protocol notes and measured instance behavior live in `.claude
 | `plugin.md` | skill policy, `sn table` panel hooks |
 | `ci.md` | workflows, lockfile refresh, action pinning |
 | `changelog.md` | release-note style, the masked-output trap in full |
-| `commands/<name>.md` | endpoints and quirks for `change`, `cmdb`, `api`, `codesearch`, `graphql`/`gr`, `doctor`, `flow`, `script`, `decision`, `playbook`, `context`, `get` (nouns and `sn set`), `xml`, and `catalog`/`import`/`identify`/`schema` |
+| `commands/<name>.md` | endpoints and quirks for `appmanager`, `change`, `cmdb`, `api`, `codesearch`, `graphql`/`gr`, `doctor`, `flow`, `script`, `decision`, `playbook`, `context`, `get` (nouns and `sn set`), `xml`, and `catalog`/`import`/`identify`/`schema` |
 
 Keep this file under 200 lines. It holds only what every session needs; anything specific to one area goes in that area's rule file.

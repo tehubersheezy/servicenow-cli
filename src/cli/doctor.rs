@@ -20,7 +20,8 @@
 //!   For a non-admin session `gs.hasRole` is membership, measured truthful.
 //! - **`snWorkflowStudio.workflowStudio.isPluginInstalled` is trustworthy** —
 //!   true for active plugins, false for fakes, no prefix matching, case
-//!   sensitive — and the only route: `sys_plugins` is 403 even to admin and
+//!   sensitive — and the only route in this round trip (`sn appmanager` reads plugin
+//!   detail over REST): `sys_plugins` is 403 even to admin and
 //!   `v_plugin` times out server-side. Non-admins get `workflowStudio: null`.
 //!   A canary asks about `com.glide.graphql`, the plugin this very request
 //!   runs on, so a getter that says `false` for it is not believed.

@@ -19,6 +19,7 @@ export const LOOK: Record<Kind, { glyph: string; color: string }> = {
 }
 
 const BY_COMMAND: Record<string, Kind> = {
+  'appmanager install': 'write',
   'cache refresh': 'session',
   'catalog checkout': 'write',
   'catalog submit-order': 'write',
@@ -49,7 +50,6 @@ const BY_COMMAND: Record<string, Kind> = {
 }
 
 const BY_GROUP: Record<string, Kind> = {
-  context: 'session',
   profile: 'session',
   set: 'session',
 }
