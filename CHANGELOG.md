@@ -19,6 +19,7 @@
 
 ### Fixes
 
+- `sn --help` lists commands by use, one line each; the `--data`/`--field` reference moved to the commands that take them.
 - A mistyped subcommand lists the verbs of the group you typed: `sn script bogus` and `sn cicd app bogus` name their own.
 
 ## 0.16.0 (2026-11-05)

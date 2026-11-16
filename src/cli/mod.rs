@@ -287,9 +287,28 @@ fn find_command<'a>(cmd: &'a clap::Command, path: &[&str]) -> Option<&'a clap::C
         .try_fold(cmd, |node, name| node.find_subcommand(name))
 }
 
+/// What `--data` and `--field` accept, shown under the help of every command
+/// that takes them.
+const BODY_INPUT_HELP: &str = "BODY INPUT:
+  --data '<inline JSON>'             inline JSON object
+  --data @body.json                  read body from a file (multi-line safe)
+  --data @-                          read body from stdin (e.g. piped from jq)
+  --field name=value                 set one field
+  --field description=@notes.md      read one field's value from a file";
+
 fn with_usage(cmd: clap::Command, path: &str) -> clap::Command {
     let path = path.to_string();
     let usage = usage_line(&path, &cmd);
+    // The `--data`/`--field` reference goes on the commands that take the
+    // pair, found by arg id so a new `BodyArgs` site picks it up unasked.
+    let takes_body = ["data", "field"]
+        .iter()
+        .all(|id| cmd.get_arguments().any(|a| a.get_id() == id));
+    let cmd = if takes_body {
+        cmd.after_help(BODY_INPUT_HELP)
+    } else {
+        cmd
+    };
     cmd.override_usage(usage).mut_subcommands(move |sc| {
         let child = format!("{} {}", path, sc.get_name());
         with_usage(sc, &child)
@@ -353,8 +372,7 @@ fn leaf_usage(path: &str, cmd: &clap::Command) -> String {
     name = "sn",
     version,
     about = "ServiceNow CLI for scripts and coding agents: JSON on stdout, JSON errors on stderr",
-    disable_version_flag = true,
-    after_help = "BODY INPUT (write commands accept any of these):\n  --data '<inline JSON>'             inline JSON object\n  --data @body.json                  read body from a file (multi-line safe)\n  --data @-                          read body from stdin (e.g. piped from jq)\n  --field name=value                 set one field\n  --field description=@notes.md      read one field's value from a file\n\nEXAMPLES:\n  sn table update incident <sys_id> --data @body.json\n  sn table update incident <sys_id> --field description=@notes.md\n  jq '.fields' patch.json | sn table update incident <sys_id> --data @-"
+    disable_version_flag = true
 )]
 #[allow(clippy::manual_non_exhaustive)] // `version` field exists only to wire the -v flag.
 pub struct Cli {
@@ -380,7 +398,7 @@ pub struct GlobalFlags {
     #[arg(long, short = 'p', global = true)]
     pub profile: Option<String>,
 
-    /// Output mode. `default` (unwrapped result) or `raw` (full SN envelope).
+    /// Output mode: `raw` keeps the full SN envelope, `table` renders columns.
     #[arg(long, global = true, value_enum, default_value_t = OutputMode::Default)]
     pub output: OutputMode,
 
@@ -433,18 +451,6 @@ pub enum OutputMode {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
-    /// Create or update a profile interactively.
-    Init(InitArgs),
-    /// Manage profiles and their auth sessions.
-    Profile {
-        #[command(subcommand)]
-        sub: ProfileSub,
-    },
-    /// Read and write records in any table (Table API).
-    Table {
-        #[command(subcommand)]
-        sub: TableSub,
-    },
     /// Read one thing: a record by reference, or a noun (scope, updateset, me, logs, …).
     ///
     /// A record comes with its variables and journal entries (`sn get INC0010001`,
@@ -460,6 +466,15 @@ pub enum Command {
         #[command(subcommand)]
         sub: ContextSub,
     },
+    /// Read and write records in any table (Table API).
+    Table {
+        #[command(subcommand)]
+        sub: TableSub,
+    },
+    /// Read records via GraphQL with dot-walked reference fields.
+    Gr(GrArgs),
+    /// Aggregate statistics for a table (GET /api/now/stats/{table}).
+    Aggregate(AggregateArgs),
     /// Comments and work notes for one record, parsed into entries.
     Journal(JournalArgs),
     /// Catalog variables on a record: read, and write with verification.
@@ -467,8 +482,80 @@ pub enum Command {
         #[command(subcommand)]
         sub: VariablesSub,
     },
+    /// Attachment operations (upload, download, list, delete).
+    Attachment {
+        #[command(subcommand)]
+        sub: AttachmentSub,
+    },
     /// Watch records in a table change in real time (AMB websocket). Streams JSONL.
     Watch(WatchArgs),
+    /// Open a record form or a list view in the web UI.
+    Open(OpenArgs),
+    /// Change Management operations (normal, emergency, standard).
+    Change {
+        #[command(subcommand)]
+        sub: ChangeSub,
+    },
+    /// Service Catalog operations (catalogs, items, cart, ordering).
+    Catalog {
+        #[command(subcommand)]
+        sub: CatalogSub,
+    },
+    /// CMDB CIs by class: list, get, create, update, relations and class metadata.
+    Cmdb {
+        #[command(subcommand)]
+        sub: CmdbSub,
+    },
+    /// Identification and Reconciliation (CI create/update/query).
+    Identify {
+        #[command(subcommand)]
+        sub: IdentifySub,
+    },
+    /// Import Set operations (staging table imports).
+    Import {
+        #[command(subcommand)]
+        sub: ImportSub,
+    },
+    /// Move records between instances as unload XML: export a query, import
+    /// the file.
+    Xml {
+        #[command(subcommand)]
+        sub: XmlSub,
+    },
+    /// Flow Designer flows and subflows: find, inspect, and debug them.
+    Flow {
+        #[command(subcommand)]
+        sub: FlowSub,
+    },
+    /// Decision tables: list them, show one's inputs and decisions, run one against inputs.
+    Decision {
+        #[command(subcommand)]
+        sub: DecisionSub,
+    },
+    /// Playbook executions on a record: list, trigger by scoped name, launch by definition.
+    Playbook {
+        #[command(subcommand)]
+        sub: PlaybookSub,
+    },
+    /// Performance Analytics scorecard operations.
+    Scores {
+        #[command(subcommand)]
+        sub: ScoresSub,
+    },
+    /// CI/CD API: app repository, update sets, ATF runs and async job progress.
+    Cicd {
+        #[command(subcommand)]
+        sub: CicdSub,
+    },
+    /// Application Manager: find and show store apps and plugins, install a plugin.
+    ///
+    /// Covers installed, updatable and available ones (`sn appmanager list`,
+    /// `sn appmanager search <TERM>`, `sn appmanager show <ID>`, `sn appmanager
+    /// install <PLUGIN_ID>`). The app repository is `sn cicd app`.
+    Appmanager {
+        #[command(subcommand)]
+        sub: AppManagerSub,
+    },
     /// List tables, columns and choice values from the instance.
     Schema {
         #[command(subcommand)]
@@ -501,95 +588,8 @@ pub enum Command {
     /// delegated-developer role) typically sees few or none, under a successful exit. A search
     /// over every table can take a while, so `--timeout` defaults to 120s here.
     Codesearch(CodesearchArgs),
-    /// Dump the full command tree as JSON for agent/MCP generation.
-    Introspect,
-    /// Application Manager: list, search and show store apps and plugins, and install a plugin.
-    ///
-    /// Covers installed, updatable and available ones (`sn appmanager list`,
-    /// `sn appmanager search <TERM>`, `sn appmanager show <ID>`, `sn appmanager
-    /// install <PLUGIN_ID>`). The app repository is `sn cicd app`.
-    Appmanager {
-        #[command(subcommand)]
-        sub: AppManagerSub,
-    },
-    /// CI/CD API: app repository, update sets, ATF runs and async job progress.
-    Cicd {
-        #[command(subcommand)]
-        sub: CicdSub,
-    },
-    /// Flow Designer flows and subflows: find, inspect, and debug them.
-    Flow {
-        #[command(subcommand)]
-        sub: FlowSub,
-    },
-    /// Aggregate statistics for a table (GET /api/now/stats/{table}).
-    Aggregate(AggregateArgs),
-    /// Performance Analytics scorecard operations.
-    Scores {
-        #[command(subcommand)]
-        sub: ScoresSub,
-    },
-    /// Change Management operations (normal, emergency, standard).
-    Change {
-        #[command(subcommand)]
-        sub: ChangeSub,
-    },
-    /// Attachment operations (upload, download, list, delete).
-    Attachment {
-        #[command(subcommand)]
-        sub: AttachmentSub,
-    },
-    /// CMDB CIs by class: list, get, create, update, relations and class metadata.
-    Cmdb {
-        #[command(subcommand)]
-        sub: CmdbSub,
-    },
-    /// Import Set operations (staging table imports).
-    Import {
-        #[command(subcommand)]
-        sub: ImportSub,
-    },
-    /// Move records between instances as unload XML: export a query, import
-    /// the file.
-    Xml {
-        #[command(subcommand)]
-        sub: XmlSub,
-    },
-    /// Service Catalog operations (catalogs, items, cart, ordering).
-    Catalog {
-        #[command(subcommand)]
-        sub: CatalogSub,
-    },
-    /// Decision tables: list them, show one's inputs and decisions, run one against inputs.
-    Decision {
-        #[command(subcommand)]
-        sub: DecisionSub,
-    },
-    /// Playbook executions on a record: list, trigger by scoped name, launch by definition.
-    Playbook {
-        #[command(subcommand)]
-        sub: PlaybookSub,
-    },
-    /// Identification and Reconciliation (CI create/update/query).
-    Identify {
-        #[command(subcommand)]
-        sub: IdentifySub,
-    },
-    /// Health check the configured instance (auth + latency + build version).
-    Ping,
-    /// Run one sn command as another user, then end the impersonation.
-    Impersonate(ImpersonateArgs),
-    /// Preflight the instance: who you are, plus role, plugin and property checks.
-    ///
-    /// One round trip: who you are, whether you are admin, and pass/fail checks
-    /// for required roles, plugins and properties.
-    Doctor(DoctorArgs),
-    /// Open a record form or a list view in the web UI.
-    Open(OpenArgs),
     /// Generic REST passthrough for unmodeled endpoints (`sn raw <METHOD> <PATH>`).
     Raw(RawArgs),
-    /// Read records via GraphQL with dot-walked reference fields.
-    Gr(GrArgs),
     /// Run a GraphQL query against POST /api/now/graphql (`sn graphql <QUERY>`).
     Graphql(GraphqlArgs),
     /// Run server-side JavaScript on the instance (Scripts - Background).
@@ -597,10 +597,28 @@ pub enum Command {
         #[command(subcommand)]
         sub: ScriptSub,
     },
+    /// Create or update a profile interactively.
+    Init(InitArgs),
+    /// Manage profiles and their auth sessions.
+    Profile {
+        #[command(subcommand)]
+        sub: ProfileSub,
+    },
+    /// Health check the configured instance (auth + latency + build version).
+    Ping,
+    /// Preflight the instance: who you are, plus role, plugin and property checks.
+    ///
+    /// One round trip: who you are, whether you are admin, and pass/fail checks
+    /// for required roles, plugins and properties.
+    Doctor(DoctorArgs),
+    /// Run one sn command as another user, then end the impersonation.
+    Impersonate(ImpersonateArgs),
     /// Generate a shell completion script.
     ///
     /// `--dynamic` adds table and column names from `sn cache`.
     Completion(CompletionArgs),
+    /// Dump the full command tree as JSON for agent/MCP generation.
+    Introspect,
 }
 
 #[cfg(test)]
