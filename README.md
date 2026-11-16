@@ -83,7 +83,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn context` / `sn set`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn decision`](docs/usage.md#decision-tables) | List and inspect decision tables, and evaluate one against inputs |
-| [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
+| [`sn apisearch`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
 | [`sn script run`](docs/usage.md#background-scripts) | Run server-side JavaScript and get what it printed back as JSON |
 | [`sn codesearch`](docs/usage.md#code-search) | Find where a script include, table, or function is referenced in the instance's code |
 | [`sn raw`](docs/usage.md#raw-rest-passthrough) | Call REST endpoints directly |

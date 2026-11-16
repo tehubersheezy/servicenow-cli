@@ -798,16 +798,17 @@ sees no executions (and a 404 for one read by sys_id).
 
 ## API discovery
 
-`sn schema` answers "what does this table look like?"; `sn api` answers "is there an API for this?"
+`sn schema` answers "what does this table look like?"; `sn apisearch` answers "is there an API for this?"
 It reads the same catalogue the instance's REST API Explorer does:
 
 ```bash
-sn api list                          # every namespace, with API and endpoint counts
-sn api list --namespace sn_chg_rest  # the APIs in one namespace
-sn api search attachment             # matching endpoints, with method and route
-sn api search cart --namespace sn_sc --method POST
-sn api spec "Table API"              # the OpenAPI 3 document
-sn api spec "Table API" --format yaml > table-api.yaml
+sn apisearch attachment                    # matching endpoints, with method and route
+sn apisearch cart --namespace sn_sc --method POST
+sn apisearch list                          # every namespace, with API and endpoint counts
+sn apisearch list --namespace sn_chg_rest  # the APIs in one namespace
+sn apisearch spec "Table API"              # the OpenAPI 3 document
+sn apisearch spec "Table API" --format yaml > table-api.yaml
+sn apisearch -- list                       # search for the word "list" itself
 ```
 
 `search` matches case-insensitively across namespace, API name, route and both descriptions, and
@@ -999,7 +1000,7 @@ Most read commands accept `--output table` for columns instead of JSON — for i
 sn table list incident --setlimit 5 --output table
 sn schema columns incident --writable --output table
 sn aggregate incident --count --group-by state --output table
-sn api search attachment --method DELETE --output table
+sn apisearch attachment --method DELETE --output table
 sn table list incident --query "active=true" --all --array --output table
 ```
 
@@ -1076,8 +1077,8 @@ renders columns for interactive reading.
 | `script run` | `{ok, scope, output, messages, error, elapsed_ms, history_id, rollback_context}`; a script error still prints it (`ok: false`) and exits 2 |
 | `gr` | Record array, or `{"count": N}` with `--count`; errors exit 2 without partial data |
 | Async CICD operations / `progress` | Progress object; see [CICD operations](#cicd-operations) |
-| `api list/search` | Summary array; `--output raw` keeps the catalogue response |
-| `api spec` | OpenAPI JSON, or YAML text with `--format yaml` |
+| `apisearch <TERM>`, `apisearch list` | Summary array; `--output raw` keeps the catalogue response |
+| `apisearch spec` | OpenAPI JSON, or YAML text with `--format yaml` |
 | `cache tables/columns` | Array of names; `cache refresh/status` return a summary object (`instance`, `path`, `tables`, `columns`, `columns_indexed`, `built_at`) |
 | `raw` | Parsed JSON response, with no envelope unwrapping |
 | `profile add/use/remove` | JSON result; removing a missing profile returns `removed:false` and exits 0 |
@@ -1090,7 +1091,7 @@ its result on stderr, and interactive setup prompts can appear on stdout.
 
 `--all --output raw` is unsupported, including with `--array`.
 `--all --output table` requires `--array`. Options such as `open --print-url` and
-`api spec --format yaml` select their own format regardless of `--output`.
+`apisearch spec --format yaml` select their own format regardless of `--output`.
 
 Errors go to stderr in this shape:
 

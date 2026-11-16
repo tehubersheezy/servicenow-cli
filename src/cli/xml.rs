@@ -28,7 +28,7 @@
 //!
 //! itil: export is 403. Import is the silent no-op above.
 
-use crate::cli::api::path_with_query;
+use crate::cli::apisearch::path_with_query;
 use crate::cli::attachment::stream_to_stdout;
 use crate::cli::get::common::identifier;
 use crate::cli::kernel::{

@@ -1,4 +1,4 @@
-//! `sn api` — instance API discovery over the REST API Explorer's own endpoints.
+//! `sn apisearch` — instance API discovery over the REST API Explorer's own endpoints.
 //!
 //! The Explorer's Angular client reads the instance's whole API catalogue from
 //! plain REST endpoints that accept ordinary credentials, so the same catalogue
@@ -38,19 +38,27 @@ const OAS_PATH: &str = "/api/now/doc/oas_3";
 /// no REST API at all (4 of 94 on the reference instance).
 const NAMESPACES_PATH: &str = "/api/now/doc/namespaces";
 
+/// `sn apisearch <TERM>` searches; `list` and `spec` are the two subcommands.
+///
+/// The same either-a-positional-or-a-subcommand shape as `sn get`: clap matches
+/// a subcommand name first, so the bare words `list` and `spec` are never
+/// searched for unless they follow `--`.
+#[derive(clap::Args, Debug)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+pub struct ApisearchArgs {
+    #[command(subcommand)]
+    pub sub: Option<ApisearchSub>,
+    #[command(flatten)]
+    pub search: ApiSearchArgs,
+}
+
 #[derive(Subcommand, Debug)]
-pub enum ApiSub {
+pub enum ApisearchSub {
     /// Summarize the instance's REST APIs: every namespace with counts, or one namespace's APIs.
     ///
     /// `--output raw` prints the catalogue endpoint's own response instead of the
     /// summary — several hundred kilobytes, for piping to jq.
     List(ApiListArgs),
-    /// Find endpoints by substring across API names, routes and descriptions.
-    ///
-    /// One row per matching endpoint, carrying namespace, API name, version,
-    /// method and route — enough to call it with `sn raw`. `--output raw` prints
-    /// the unfiltered catalogue instead, as `sn api list` does.
-    Search(ApiSearchArgs),
     /// Print one API's OpenAPI 3 specification.
     Spec(ApiSpecArgs),
 }
@@ -65,7 +73,11 @@ pub struct ApiListArgs {
 #[derive(clap::Args, Debug, Default)]
 pub struct ApiSearchArgs {
     /// Case-insensitive substring, matched against namespace, API name, endpoint route and both descriptions.
-    pub term: String,
+    ///
+    /// `list` and `spec` name subcommands; to search for either word, put it
+    /// after `--` (`sn apisearch -- list`).
+    #[arg(value_name = "TERM", required = true)]
+    pub term: Option<String>,
     /// Restrict the search to one namespace, which also makes it fetch only that namespace. Unknown names are an error.
     #[arg(long, short = 'n')]
     pub namespace: Option<String>,
@@ -76,7 +88,7 @@ pub struct ApiSearchArgs {
 
 #[derive(clap::Args, Debug)]
 pub struct ApiSpecArgs {
-    /// API name as `sn api list` reports it (e.g. `Table API`). Case-insensitive; a unique substring is enough.
+    /// API name as `sn apisearch list` reports it (e.g. `Table API`). Case-insensitive; a unique substring is enough.
     pub name: String,
     /// Namespace owning the API (e.g. `now`). Narrows the same name matching to one namespace, and fetches only it.
     #[arg(long, short = 'n')]
@@ -96,7 +108,15 @@ pub enum SpecFormat {
     Yaml,
 }
 
-pub fn list(global: &GlobalFlags, args: ApiListArgs) -> Result<()> {
+pub fn run(global: &GlobalFlags, args: ApisearchArgs) -> Result<()> {
+    match args.sub {
+        Some(ApisearchSub::List(args)) => list(global, args),
+        Some(ApisearchSub::Spec(args)) => spec(global, args),
+        None => search(global, args.search),
+    }
+}
+
+fn list(global: &GlobalFlags, args: ApiListArgs) -> Result<()> {
     let client = catalogue_client(global)?;
     let resp = fetch_catalogue(&client, args.namespace.as_deref())?;
     if global.output == OutputMode::Raw {
@@ -127,13 +147,18 @@ pub fn list(global: &GlobalFlags, args: ApiListArgs) -> Result<()> {
     write_response(global, &Value::Array(rows))
 }
 
-pub fn search(global: &GlobalFlags, args: ApiSearchArgs) -> Result<()> {
+fn search(global: &GlobalFlags, args: ApiSearchArgs) -> Result<()> {
+    // clap already requires TERM when no subcommand is given; this keeps the
+    // argv check ahead of the network if that ever stops being true.
+    let term = args
+        .term
+        .ok_or_else(|| Error::Usage("sn apisearch needs a <TERM>, `list` or `spec`".into()))?;
     let client = catalogue_client(global)?;
     let resp = fetch_catalogue(&client, args.namespace.as_deref())?;
     if global.output == OutputMode::Raw {
         return write_response(global, &resp);
     }
-    let needle = args.term.to_lowercase();
+    let needle = term.to_lowercase();
     let wanted_method = args.method.as_deref().map(str::to_uppercase);
     let mut rows = Vec::new();
     for (ns, apis) in catalogue(&resp) {
@@ -175,13 +200,13 @@ pub fn search(global: &GlobalFlags, args: ApiSearchArgs) -> Result<()> {
     write_response(global, &Value::Array(rows))
 }
 
-pub fn spec(global: &GlobalFlags, args: ApiSpecArgs) -> Result<()> {
+fn spec(global: &GlobalFlags, args: ApiSpecArgs) -> Result<()> {
     let client = catalogue_client(global)?;
     let (namespace, name) = resolve_api(&client, &args.name, args.namespace.as_deref())?;
 
     // The name and namespace came out of the catalogue, so an `oas_3` 404 is
     // about the one parameter that was never checked against it.
-    let hint = format!("; `sn api list --namespace {namespace}` reports each API's versions");
+    let hint = format!("; `sn apisearch list --namespace {namespace}` reports each API's versions");
     let mut query = vec![
         ("namespace".to_string(), namespace),
         ("name".to_string(), name),
@@ -208,7 +233,7 @@ pub fn spec(global: &GlobalFlags, args: ApiSpecArgs) -> Result<()> {
         }
         SpecFormat::Yaml => {
             // YAML cannot go through the JSON emitter, so this is the one
-            // response `sn api` writes to stdout itself, the way
+            // response `sn apisearch` writes to stdout itself, the way
             // `sn attachment download` does. `download_file` takes no query
             // parameters, hence the pre-encoded path.
             let mut download = client
@@ -301,12 +326,12 @@ fn fetch_namespaces(client: &Client) -> Result<Vec<String>> {
 fn unknown_namespace(client: &Client, ns: &str) -> Error {
     let Ok(all) = fetch_namespaces(client) else {
         return Error::Usage(format!(
-            "no APIs in namespace '{ns}' on this instance; run `sn api list` for the namespaces that publish them"
+            "no APIs in namespace '{ns}' on this instance; run `sn apisearch list` for the namespaces that publish them"
         ));
     };
     if all.iter().any(|n| n == ns) {
         return Error::Usage(format!(
-            "namespace '{ns}' exists on this instance but publishes no REST API; run `sn api list` for the namespaces that do"
+            "namespace '{ns}' exists on this instance but publishes no REST API; run `sn apisearch list` for the namespaces that do"
         ));
     }
     let near = near_matches(ns, &all);
@@ -316,7 +341,7 @@ fn unknown_namespace(client: &Client, ns: &str) -> Error {
         format!(" — did you mean {}?", quoted(&near))
     };
     Error::Usage(format!(
-        "no namespace '{ns}' on this instance{did_you_mean}; run `sn api list` for the namespaces that publish APIs"
+        "no namespace '{ns}' on this instance{did_you_mean}; run `sn apisearch list` for the namespaces that publish APIs"
     ))
 }
 
@@ -386,7 +411,7 @@ fn catalogue(resp: &Value) -> &Map<String, Value> {
         .unwrap_or_else(|| EMPTY.get_or_init(Map::new))
 }
 
-/// `{namespace, apis, endpoints}` — the compact summary `sn api list` prints
+/// `{namespace, apis, endpoints}` — the compact summary `sn apisearch list` prints
 /// instead of the multi-hundred-kilobyte catalogue it derives it from.
 fn namespace_row(namespace: &str, apis: &Value) -> Value {
     let apis = apis.as_object();
@@ -400,8 +425,8 @@ fn namespace_row(namespace: &str, apis: &Value) -> Value {
     })
 }
 
-/// One API as `sn api list --namespace` reports it. `name` is what
-/// `sn api spec` takes, so the two verbs compose without a lookup table.
+/// One API as `sn apisearch list --namespace` reports it. `name` is what
+/// `sn apisearch spec` takes, so the two verbs compose without a lookup table.
 fn api_row(namespace: &str, name: &str, api: &Value) -> Value {
     let versions: Vec<&str> = api
         .get("versions")
@@ -460,7 +485,7 @@ enum Tier {
 /// Find the `(namespace, name)` that `oas_3` wants.
 ///
 /// The export endpoint matches `name` exactly against the catalogue key and
-/// 404s otherwise, so `sn api spec "table api"` would fail without this — and
+/// 404s otherwise, so `sn apisearch spec "table api"` would fail without this — and
 /// `--namespace` narrows the identical matching rather than switching it off,
 /// so the substring form the `<NAME>` help advertises works with or without it.
 /// A substring must identify exactly one API, because silently exporting the
@@ -525,7 +550,7 @@ fn no_such_api(cat: &Map<String, Value>, name: &str, namespace: Option<&str>) ->
         None => String::new(),
     };
     Error::Usage(format!(
-        "no API matching '{name}'{scope}{did_you_mean}; run `sn api search '{name}'` or `sn api list`"
+        "no API matching '{name}'{scope}{did_you_mean}; run `sn apisearch '{name}'` or `sn apisearch list`"
     ))
 }
 
@@ -555,7 +580,7 @@ fn ambiguous(tier: Tier, matches: &[(String, String)], name: &str) -> Error {
         ),
         (false, Tier::Partial) => "name one of them exactly".to_string(),
         (false, _) => format!(
-            "use the catalogue title from `sn api list --namespace {first_ns}`, which wins over a matching apiName"
+            "use the catalogue title from `sn apisearch list --namespace {first_ns}`, which wins over a matching apiName"
         ),
     };
     Error::Usage(format!(
@@ -772,7 +797,7 @@ mod tests {
             OAS_PATH,
             not_found(Some("Version v99 not found for now/Table API")),
             false,
-            Some("; try `sn api list --namespace now`"),
+            Some("; try `sn apisearch list --namespace now`"),
         );
         let Error::Api { message, .. } = &err else {
             panic!("expected an API error");
@@ -781,7 +806,10 @@ mod tests {
             message.contains("Version v99 not found for now/Table API"),
             "{message}"
         );
-        assert!(message.contains("sn api list --namespace now"), "{message}");
+        assert!(
+            message.contains("sn apisearch list --namespace now"),
+            "{message}"
+        );
         assert!(
             !message.contains("older releases"),
             "a reachable endpoint family must not be blamed on the release: {message}"

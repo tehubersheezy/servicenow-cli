@@ -120,7 +120,7 @@ get labels — and dates localized to the caller's timezone. A localized date fe
 | `references/watch.md` | live AMB streams: event anatomy, gap markers, `--on-change` caveats |
 | `references/cicd.md` | `app`/`updateset`/`atf`/`progress` — the async `--wait` contract |
 
-Other surfaces are well covered by `--help`; a few notes worth having anyway: `sn api search
+Other surfaces are well covered by `--help`; a few notes worth having anyway: `sn apisearch
 <term>` discovers what endpoints the instance actually publishes (use it before hand-writing
 `sn raw`); `sn codesearch <term>` answers "where is X referenced in code" across every
 script table and scope in one call (rows are ACL-filtered, so a non-admin sees few or none);

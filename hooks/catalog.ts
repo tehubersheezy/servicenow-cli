@@ -107,13 +107,12 @@ export const CATALOG: CatalogNode = {
         "columns": { operands: ["table"], values: [], shorts: "", sub: {} },
       },
     },
-    "api": {
-      operands: [],
-      values: [],
-      shorts: "",
+    "apisearch": {
+      operands: ["term"],
+      values: ["method","namespace"],
+      shorts: "mn",
       sub: {
         "list": { operands: [], values: ["namespace"], shorts: "n", sub: {} },
-        "search": { operands: ["term"], values: ["method","namespace"], shorts: "mn", sub: {} },
         "spec": { operands: ["name"], values: ["format","namespace","version"], shorts: "n", sub: {} },
       },
     },

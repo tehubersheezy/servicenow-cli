@@ -133,7 +133,7 @@ async fn list_summarizes_namespaces_with_api_and_endpoint_counts() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "list"])
+            .args(["--compact", "apisearch", "list"])
             .assert()
             .success();
         let rows = stdout_json(&out);
@@ -159,7 +159,7 @@ async fn list_with_a_namespace_reads_the_services_endpoint_and_rows_the_apis() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "list", "--namespace", "now"])
+            .args(["--compact", "apisearch", "list", "--namespace", "now"])
             .assert()
             .success();
         let rows = stdout_json(&out);
@@ -193,8 +193,8 @@ async fn an_unknown_namespace_is_a_usage_error_for_list_and_search_alike() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         for args in [
-            vec!["api", "list", "--namespace", "nwo"],
-            vec!["api", "search", "table", "--namespace", "nwo"],
+            vec!["apisearch", "list", "--namespace", "nwo"],
+            vec!["apisearch", "table", "--namespace", "nwo"],
         ] {
             let out = common::sn_cmd(tmp.path()).args(&args).assert().code(1);
             let err = stderr(&out);
@@ -224,7 +224,7 @@ async fn a_namespace_with_no_apis_is_told_apart_from_a_misspelled_one() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["api", "list", "--namespace", "crypto"])
+            .args(["apisearch", "list", "--namespace", "crypto"])
             .assert()
             .code(1);
         let err = stderr(&out);
@@ -243,7 +243,7 @@ async fn list_raw_passes_the_catalogue_through_untouched() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "--output", "raw", "api", "list"])
+            .args(["--compact", "--output", "raw", "apisearch", "list"])
             .assert()
             .success();
         assert_eq!(stdout_json(&out), catalogue());
@@ -260,7 +260,7 @@ async fn search_matches_routes_and_descriptions_case_insensitively() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "search", "ATTACHMENT"])
+            .args(["--compact", "apisearch", "ATTACHMENT"])
             .assert()
             .success();
         let rows = stdout_json(&out);
@@ -287,7 +287,7 @@ async fn search_reports_every_version_of_a_matching_endpoint() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "search", "table"])
+            .args(["--compact", "apisearch", "table"])
             .assert()
             .success();
         let rows = stdout_json(&out);
@@ -311,7 +311,7 @@ async fn search_filters_by_http_method_without_matching_the_method_itself() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "search", "table", "--method", "post"])
+            .args(["--compact", "apisearch", "table", "--method", "post"])
             .assert()
             .success();
         let rows = stdout_json(&out);
@@ -322,7 +322,7 @@ async fn search_filters_by_http_method_without_matching_the_method_itself() {
         // The fixture really does serve a DELETE endpoint — this is what makes
         // the emptiness below load-bearing rather than vacuous.
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "search", "attachment", "-m", "delete"])
+            .args(["--compact", "apisearch", "attachment", "-m", "delete"])
             .assert()
             .success();
         let rows = stdout_json(&out);
@@ -332,10 +332,10 @@ async fn search_filters_by_http_method_without_matching_the_method_itself() {
 
         // ...yet nothing in the catalogue is *named* "delete", so searching for
         // the method must find nothing: were the term matched against
-        // httpMethod, `sn api search get` would return every read endpoint on
+        // httpMethod, `sn apisearch get` would return every read endpoint on
         // the instance.
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "search", "delete"])
+            .args(["--compact", "apisearch", "delete"])
             .assert()
             .success();
         let rows = stdout_json(&out);
@@ -355,8 +355,7 @@ async fn search_scoped_to_a_namespace_fetches_only_that_namespace() {
         let out = common::sn_cmd(tmp.path())
             .args([
                 "--compact",
-                "api",
-                "search",
+                "apisearch",
                 "attachment",
                 "--namespace",
                 "sn_chg_rest",
@@ -380,7 +379,7 @@ async fn search_renders_as_a_table() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["--output", "table", "api", "search", "attachment"])
+            .args(["--output", "table", "apisearch", "attachment"])
             .assert()
             .success();
         let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
@@ -417,7 +416,7 @@ async fn spec_sends_a_wildcard_accept_and_the_identifying_query() {
         let out = common::sn_cmd(tmp.path())
             .args([
                 "--compact",
-                "api",
+                "apisearch",
                 "spec",
                 "Table API",
                 "--namespace",
@@ -455,7 +454,14 @@ async fn a_namespace_narrows_name_matching_rather_than_disabling_it() {
         let tmp = profile(&uri);
         // A case-insensitive substring resolves to the catalogue's own spelling.
         let out = common::sn_cmd(tmp.path())
-            .args(["--compact", "api", "spec", "table", "--namespace", "now"])
+            .args([
+                "--compact",
+                "apisearch",
+                "spec",
+                "table",
+                "--namespace",
+                "now",
+            ])
             .assert()
             .success();
         assert_eq!(stdout_json(&out)["openapi"], "3.0.1");
@@ -463,7 +469,7 @@ async fn a_namespace_narrows_name_matching_rather_than_disabling_it() {
         // A name that is not in the namespace is diagnosed against the
         // catalogue, not reported as a missing endpoint.
         let out = common::sn_cmd(tmp.path())
-            .args(["api", "spec", "tabel api", "--namespace", "now"])
+            .args(["apisearch", "spec", "tabel api", "--namespace", "now"])
             .assert()
             .code(1);
         let err = stderr(&out);
@@ -493,7 +499,7 @@ async fn spec_resolves_the_namespace_from_the_catalogue_when_none_is_given() {
         // Case-insensitive, and by apiName as well as by catalogue title.
         for name in ["change management api", "sn_chg_rest/change"] {
             let out = common::sn_cmd(tmp.path())
-                .args(["--compact", "api", "spec", name])
+                .args(["--compact", "apisearch", "spec", name])
                 .assert()
                 .success();
             assert_eq!(stdout_json(&out)["openapi"], "3.0.1");
@@ -511,7 +517,7 @@ async fn an_ambiguous_name_lists_the_candidates_instead_of_guessing() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["api", "spec", "attachment"])
+            .args(["apisearch", "spec", "attachment"])
             .assert()
             .code(1);
         let err = stderr(&out);
@@ -523,7 +529,7 @@ async fn an_ambiguous_name_lists_the_candidates_instead_of_guessing() {
 
         // A term that matches nothing points at the verb that would find it.
         let out = common::sn_cmd(tmp.path())
-            .args(["api", "spec", "nothing like this"])
+            .args(["apisearch", "spec", "nothing like this"])
             .assert()
             .code(1);
         let err = stderr(&out);
@@ -553,7 +559,7 @@ async fn an_exact_name_tie_is_sent_to_the_flag_that_can_break_it() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["api", "spec", "Attachment API"])
+            .args(["apisearch", "spec", "Attachment API"])
             .assert()
             .code(1);
         let err = stderr(&out);
@@ -594,7 +600,7 @@ async fn yaml_specs_are_written_verbatim_rather_than_through_the_json_emitter() 
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
             .args([
-                "api",
+                "apisearch",
                 "spec",
                 "Table API",
                 "--namespace",
@@ -632,7 +638,7 @@ async fn a_404_names_the_undocumented_endpoint_that_is_missing() {
     tokio::task::spawn_blocking(move || {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
-            .args(["api", "list"])
+            .args(["apisearch", "list"])
             .assert()
             .code(2);
         let err = stderr(&out);
@@ -664,7 +670,7 @@ async fn a_404_from_a_reachable_endpoint_family_is_not_blamed_on_the_release() {
         let tmp = profile(&uri);
         let out = common::sn_cmd(tmp.path())
             .args([
-                "api",
+                "apisearch",
                 "spec",
                 "Table API",
                 "--namespace",
@@ -680,7 +686,7 @@ async fn a_404_from_a_reachable_endpoint_family_is_not_blamed_on_the_release() {
                 || err.contains("Version v99 not found for now/Table API"),
             "the endpoint's own reason must survive: {err}"
         );
-        assert!(err.contains("sn api list --namespace now"), "{err}");
+        assert!(err.contains("sn apisearch list --namespace now"), "{err}");
         assert!(
             !err.contains("older releases"),
             "a reachable endpoint family was blamed on the instance's age: {err}"
@@ -688,4 +694,55 @@ async fn a_404_from_a_reachable_endpoint_family_is_not_blamed_on_the_release() {
     })
     .await
     .unwrap();
+}
+
+/// `list` and `spec` are subcommands, so the words themselves are searchable
+/// only where clap has stopped looking for one: after `--`, or after a flag.
+/// The second is clap's doing rather than a design choice — pinned here so a
+/// clap upgrade that changes it shows up as a failure, not as a different read.
+#[tokio::test(flavor = "current_thread")]
+async fn a_subcommand_word_is_a_search_term_after_a_separator_or_a_flag() {
+    let server = MockServer::start().await;
+    mock_catalogue(&server).await;
+    mock_services(&server, "sn_chg_rest").await;
+    let uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let tmp = profile(&uri);
+        for args in [
+            vec!["--compact", "apisearch", "--", "list"],
+            vec!["--compact", "apisearch", "-n", "sn_chg_rest", "list"],
+        ] {
+            let out = common::sn_cmd(tmp.path()).args(&args).assert().success();
+            let rows = stdout_json(&out);
+            let routes: Vec<&str> = rows
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["route"].as_str().unwrap())
+                .collect();
+            assert_eq!(
+                routes,
+                vec!["/sn_chg_rest/csm_attachment", "/sn_chg_rest/change"],
+                "{args:?}"
+            );
+        }
+    })
+    .await
+    .unwrap();
+}
+
+/// Usage errors, so neither needs an instance to answer.
+#[test]
+fn a_missing_term_and_the_old_group_name_are_usage_errors() {
+    let tmp = profile("http://127.0.0.1:1");
+
+    let out = common::sn_cmd(tmp.path()).arg("apisearch").assert().code(1);
+    let err = stderr(&out);
+    assert!(err.contains("<TERM>"), "{err}");
+
+    for args in [vec!["api", "list"], vec!["api", "search", "table"]] {
+        let out = common::sn_cmd(tmp.path()).args(&args).assert().code(1);
+        let err = stderr(&out);
+        assert!(err.contains("`sn api` is now `sn apisearch`"), "{err}");
+    }
 }
