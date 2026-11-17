@@ -1,9 +1,9 @@
 use clap::error::ErrorKind;
 use is_terminal::IsTerminal;
 use sn::cli::{
-    ApiSub, AttachmentSub, CacheSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command, ContextSub,
-    DecisionSub, IdentifySub, ImportSub, PlaybookSub, SchemaSub, ScoresSub, ScriptSub, TableSub,
-    VariablesSub, XmlSub,
+    AttachmentSub, CacheSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command, ContextSub, DecisionSub,
+    IdentifySub, ImportSub, PlaybookSub, SchemaSub, ScoresSub, ScriptSub, TableSub, VariablesSub,
+    XmlSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -110,11 +110,7 @@ fn run(cli: Cli) -> Result<()> {
             CacheSub::Tables(args) => sn::cli::cache::tables(&global, args),
             CacheSub::Columns(args) => sn::cli::cache::columns(&global, args),
         },
-        Command::Api { sub } => match sub {
-            ApiSub::List(args) => sn::cli::api::list(&global, args),
-            ApiSub::Search(args) => sn::cli::api::search(&global, args),
-            ApiSub::Spec(args) => sn::cli::api::spec(&global, args),
-        },
+        Command::Apisearch(args) => sn::cli::apisearch::run(&global, args),
         Command::Appmanager { sub } => sn::cli::app_manager::run(&global, sub),
         Command::Cicd { sub } => sn::cli::cicd::run(&global, sub),
         Command::Flow { sub } => sn::cli::flow::run(&global, sub),

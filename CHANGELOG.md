@@ -13,6 +13,7 @@
 
 ### Breaking
 
+- `sn api` is now `sn apisearch`: `sn api search <TERM>` becomes `sn apisearch <TERM>`; `list` and `spec` keep their names.
 - `sn get plugin` is removed. Use `sn appmanager show <ID>`, or `sn doctor --need-plugin` for several.
 - `sn user me` is removed. Use `sn get me`, or `sn table get sys_user <sys_id>` for the full record.
 - `sn context` is removed. Read with `sn get scope` / `sn get updateset`, switch with `sn set scope` / `sn set updateset`.

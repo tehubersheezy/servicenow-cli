@@ -9,7 +9,7 @@ ACLs determine which operations are available.
 Attachment, CMDB (Instance + Meta), Import Set, Service Catalog, Identification
 & Reconciliation, CICD (App Repository, Update Sets, ATF), Aggregate,
 Performance Analytics, two schema-discovery endpoints, and the REST API
-Explorer's catalogue (`sn api`). It emits JSON on stdout, structured JSON errors
+Explorer's catalogue (`sn apisearch`). It emits JSON on stdout, structured JSON errors
 on stderr, and stable exit codes.
 
 ## Output, errors & exit codes (read first)
@@ -40,7 +40,7 @@ Non-obvious shapes worth knowing:
 | `get` | `{table, sys_id, record, variables, journal}` |
 | `gr --count` | `{"count": N}`, with a JSON number |
 | `open --print-url`, `completion`, help/version | Plain text |
-| `api spec --format yaml` | YAML text |
+| `apisearch spec --format yaml` | YAML text |
 | `attachment download` | raw bytes, or `{"path","size"}` with `--out <file>` |
 | `aggregate` | `{"stats":{...}}` — but with `--group-by`, an **array** of `{groupby_fields,stats}` |
 | `cicd app` / `cicd updateset` / `cicd atf run` | progress object with `status_label` + `links.progress.id` |
@@ -381,20 +381,21 @@ sn table create incident --field short_description="server down" --field state=2
 
 (Example values throughout are illustrative; real values depend on your instance.)
 
-### Finding an API (`sn api`)
+### Finding an API (`sn apisearch`)
 
-`sn schema` describes tables; `sn api` describes *endpoints*, from the same
+`sn schema` describes tables; `sn apisearch` describes *endpoints*, from the same
 catalogue the REST API Explorer reads. Use it before assuming an operation has
 no API — the answer for anything `sn` doesn't model is usually `sn raw` against
 a route this command will name for you.
 
 ```bash
-sn api list                       # every namespace, with API and endpoint counts
-sn api list -n sn_chg_rest        # the APIs in one namespace
-sn api search attachment          # endpoints matching a substring, with method + route
-sn api search cart -n sn_sc -m POST
-sn api spec "Table API"           # the OpenAPI 3 document
-sn api spec "Table API" --format yaml > table-api.yaml
+sn apisearch attachment           # endpoints matching a substring, with method + route
+sn apisearch cart -n sn_sc -m POST
+sn apisearch list                 # every namespace, with API and endpoint counts
+sn apisearch list -n sn_chg_rest  # the APIs in one namespace
+sn apisearch spec "Table API"     # the OpenAPI 3 document
+sn apisearch spec "Table API" --format yaml > table-api.yaml
+sn apisearch -- list              # search for the word "list" itself
 ```
 
 ```json
@@ -1258,7 +1259,7 @@ Filters: `--uuid <csv>`, `--favorites`, `--key`, `--target`, `--contains <csv>`,
 sn ping                                  # health check (auth + latency + identity + build); see `sn ping`
 sn doctor --need-role itil --need-plugin com.snc.incident   # preflight: exit 2 unless every check passes; see `sn doctor`
 sn get me                                # the caller: user record, roles and groups, read by sys_id
-sn api list                              # which REST APIs this instance publishes
+sn apisearch list                        # which REST APIs this instance publishes
 sn open incident a1b2c3 --print-url        # print the record URL; omit the flag to open it
 sn open incident -q "active=true"          # open the filtered list view; -q is refused with a record
 sn raw GET /api/now/table/incident --query sysparm_limit=5      # REST passthrough for unmodeled endpoints

@@ -1,5 +1,5 @@
 pub mod aggregate;
-pub mod api;
+pub mod apisearch;
 pub mod app;
 pub mod app_manager;
 pub mod args;
@@ -45,7 +45,9 @@ pub mod watch;
 pub mod xml;
 
 pub use aggregate::AggregateArgs;
-pub use api::{ApiListArgs, ApiSearchArgs, ApiSpecArgs, ApiSub, SpecFormat};
+pub use apisearch::{
+    ApiListArgs, ApiSearchArgs, ApiSpecArgs, ApisearchArgs, ApisearchSub, SpecFormat,
+};
 pub use app::{AppInstallArgs, AppPublishArgs, AppRollbackArgs, AppSub};
 pub use app_manager::AppManagerSub;
 pub use args::{BodyArgs, DisplayValueArg, DisplayValueOpt, Paging, SetLimit, WaitArgs};
@@ -235,13 +237,16 @@ fn usage_group(err: &clap::Error) -> Option<String> {
 
 /// Top-level commands that moved under `sn cicd` (0.15.0). Nothing else
 /// answers to these names, so an `InvalidSubcommand` for one at the top level
-/// gets pointed at its new home instead of clap's near-miss guess (`app` → `api`).
+/// gets pointed at its new home instead of clap's near-miss guess.
 const MOVED_TO_CICD: &[&str] = &["app", "updateset", "atf", "progress"];
 
+/// Top-level commands that were renamed outright, as `(old, new)`.
+const RENAMED: &[(&str, &str)] = &[("api", "apisearch")];
+
 /// Top-level names that no longer exist, and where each went: `sn app …` →
-/// "moved to `sn cicd app`", `sn user` → `sn get me`, `sn context` → `sn get`
-/// / `sn set`. Only for the top level: a group that rejects the token is
-/// answered by [`valid_subcommands`] instead.
+/// "moved to `sn cicd app`", `sn api …` → "is now `sn apisearch`", `sn user` →
+/// `sn get me`, `sn context` → `sn get` / `sn set`. Only for the top level: a
+/// group that rejects the token is answered by [`valid_subcommands`] instead.
 pub fn moved_command_hint(err: &clap::Error) -> Option<String> {
     use clap::error::{ContextKind, ContextValue};
     // The root's usage line is `sn <COMMAND>`, so its group reads as `sn`.
@@ -251,6 +256,11 @@ pub fn moved_command_hint(err: &clap::Error) -> Option<String> {
     let ContextValue::String(token) = err.get(ContextKind::InvalidSubcommand)? else {
         return None;
     };
+    if let Some((_, new)) = RENAMED.iter().find(|(old, _)| old == token) {
+        return Some(format!(
+            "  `sn {token}` is now `sn {new}` (`sn {new} <TERM>`, `sn {new} list`, `sn {new} spec`)"
+        ));
+    }
     match token.as_str() {
         "user" => Some("  `sn user me` was removed; use `sn get me`".into()),
         "context" => Some(
@@ -569,11 +579,13 @@ pub enum Command {
         #[command(subcommand)]
         sub: CacheSub,
     },
-    /// Discover the instance's REST APIs (namespaces, endpoints, OpenAPI specs).
-    Api {
-        #[command(subcommand)]
-        sub: ApiSub,
-    },
+    /// Find REST endpoints on the instance by substring; `list` its APIs, print a `spec`.
+    ///
+    /// `sn apisearch <TERM>` matches API names, routes and descriptions and prints one row
+    /// per endpoint, carrying namespace, API name, version, method and route — enough to
+    /// call it with `sn raw`. `--output raw` prints the unfiltered catalogue instead, as
+    /// `sn apisearch list` does. `sn apisearch spec` prints one API's OpenAPI spec.
+    Apisearch(ApisearchArgs),
     /// Find a string in script and code fields across the instance.
     ///
     /// Uses the Code Search API (`sn codesearch <TERM>`). One row per matching field.
