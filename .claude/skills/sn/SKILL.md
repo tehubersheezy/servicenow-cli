@@ -38,7 +38,7 @@ query the instance actually ran — is the `__meta` element kept under `--output
 
 **Trust the CLI's own defenses rather than working around them.** `sn variables set` refuses
 unknown names before writing, `sn cmdb` stringifies numeric attributes for you, `sn ping`
-/ `sn user me` fail closed rather than naming a stranger, and a `table:number` record
+/ `sn get me` fail closed rather than naming a stranger, and a `table:number` record
 reference that cannot be resolved errors instead of matching an arbitrary row. Those traps
 are already shut.
 
@@ -55,7 +55,7 @@ Silent: `jq` prints empty and exits 0, so a wrong path reads as "no data".
 | `cmdb get` | `.name` | **`.attributes.name`** — top level is only `attributes` + relations |
 | `sn get` | `.number` | **`.record.number`** — top level is `{table, sys_id, record, variables, journal}` |
 | `sn get updateset` | `.state == "in_progress"` | **`.in_progress`** — the stored state is `"in progress"`, with a space |
-| `sn get plugin` | `.installed` | an **array** even for one id: `.[0].installed` |
+| `sn appmanager show` | `installed: false` for an unknown id | an unknown id is **exit 2**; list rows have `version: null` for plugins, `show` has it |
 | `aggregate --group-by` | `.stats.groupby_fields` | top level becomes an **array**; `groupby_fields` is a **sibling** of `stats` |
 | `aggregate --sum-fields` | `.stats.sum` | **`.stats.sum.<field>`** — sum/avg/min/max nest per field |
 | `aggregate --count` | a number | a **string**: `"70"`; `gr --count` instead returns `{count: 70}` |

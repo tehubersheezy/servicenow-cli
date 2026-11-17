@@ -126,9 +126,8 @@ pub(crate) fn identify(client: &Client) -> Result<Option<Identity>> {
 /// a transport-level parse error, and a fallback would be redirected the same
 /// way, so retrying only turns one clear failure into two.
 ///
-/// Split out from [`identify`] because `sn user me` wants exactly this rung: the
-/// `user_sys_id` it returns lets that command read the caller's record directly,
-/// with no scripted query in the request at all.
+/// The `user_sys_id` it returns lets `sn get me` read the caller's record
+/// directly, with no scripted query in the request at all.
 pub(crate) fn identify_via_current_user(client: &Client) -> Result<Option<Identity>> {
     match client.get(CURRENT_USER_PATH, &[]) {
         Ok(v) => match parse_current_user(&v) {

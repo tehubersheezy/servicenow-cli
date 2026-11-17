@@ -449,3 +449,29 @@ fn old_top_level_names_point_at_sn_cicd() {
         );
     }
 }
+
+/// Two groups can share a last word (`sn script` / `sn get script`), so the
+/// hint is resolved by the whole path, and says it.
+#[test]
+fn subcommand_hints_name_the_full_group_path() {
+    for (argv, hint) in [
+        (
+            &["cicd", "app", "bogus"][..],
+            "`sn cicd app` subcommands: install, publish, rollback",
+        ),
+        (&["script", "bogus"], "`sn script` subcommands: run"),
+        (
+            &["appmanager", "bogus"],
+            "`sn appmanager` subcommands: list, search, show, install",
+        ),
+    ] {
+        let out = assert_cmd::Command::cargo_bin("sn")
+            .unwrap()
+            .args(argv)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{argv:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains(hint), "{argv:?}: {stderr}");
+    }
+}

@@ -2,6 +2,7 @@
 paths:
   - "src/cli/progress.rs"
   - "src/cli/app.rs"
+  - "src/cli/app_manager.rs"
   - "src/cli/update_set.rs"
   - "src/cli/atf.rs"
   - "tests/cicd.rs"

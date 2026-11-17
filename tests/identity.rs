@@ -1,6 +1,6 @@
 //! Self-verification must never name the wrong user.
 //!
-//! `sn ping` / `sn user me` / `sn profile add`'s verification all answer "who
+//! `sn ping` / `sn get me` / `sn profile add`'s verification all answer "who
 //! are these credentials?". The old answer came from one `sys_user` read
 //! filtered by a `gs.getUserName()` scripted query, which fails **open**: an
 //! instance that cannot evaluate the term silently drops it, the surviving
@@ -506,9 +506,9 @@ async fn profile_add_verification_reports_no_user_when_the_term_is_dropped() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn user_me_refuses_arbitrary_rows_when_the_term_is_dropped() {
+async fn get_me_refuses_arbitrary_rows_when_the_term_is_dropped() {
     let server = MockServer::start().await;
-    // No `current_user` on this instance, so `user me` is on the scripted rung —
+    // No `current_user` on this instance, so `get me` is on the scripted rung —
     // the one that can be sabotaged.
     mount(&server, CURRENT_USER_PATH, 404, json!({}), 1).await;
     Mock::given(method("GET"))
@@ -523,16 +523,13 @@ async fn user_me_refuses_arbitrary_rows_when_the_term_is_dropped() {
         .await;
     let uri = server.uri();
 
-    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["user", "me"]))
+    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["get", "me"]))
         .await
         .unwrap();
 
     assert_eq!(code, 2, "stderr: {stderr}");
     assert!(stdout.is_empty(), "emitted a stranger's record:\n{stdout}");
-    assert!(
-        stderr.contains("arbitrary"),
-        "error must explain the dropped query, got:\n{stderr}"
-    );
+    assert!(!stderr.contains("survey.user"), "{stderr}");
     // The HTTP call was a 200. There is no HTTP error status to report, and
     // `status_code: 200` on a failure is a fabrication agents branch on — the
     // key must be absent, not present-and-wrong.
@@ -544,7 +541,7 @@ async fn user_me_refuses_arbitrary_rows_when_the_term_is_dropped() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn user_me_reports_no_record_without_inventing_a_status() {
+async fn get_me_reports_no_caller_without_inventing_a_status() {
     // Same rule on the empty-result path next door: nothing came back, but
     // nothing about that is HTTP 200 either.
     let server = MockServer::start().await;
@@ -552,7 +549,7 @@ async fn user_me_reports_no_record_without_inventing_a_status() {
     mount_sys_user(&server, json!([]), 1).await;
     let uri = server.uri();
 
-    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["user", "me"]))
+    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["get", "me"]))
         .await
         .unwrap();
 
@@ -566,13 +563,46 @@ async fn user_me_reports_no_record_without_inventing_a_status() {
 }
 
 // -----------------------------------------------------------------------------
-// `sn user me` prefers the endpoint that needs no scripted query at all.
+// `sn get me` prefers the endpoint that needs no scripted query at all.
 // -----------------------------------------------------------------------------
 
+const ME: &str = "218517762f7903107efd1d707fa4e3de";
+
+/// Mount the three reads `get me` makes once the caller's sys_id is known.
+async fn mount_me_reads(server: &MockServer, sys_id: &str) {
+    mount(
+        server,
+        &format!("{SYS_USER_PATH}/{sys_id}"),
+        200,
+        json!({"result": {
+            "user_name": {"value": "abeyahmad", "display_value": "abeyahmad"},
+            "email": {"value": "abey@example.com", "display_value": "abey@example.com"},
+        }}),
+        1,
+    )
+    .await;
+    mount(
+        server,
+        "/api/now/table/sys_user_has_role",
+        200,
+        json!({"result": [{"user": sys_id, "role.name": "itil", "inherited": "false"}]}),
+        1,
+    )
+    .await;
+    mount(
+        server,
+        "/api/now/table/sys_user_grmember",
+        200,
+        json!({"result": []}),
+        1,
+    )
+    .await;
+}
+
 #[tokio::test(flavor = "current_thread")]
-async fn user_me_reads_the_record_named_by_current_user_with_no_scripted_query() {
+async fn get_me_reads_the_record_named_by_current_user_with_no_scripted_query() {
     // Detecting the dropped-term failure is second best; not sending a scripted
-    // term is first. `current_user` identifies the record, so `user me` reads it
+    // term is first. `current_user` identifies the record, so `get me` reads it
     // by sys_id and the sabotage-able query never leaves the process.
     let server = MockServer::start().await;
     mount(
@@ -583,94 +613,60 @@ async fn user_me_reads_the_record_named_by_current_user_with_no_scripted_query()
         1,
     )
     .await;
-    Mock::given(method("GET"))
-        .and(path(format!(
-            "{SYS_USER_PATH}/218517762f7903107efd1d707fa4e3de"
-        )))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"result": {
-            "user_name": "abeyahmad",
-            "sys_id": "218517762f7903107efd1d707fa4e3de",
-            "email": "abey@example.com",
-        }})))
-        .expect(1)
-        .mount(&server)
-        .await;
+    mount_me_reads(&server, ME).await;
     // The scripted list read must not happen at all.
     mount_sys_user(&server, json!([{"user_name": "survey.user"}]), 0).await;
     let uri = server.uri();
 
-    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["user", "me"]))
+    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["get", "me"]))
         .await
         .unwrap();
 
     assert_eq!(code, 0, "stderr: {stderr}");
-    let v: Value = serde_json::from_str(&stdout).expect("user me emits JSON");
+    let v: Value = serde_json::from_str(&stdout).expect("get me emits JSON");
     assert_eq!(v["user_name"], json!("abeyahmad"));
     assert_eq!(v["email"], json!("abey@example.com"));
+    assert_eq!(v["roles"], json!(["itil"]));
     assert_eq!(
         v["sys_id"],
-        json!("218517762f7903107efd1d707fa4e3de"),
+        json!(ME),
         "the record read must be the one current_user identified"
     );
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn user_me_falls_back_to_the_scripted_read_when_current_user_names_no_record() {
-    // `current_user` answered, but with a login name and no `user_sys_id` — there
-    // is nothing to read by id, so the scripted rung is still load-bearing.
+async fn get_me_reads_the_single_record_the_scripted_fallback_matched() {
     let server = MockServer::start().await;
-    mount(
-        &server,
-        CURRENT_USER_PATH,
-        200,
-        json!({"result": {"user_name": "abeyahmad", "user_display_name": "Abey Ahmad"}}),
-        1,
-    )
-    .await;
+    mount(&server, CURRENT_USER_PATH, 404, json!({}), 1).await;
     mount_sys_user(
         &server,
         json!([{"user_name": "abeyahmad", "sys_id": "abc123"}]),
         1,
     )
     .await;
+    mount_me_reads(&server, "abc123").await;
     let uri = server.uri();
 
-    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["user", "me"]))
+    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["get", "me"]))
         .await
         .unwrap();
 
     assert_eq!(code, 0, "stderr: {stderr}");
     let v: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["sys_id"], json!("abc123"));
     assert_eq!(v["user_name"], json!("abeyahmad"));
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn user_me_returns_the_single_matched_record() {
-    let server = MockServer::start().await;
-    mount(&server, CURRENT_USER_PATH, 404, json!({}), 1).await;
-    Mock::given(method("GET"))
-        .and(path(SYS_USER_PATH))
-        .and(query_param(
-            "sysparm_query",
-            "user_name=javascript:gs.getUserName()",
-        ))
-        .and(query_param("sysparm_limit", "2"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"result": [{"user_name": "abeyahmad", "sys_id": "abc123"}]})),
-        )
-        .expect(1)
-        .mount(&server)
-        .await;
-    let uri = server.uri();
+async fn the_removed_user_command_points_at_get_me() {
+    let (code, stdout, stderr) =
+        tokio::task::spawn_blocking(|| run("http://127.0.0.1:9", &["user", "me"]))
+            .await
+            .unwrap();
 
-    let (code, stdout, stderr) = tokio::task::spawn_blocking(move || run(&uri, &["user", "me"]))
-        .await
-        .unwrap();
-
-    assert_eq!(code, 0, "stderr: {stderr}");
-    let v: Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(v["user_name"], json!("abeyahmad"));
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("use `sn get me`"), "{stderr}");
 }
 
 // -----------------------------------------------------------------------------

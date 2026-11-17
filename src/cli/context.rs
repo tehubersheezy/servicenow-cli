@@ -1,5 +1,6 @@
-//! `sn context` — the instance-side session context: which application scope
-//! and update set the caller's tracked writes are captured under.
+//! The instance-side session context behind `sn set scope|updateset` and
+//! `sn get scope|updateset`: which application scope and update set the
+//! caller's tracked writes are captured under.
 //!
 //! This is per-user **server-side** state, not CLI config. When an API user
 //! writes to a tracked table (`sys_script`, `sys_properties`, …), the artifact
@@ -91,12 +92,6 @@ pub(crate) struct CurrentUpdateSet {
 pub(crate) struct ContextState {
     pub(crate) scope: ScopeRow,
     pub(crate) update_set: CurrentUpdateSet,
-}
-
-pub fn show(global: &GlobalFlags) -> Result<()> {
-    let client = connect(global)?;
-    let state = read_context(&client)?;
-    write_response(global, &context_json(&state, None))
 }
 
 pub fn set_scope(global: &GlobalFlags, args: ContextTargetArgs) -> Result<()> {
@@ -210,7 +205,7 @@ fn parse_current(resp: &Value) -> Result<ContextState> {
 }
 
 /// The picker labels a set `<name> [<scope name>]`; report the record's own
-/// name, which is what `sn context updateset` matches on. Only that exact
+/// name, which is what `sn set updateset` matches on. Only that exact
 /// suffix is removed.
 fn strip_scope_suffix(label: &str, scope_name: &str) -> String {
     label
@@ -308,7 +303,7 @@ fn resolve_update_set(client: &Client, target: &str, scope: &ScopeRow) -> Result
             match near.first() {
                 Some(row) if row.application != scope.sys_id => Err(Error::Usage(format!(
                     "update set '{}' ({}) belongs to another scope; switch first with \
-                     `sn context scope`, or pick one in {}",
+                     `sn set scope`, or pick one in {}",
                     row.name, row.sys_id, scope.name
                 ))),
                 Some(row) => Err(Error::Usage(format!(

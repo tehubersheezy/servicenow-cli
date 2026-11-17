@@ -128,6 +128,17 @@ fn change_conflict_remove_without_yes_is_guarded() {
     );
 }
 
+/// Not a deletion, but as irreversible as one: an activated plugin cannot be
+/// deactivated. The refusal comes before the plugin is even looked up.
+#[test]
+fn appmanager_install_without_yes_is_guarded() {
+    assert_guarded(
+        &["appmanager", "install", "com.snc.incident", "--demo-data"],
+        "install",
+        "plugin com.snc.incident with demo data",
+    );
+}
+
 /// The one destructive command with nothing to re-fetch from, so the refusal
 /// must name the profile it was about to take the credentials of.
 #[test]

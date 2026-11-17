@@ -3,7 +3,7 @@ use is_terminal::IsTerminal;
 use sn::cli::{
     ApiSub, AttachmentSub, CacheSub, CatalogSub, ChangeSub, Cli, CmdbSub, Command, ContextSub,
     DecisionSub, IdentifySub, ImportSub, PlaybookSub, SchemaSub, ScoresSub, ScriptSub, TableSub,
-    UserSub, VariablesSub, XmlSub,
+    VariablesSub, XmlSub,
 };
 use sn::error::Result;
 use sn::output::emit_error;
@@ -115,12 +115,8 @@ fn run(cli: Cli) -> Result<()> {
             ApiSub::Search(args) => sn::cli::api::search(&global, args),
             ApiSub::Spec(args) => sn::cli::api::spec(&global, args),
         },
+        Command::Appmanager { sub } => sn::cli::app_manager::run(&global, sub),
         Command::Cicd { sub } => sn::cli::cicd::run(&global, sub),
-        Command::Context { sub } => match sub {
-            None => sn::cli::context::show(&global),
-            Some(ContextSub::Scope(args)) => sn::cli::context::set_scope(&global, args),
-            Some(ContextSub::Updateset(args)) => sn::cli::context::set_updateset(&global, args),
-        },
         Command::Flow { sub } => sn::cli::flow::run(&global, sub),
         Command::Aggregate(args) => sn::cli::aggregate::run(&global, args),
         Command::Scores { sub } => match sub {
@@ -203,9 +199,6 @@ fn run(cli: Cli) -> Result<()> {
             PlaybookSub::List(args) => sn::cli::playbook::list(&global, args),
             PlaybookSub::Trigger(args) => sn::cli::playbook::trigger(&global, args),
             PlaybookSub::Launch(args) => sn::cli::playbook::launch(&global, args),
-        },
-        Command::User { sub } => match sub {
-            UserSub::Me => sn::cli::user::me(&global),
         },
         Command::Ping => sn::cli::ping::run(&global),
         // `run` is handed down so the wrapped command dispatches exactly as a

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+`sn appmanager` lists and searches the store apps and plugins on an instance, and installs plugins.
+
+### New commands
+
+- **`sn appmanager list`** — installed store apps and plugins in one list; `--updates` for those with an update, `--available` for what isn't installed, `--kind app|plugin` for one side.
+- **`sn appmanager search <TERM>`** — the same rows, filtered by substring across id, name, scope and description.
+- **`sn appmanager show <ID>`** — one app (by scope or sys_id) or plugin (by id): version, installed, update available, dependencies. An unknown id is an error, never `installed: false`.
+- **`sn appmanager install <PLUGIN_ID>`** — activates a plugin; needs `--yes`, and `--wait` blocks until it finishes. Already installed is exit 1; an id that names no plugin is never sent.
+
+### Breaking
+
+- `sn get plugin` is removed. Use `sn appmanager show <ID>`, or `sn doctor --need-plugin` for several.
+- `sn user me` is removed. Use `sn get me`, or `sn table get sys_user <sys_id>` for the full record.
+- `sn context` is removed. Read with `sn get scope` / `sn get updateset`, switch with `sn set scope` / `sn set updateset`.
+
+### Fixes
+
+- `sn --help` lists commands by use, one line each; the `--data`/`--field` reference moved to the commands that take them.
+- A mistyped subcommand lists the verbs of the group you typed: `sn script bogus` and `sn cicd app bogus` name their own.
+
 ## 0.16.0 (2026-11-05)
 
 `sn xml` copies records between instances as unload XML, with their journal entries and attachments.

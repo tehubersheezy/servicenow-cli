@@ -117,7 +117,6 @@ sn get property glide.ui.session_timeout
 sn get property 'glide.ui.session*'   # trailing * lists by prefix
 sn get script JSUtil --source > JSUtil.js   # script include, business rule, UI action, …
 sn get choices incident.state
-sn get plugin com.snc.incident sn_access_analyzer
 sn get me                             # your record, roles, direct roles, groups
 sn get instance                       # release, build tag, patch, node
 sn get mine                           # your open tasks + unassigned work in your groups
@@ -127,7 +126,7 @@ sn get logs --since 1h --mine --grep denied
 
 Every noun that filters checks each returned row against its filter, so a query term the
 instance drops is an error (exit 2), not a page of strangers. `scope`, `updateset`,
-`instance`, `plugin`, `logs` and runtime-only properties need admin. `sn set scope` and
+`instance`, `logs` and runtime-only properties need admin. `sn set scope` and
 `sn set updateset` change the context (see [Session context](#session-context)).
 
 Note that `--display-value true` (the default) also renders dates in the calling user's
@@ -161,7 +160,7 @@ without it exits 1 naming the operation and its target rather than prompting int
 destructive command carries the same guard, not only the ones spelled `delete`: `table delete`,
 `change delete`, `change task delete`, `change conflict remove`, `attachment delete`,
 `cmdb relation delete`, `catalog cart-remove`, `catalog cart-empty`, `cicd updateset back-out`,
-`cicd app rollback`, and `profile remove`.
+`cicd app rollback`, `appmanager install`, and `profile remove`.
 
 ## Pagination
 
@@ -348,14 +347,15 @@ for response shapes, record-producer variables, and limitations.
 View or switch the application scope and update set used for tracked configuration writes:
 
 ```bash
-sn context                            # or: sn get scope / sn get updateset for detail
-sn set scope x_myapp                  # same as: sn context scope x_myapp
-sn set updateset "Sprint 12 fixes"    # same as: sn context updateset …
+sn get scope                          # the current application scope
+sn get updateset                      # the current update set: state, change count, latest changes
+sn set scope x_myapp
+sn set updateset "Sprint 12 fixes"
 ```
 
 Admin only. The answer is the instance's own resolution, the same one the UI picker shows.
 Setters read back the result to verify it; an update set must be in progress and belong to
-the current scope. See the [agent guide](agent-guide.md#session-context-context).
+the current scope. See the [agent guide](agent-guide.md#session-context-set).
 
 ## Aggregate queries
 
@@ -847,6 +847,42 @@ straight into `sn table get` or `sn open`. The match is a case-insensitive liter
   containing `^` is refused, because the instance would split it into separate query terms.
 - `--timeout` defaults to 120s for this command: a search across every table can take a while.
 
+## Application Manager
+
+`sn appmanager` reads what the Application Manager page shows: store apps and plugins that are
+installed, have an update, or could be installed. It can also install a plugin.
+
+```bash
+sn appmanager list                          # everything installed, apps and plugins
+sn appmanager list --updates --kind app     # store apps with an update available
+sn appmanager search incident --available   # not installed yet, matching "incident"
+sn appmanager show com.snc.incident         # one plugin: version, installed, product
+sn appmanager show sn_flow_designer         # one store app, by scope (or sys_id)
+sn appmanager install com.snc.document_management --yes --wait   # activate a plugin
+```
+
+Each list row is `{kind, id, name, scope, version, latest_version, installed, update_available,
+vendor, description, sys_id}`, sorted by name. `id` is what `show` takes: the scope for an app,
+the plugin id for a plugin.
+
+- Plugin rows have no `version`; `show` reports it.
+- `search` is a case-insensitive substring over id, name, scope and description.
+- `--limit` and `--offset` cut the sorted rows; stderr says when rows were left out.
+- `--updates` reflects the instance's last sync with the store.
+- `show` on an id nothing answers to exits 2. An id that is both an app scope and a plugin id
+  exits 1 and asks for `--kind`.
+- `--output raw` needs `--kind` on `list` and `search`, and prints the instance's unfiltered response.
+- `install` takes a plugin id only, needs `--yes` without a terminal, and cannot be undone: an
+  activated plugin cannot be deactivated. It runs in the background like the
+  [CICD operations](#cicd-operations): `--wait` blocks until it finishes, otherwise poll
+  `links.progress.id` with `sn cicd progress`. An already-installed plugin exits 1; an unknown id
+  exits 2 without asking the instance to install anything. `--demo-data` loads demo data too.
+- Needs `admin`, `sn_appclient.app_client_user`, `sn_appclient.app_client_company_installer` or
+  `unified_plugin_read_only`; anyone else gets exit 4.
+
+`sn get plugin` is removed; use `sn appmanager show <ID>`, or `sn doctor --need-plugin` to check
+several at once. Store apps are published and installed through the app repository with [`sn cicd app`](#cicd-operations).
+
 ## Inspect and connect
 
 ```bash
@@ -857,8 +893,8 @@ sn ping
 #  "admin":true,"can_impersonate":true,"impersonating":false,"original_user":"admin",
 #  "latency_ms":134,"build_name":null,"build_tag":null}
 
-# The caller's own sys_user record
-sn user me
+# The caller: user record, roles and groups
+sn get me
 ```
 
 `username` is **the instance's answer, not the configured one** — `sn ping` asks an endpoint that
@@ -884,7 +920,7 @@ exists — an admin session would otherwise "hold" any name you type — and plu
 `unavailable` for non-admin accounts, because the instance answers them with `null`. See the
 [agent guide](agent-guide.md#sn-doctor) for the full shape.
 
-`sn user me` resolves the caller's sys_id and reads that one record — no `javascript:` term on the
+`sn get me` resolves the caller's sys_id and reads that one record — no `javascript:` term on the
 wire, so a term the instance cannot evaluate cannot be silently dropped and leave you holding a
 stranger's record. On an instance without that endpoint it falls back to the scripted `sys_user`
 read and exits 2 if the filter was evidently dropped.
@@ -1063,7 +1099,7 @@ renders columns for interactive reading.
 | `table list`, schema lists | JSON array; `table list --all` streams JSONL unless `--array` is set |
 | `table get/create/update` | One record object |
 | `get` | `{table, sys_id, record, variables, journal}`; `--output raw` is unsupported |
-| `get <noun>` | One object (`scope`, `updateset`, `property`, `script`, `me`, `instance`), or an array (`plugin`, `mine`, `logs`, a `property` prefix); `last` is shaped like `get` |
+| `get <noun>` | One object (`scope`, `updateset`, `property`, `script`, `me`, `instance`), or an array (`mine`, `logs`, a `property` prefix); `last` is shaped like `get` |
 | `xml export`, `get script --source` | Text, not JSON: the unload XML / the script source; `--output` is refused |
 | `cmdb get` | Object containing `attributes` and relationships |
 | Typed `delete` commands | Empty on success |

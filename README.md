@@ -79,8 +79,9 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn catalog`](docs/usage.md#service-catalog) | Browse the Service Catalog and place orders |
 | [`sn variables`](docs/agent-guide.md#catalog-variables-variables) | Read catalog variables, or write them and verify the result |
 | [`sn identify`](docs/usage.md#identification--reconciliation) | Identify and reconcile configuration items |
+| [`sn appmanager`](docs/usage.md#application-manager) | List and search installed, updatable and available store apps and plugins; install a plugin |
 | [`sn cicd`](docs/usage.md#cicd-operations) | Install and publish apps, move update sets, run Automated Test Framework suites, and poll their progress |
-| [`sn context` / `sn set`](docs/agent-guide.md#session-context-context) | View or switch the session's application scope and update set |
+| [`sn set`](docs/agent-guide.md#session-context-set) | Switch the session's application scope and update set (`sn get scope` / `sn get updateset` read them) |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
 | [`sn decision`](docs/usage.md#decision-tables) | List and inspect decision tables, and evaluate one against inputs |
 | [`sn api`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
