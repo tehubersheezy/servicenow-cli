@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 (2026-11-16)
 
 `sn appmanager` lists and searches the store apps and plugins on an instance, and installs plugins.
 
@@ -18,7 +18,7 @@
 - `sn user me` is removed. Use `sn get me`, or `sn table get sys_user <sys_id>` for the full record.
 - `sn context` is removed. Read with `sn get scope` / `sn get updateset`, switch with `sn set scope` / `sn set updateset`.
 
-### Fixes
+### Fixed
 
 - `sn --help` lists commands by use, one line each; the `--data`/`--field` reference moved to the commands that take them.
 - A mistyped subcommand lists the verbs of the group you typed: `sn script bogus` and `sn cicd app bogus` name their own.
