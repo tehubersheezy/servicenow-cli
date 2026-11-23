@@ -66,6 +66,7 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn get <noun>`](docs/usage.md#sn-get-nouns) | Read the current scope, update set, a property, a script's source, your roles, your open work, recent logs |
 | [`sn watch`](docs/usage.md#watching-records-live) | Stream record changes as they happen |
 | [`sn schema`](docs/usage.md#schema-discovery) | Find tables, columns, and available choice values |
+| [`sn cache`](docs/usage.md#offline-schema-cache) | Keep an offline index of tables and columns for instant lookups and shell completion |
 | [`sn journal`](docs/usage.md#journal-comments-and-work-notes) | Read comments and work notes as structured entries |
 | [`sn aggregate`](docs/usage.md#aggregate-queries) | Get counts, sums, and averages without downloading every record |
 | [`sn graphql`](docs/usage.md#graphql) | Run GraphQL queries and mutations |
@@ -77,12 +78,13 @@ The [usage guide](docs/usage.md) has examples for each command group.
 | [`sn cmdb`](docs/usage.md#cmdb) | Manage configuration items and their relationships; inspect class schemas |
 | [`sn import`](docs/usage.md#import-sets) | Load data into import staging tables |
 | [`sn catalog`](docs/usage.md#service-catalog) | Browse the Service Catalog and place orders |
-| [`sn variables`](docs/agent-guide.md#catalog-variables-variables) | Read catalog variables, or write them and verify the result |
+| [`sn variables`](docs/usage.md#catalog-variables) | Read catalog variables, or write them and verify the result |
 | [`sn identify`](docs/usage.md#identification--reconciliation) | Identify and reconcile configuration items |
 | [`sn appmanager`](docs/usage.md#application-manager) | List and search installed, updatable and available store apps and plugins; install a plugin |
 | [`sn cicd`](docs/usage.md#cicd-operations) | Install and publish apps, move update sets, run Automated Test Framework suites, and poll their progress |
-| [`sn set`](docs/agent-guide.md#session-context-set) | Switch the session's application scope and update set (`sn get scope` / `sn get updateset` read them) |
+| [`sn set`](docs/usage.md#session-context) | Switch the session's application scope and update set (`sn get scope` / `sn get updateset` read them) |
 | [`sn scores`](docs/usage.md#performance-analytics-scorecards) | Read Performance Analytics scorecards |
+| [`sn flow`](docs/usage.md#flow-designer) | Find and read Flow Designer flows, and debug their executions |
 | [`sn decision`](docs/usage.md#decision-tables) | List and inspect decision tables, and evaluate one against inputs |
 | [`sn apisearch`](docs/usage.md#api-discovery) | Find REST endpoints on your instance and retrieve their OpenAPI specs |
 | [`sn script run`](docs/usage.md#background-scripts) | Run server-side JavaScript and get what it printed back as JSON |

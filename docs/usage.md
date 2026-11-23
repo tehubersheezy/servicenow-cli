@@ -31,6 +31,7 @@ ITSM and platform APIs:
 - [Attachments](#attachments)
 - [CMDB](#cmdb)
 - [Import Sets](#import-sets)
+- [XML export and import](#xml-export-and-import)
 - [Service Catalog](#service-catalog)
 - [Identification & Reconciliation](#identification--reconciliation)
 - [CICD operations](#cicd-operations)
@@ -44,6 +45,7 @@ Utilities:
 
 - [API discovery](#api-discovery)
 - [Code search](#code-search)
+- [Application Manager](#application-manager)
 - [Inspect and connect](#inspect-and-connect)
 - [Acting as another user](#acting-as-another-user)
 - [Open a record or list in the web UI](#open-a-record-or-list-in-the-web-ui)
@@ -155,12 +157,28 @@ sn table update incident <sys_id> --data @record.json
 sn table delete incident <sys_id> --yes
 ```
 
-`--yes` skips the confirmation, and without a terminal it is required — a non-interactive run
+### Confirmation guard
+
+`--yes` (`-y`) skips the confirmation, and without a terminal it is required — a non-interactive run
 without it exits 1 naming the operation and its target rather than prompting into a void. Every
-destructive command carries the same guard, not only the ones spelled `delete`: `table delete`,
-`change delete`, `change task delete`, `change conflict remove`, `attachment delete`,
-`cmdb relation delete`, `catalog cart-remove`, `catalog cart-empty`, `cicd updateset back-out`,
-`cicd app rollback`, `appmanager install`, and `profile remove`.
+destructive command carries the same guard, not only the ones spelled `delete`:
+
+- `table delete`
+- `attachment delete`
+- `change delete`
+- `change task delete`
+- `change conflict remove`
+- `catalog cart-remove`
+- `catalog cart-empty`
+- `cmdb relation delete`
+- `xml import`
+- `cicd app rollback`
+- `cicd updateset back-out`
+- `appmanager install`
+- `script run`
+- `profile remove`
+
+`sn raw` has no guard, including for `DELETE`.
 
 ## Pagination
 
@@ -186,7 +204,9 @@ per-page count, so a table that changes during the walk never makes it skip or r
 Records arrive in `sys_id` order. A query with its own `ORDERBY`, `--paginate offset`, and
 tables with no plain `sys_id` (database views) page by offset instead. If a stream fails
 part-way, the error's `resume_from` names the last record written. Rerun with
-`--resume-from <sys_id>` and append to continue with no gap and no overlap:
+`--resume-from <sys_id>` and append to continue with no gap and no overlap. `--array` writes
+nothing until the end, so its failures carry no `resume_from`. `^OR` and `^NQ` queries both work
+under keyset.
 
 ```bash
 sn table list syslog -q "$Q" --all > out.jsonl         # fails part-way: exit 3, resume_from "…"
@@ -225,7 +245,7 @@ sn watch incident --query "active=true" --on-change state,priority  # only these
            "sys_updated_by":{"display_value":"abeyahmad","value":"abeyahmad"}}}
 ```
 
-What an event does **not** carry is any field that *didn't* change: an event about `urgency` has no `number` and no `assigned_to`, because nobody wrote them. When you need a field nobody touched, read it explicitly — `sn table get incident <sys_id> --fields "number,assigned_to"` — which keeps the extra call visible and reads the row when *you* ask, not mid-stream. (A `--hydrate` flag used to do this per event; it was removed in 0.13.0 because a fetched row is current as of the fetch, not the event, so back-to-back writes hydrated the first event with the second's values.)
+What an event does **not** carry is any field that *didn't* change: an event about `urgency` has no `number` and no `assigned_to`, because nobody wrote them. When you need a field nobody touched, read it explicitly — `sn table get incident <sys_id> --fields "number,assigned_to"` — which keeps the extra call visible and reads the row when *you* ask, not mid-stream.
 
 Worth knowing:
 
@@ -321,49 +341,84 @@ sn journal incident <sys_id> --raw              # the unparsed rendered stream, 
 sn journal incident <sys_id> --source table     # exact sys_journal_field rows (needs table ACL access)
 ```
 
+`element` is the journal column (`comments` / `work_notes`); `label` is the rendered field
+label the entry carried ("Comments", "Work notes", "Additional comments" —
+instance-dependent). `--comments` and `--work-notes` are mutually exclusive.
+
 The default `--source record` uses timestamps rendered in the calling user's timezone
-and date format. `--source table`
-returns exact rows with UTC timestamps and usernames instead — and when rows exist but
-ACLs filter them all, the error says so and points back at `--source record`. Adding an
-entry needs no dedicated command: `sn table update incident <sys_id> --field
+and date format. `--source table` returns exact rows with UTC timestamps and usernames
+instead, and no `label` — and when rows exist but ACLs filter them all, the command exits 2
+saying so and pointing back at `--source record`, rather than emitting a misleading `[]`.
+Adding an entry needs no dedicated command: `sn table update incident <sys_id> --field
 work_notes="..."` writes one.
 
 ## Catalog variables
 
-Read a request item's variables or update them by name:
+Read a record's catalog variables or update them by name:
 
 ```bash
-sn variables get sc_req_item:RITM0010001
-sn variables set sc_req_item:RITM0010001 --field acrobat=true
+sn variables get sc_req_item:RITM0010001                     # [{name, label, value}] sorted by name
+sn variables get incident <sys_id>                           # record-producer answers
+sn variables set sc_req_item:RITM0010001 --field acrobat=true   # write + verify
+sn variables set sc_req_item <sys_id> --data '{"Additional_software_requirements": "..."}'
 ```
 
-Use the names returned by `get`; names are case-sensitive. `set` validates them before
-writing and reads the values back to verify the change. An `sc_task` reference resolves
-to its request item's variables. See the [agent guide](agent-guide.md#catalog-variables-variables)
-for response shapes, record-producer variables, and limitations.
+Reads walk whichever join holds the values: `sc_item_option` via `sc_item_option_mtom` for an
+RITM, `question_answer` for a record produced by a record producer.
+
+Use the names returned by `get`. Names are case-sensitive; values are raw (reference → sys_id,
+checkbox → `true`/`false`, dates in internal format). The instance's write endpoint fails
+silently — unknown names, wrong case, or a record that does not own the variables all return
+200 with nothing written — so `set` checks for you:
+
+- It validates names against a read first: an unknown name exits 1 listing the real names,
+  before any write.
+- It re-reads after the write and reports `{updated: {name: {from, to}}, unchanged: {...}}`.
+  A value that did not persist (read-only variable, value normalization) exits 2 naming the keys.
+- An `sc_task` target is resolved to its request item, which owns the variables; the hop is
+  reported as `resolved_from`.
+
+The write path gates on write access to the parent record, so it works for non-admin roles.
+Multi-row variable sets are out of scope: they store row JSON, not per-variable values.
 
 ## Session context
 
-View or switch the application scope and update set used for tracked configuration writes:
+Every tracked write (`sys_script`, `sys_properties`, dictionary, ACLs, …) is captured under
+the account's current application scope and update set — per-user, server-side state.
+View or switch it:
 
 ```bash
-sn get scope                          # the current application scope
-sn get updateset                      # the current update set: state, change count, latest changes
-sn set scope x_myapp
-sn set updateset "Sprint 12 fixes"
+sn get scope                          # which scope would my tracked writes land in?
+sn get updateset                      # and which set: state, change count, latest changes
+sn set scope x_myapp                  # by scope name, display name, or sys_id
+sn set updateset "Sprint 12 fixes"    # by name or sys_id; in-progress, current scope only
 ```
 
-Admin only. The answer is the instance's own resolution, the same one the UI picker shows.
-Setters read back the result to verify it; an update set must be in progress and belong to
-the current scope. See the [agent guide](agent-guide.md#session-context-set).
+Setters verify by re-read and report the new context plus a `previous` block:
+
+```json
+{"scope":{"sys_id":"global","name":"Global","scope":"global"},
+ "update_set":{"sys_id":"0c4d…a438","name":"Default"},
+ "previous":{"scope":{…},"update_set":{…}}}
+```
+
+- **The answer is the instance's own resolution**, the same one the UI picker shows: if your
+  preferred update set was completed, ignored, or belongs to another scope, `sn get updateset`
+  reports the set your next tracked write will actually use. Reading it saves that resolution
+  back to your preferences, as every UI page load does; where writes land is unchanged.
+- **Switching scope also moves the update set** to the target scope's remembered (or default)
+  set — the same coupling the UI pickers apply.
+- **Admin only.** An account that cannot select update sets gets an explicit error (exit 2).
+- A cross-scope or completed update set is refused with the reason. Selecting the set that is
+  already current is a no-op success.
 
 ## Aggregate queries
 
 Server-side statistics, without fetching individual records:
 
 ```bash
-# Count records grouped by state, with readable labels
-sn aggregate incident --count --group-by state --display-value true
+# Count records grouped by state (labels by default; --display-value false for raw codes)
+sn aggregate incident --count --group-by state
 
 # Average a field, filtered
 sn aggregate incident --avg-fields reassignment_count --query "active=true"
@@ -388,7 +443,7 @@ On success stdout gets `data` unwrapped — the GraphQL analogue of stripping `{
 GraphQL can put a total match count in the response body (`_rowCount`), combine many
 tables or queries in one request, and provide per-field `canRead`/`canWrite`
 verdicts, choice lists resolved in record context (`_choices`), and structured dot-walking
-through reference fields (`_reference`). See [graphql.md](graphql.md) for the design notes.
+through reference fields (`_reference`).
 
 ## Dot-walked reads (`sn gr`)
 
@@ -468,7 +523,7 @@ Files on any record:
 sn attachment list --query "table_name=incident"
 sn attachment get <sys_id>
 
-# Upload a file (optionally override its name and content type)
+# Upload a file. Content type is detected from the extension; override it or the name
 sn attachment upload --table incident --record <record_sys_id> --file ./screenshot.png
 sn attachment upload --table incident --record <record_sys_id> --file ./data.csv \
   --file-name "export_2026.csv" --content-type text/csv
@@ -516,18 +571,25 @@ sn cmdb relation delete cmdb_ci_server <sys_id> <rel_sys_id> --yes
 The CMDB Instance API takes writes in an envelope, `{"attributes": {...}, "source": "..."}`, and
 `sn` builds it: give `create`/`update` flat fields exactly as on `table` and they are wrapped for
 you. Values go out as strings, because the API casts each attribute to a Java `String` and answers a
-JSON number or boolean with an HTTP 500 — so `--field cpu_count=8` sends `"8"`, while an object or
-array is refused up front with a usage error. A body whose `attributes` is a JSON object is taken as
-an envelope you wrote yourself and passed through unchanged; that is how `inbound_relations` /
-`outbound_relations` ride along on a create.
+JSON number or boolean with an HTTP 500 — so `--field cpu_count=8` sends `"8"`, while `null` is
+left alone (it still clears a field) and an object or array is refused up front with a usage error.
+A body whose `attributes` is a JSON object is taken as an envelope you wrote yourself and passed
+through unchanged; that is how `inbound_relations` / `outbound_relations` ride along on a create.
+The rule keys off the value's type, not the key's presence, because many CMDB classes carry a real
+column named `attributes`: `--field attributes=raid=6` writes that column.
+
+`cmdb get` nests the CI's fields under `attributes`, beside `inbound_relations` and
+`outbound_relations`, so the CI's name is `.attributes.name`.
 
 `--source` is the record's provenance and lands in `discovery_source`. It defaults to
 `"Manual Entry"` — the truthful value for a CLI write. Name a real discovery source only when
 standing in for it: the IRE reconciles by source, so borrowing a tool's name lets that tool's next
 run overwrite the record. Valid values are the choices on `cmdb_ci.discovery_source`
-(`sn schema choices cmdb_ci discovery_source`). Giving `source` in both a flat body and the flag —
-or in a flat body at all, where the API would drop it — is a usage error rather than a silent
-preference.
+(`sn schema choices cmdb_ci discovery_source`); a bad one fails server-side with the instance's
+list in `detail`. Giving `source` in both a flat body and the flag — or in a flat body at all,
+where the API would drop it — is a usage error rather than a silent preference. To write a class's
+own `source` column, use an explicit envelope:
+`{"attributes": {"source": "..."}, "source": "<provenance>"}`.
 
 ## Import Sets
 
@@ -538,6 +600,8 @@ sn import create u_staging_table --field u_name="Server-01" --field u_ip="10.0.1
 sn import bulk u_staging_table --data '[{"u_name":"Server-01"},{"u_name":"Server-02"}]'
 sn import get u_staging_table <sys_id>
 ```
+
+The result reports each transform outcome (`status`: `inserted`, `updated`, `skipped`, or `error`).
 
 ## XML export and import
 
@@ -578,8 +642,9 @@ sn catalog items --text "laptop" --catalog <catalog_id>
 sn catalog item <item_sys_id>
 sn catalog item-variables <item_sys_id>       # form fields required to order
 
-# Order immediately (bypasses the cart)
-sn catalog order <item_sys_id> --data '{"sysparm_quantity":"1"}'
+# Order immediately (bypasses the cart). Variables that item-variables marks
+# `mandatory: true` must be in the payload.
+sn catalog order <item_sys_id> --data '{"sysparm_quantity":"1","variables":{"urgency":"high"}}'
 
 # ...or work the cart
 sn catalog add-to-cart <item_sys_id> --data '{"sysparm_quantity":"1"}'
@@ -601,8 +666,9 @@ terminal they need `--yes` or exit 1.
 Create, update, or identify CIs through the reconciliation engine. Each call takes an `items` payload:
 
 ```bash
-# Create or update
+# Create or update; the engine decides which from its identification rules
 sn identify create-update --data '{"items":[{"className":"cmdb_ci_server","values":{"name":"web-01","ip_address":"10.0.1.1"}}]}'
+# {"items":[{"sysId":"ci001","className":"cmdb_ci_server","operation":"INSERT","identifierEntrySysId":"id001"}]}
 
 # Identify only, without modifying anything
 sn identify query --data '{"items":[{"className":"cmdb_ci_server","values":{"name":"web-01"}}]}'
@@ -615,7 +681,7 @@ sn identify query-enhanced --data @query.json --data-source "discovery"
 
 ## CICD operations
 
-`cicd app`, `cicd updateset`, and `cicd atf run` are asynchronous — they return a progress object and run in the background on the instance. Add `--wait` to block until the operation finishes and emit the final result, and `--wait-timeout <SECS>` to bound that wait (on expiry `sn` exits 3 with a pointer to `sn cicd progress`). Without `--wait`, take the id from `links.progress.id` and poll manually with `sn cicd progress <id>`.
+`cicd app`, `cicd updateset`, and `cicd atf run` are asynchronous — they return a progress object and run in the background on the instance. Add `--wait` to block until the operation finishes and emit the final result, and `--wait-timeout <SECS>` to bound that wait (on expiry `sn` exits 3 with a pointer to `sn cicd progress`). Without `--wait`, take the id from `links.progress.id` and poll manually with `sn cicd progress <id>`. The numeric `status` is the contract — `0` Pending, `1` Running, `2` Successful, `3` Failed, `4` Cancelled — while `status_label` is the instance's own string and varies by instance and operation.
 
 ```bash
 # App Repository lifecycle
@@ -645,11 +711,12 @@ conflicts; it is not a general data restore. See the ServiceNowDocs
 [back-out procedure](https://github.com/ServiceNow/ServiceNowDocs/blob/brazil/markdown/application-development/system-update-sets/t_BackOutUpdateSet.md).
 App rollback restores an earlier application version. Both operations run asynchronously.
 
-`--wait` honors `--output raw` and `--output table` — under raw it used to emit the initial,
-unpolled response and never wait at all. A failed operation is exit 2 with the progress object on
-stderr under `.error.sn_error`, and no `status_code`, since the instance reported the failure inside
-an HTTP 200. If the initial response has no `links.progress.id`, `--wait` emits it
-without polling; inspect that response before treating the operation as complete.
+`--wait` honors `--output raw` and `--output table`. A failed operation is exit 2 with empty
+stdout and the progress object on stderr under `.error.sn_error`, and no `status_code`, since the
+instance reported the failure inside an HTTP 200. If the initial response has no
+`links.progress.id`, `--wait` emits it without polling; inspect that response before treating the
+operation as complete. The [agent guide](agent-guide.md#cicd-waiting-and-polling) has exit-code
+branching and a manual poll loop.
 
 ## Performance Analytics scorecards
 
@@ -839,13 +906,18 @@ sn codesearch MyUtil --scope x_acme_app --limit 50
 
 Each row is one matching field — `{table, sys_id, name, field, count, lines}` — and `lines` holds
 each matching line plus its neighbours, with `match` telling them apart. `table` and `sys_id` feed
-straight into `sn table get` or `sn open`. The match is a case-insensitive literal substring.
+straight into `sn table get` or `sn open`. The match is a case-insensitive literal substring over
+the fields the instance's Code Search is configured for (31 tables stock), in every scope unless
+`--scope` narrows it.
 
 - Results only include records you can read, so a non-admin often gets an empty array.
 - `--limit` (default 500, also the instance's stock ceiling) counts records the instance examines,
   not hits. When a result may have been cut short, stderr says which tables to narrow.
 - A `--table` that Code Search doesn't cover exits 1 and lists the tables it does; a term
-  containing `^` is refused, because the instance would split it into separate query terms.
+  containing `^` is refused, because the instance would split it into separate query terms. An
+  empty term, and an empty result under a `--scope` that does not exist, exit 1 too.
+- Without the Code Search application (`sn_codesearch`) the route answers HTTP 400, and the error
+  says so.
 - `--timeout` defaults to 120s for this command: a search across every table can take a while.
 
 ## Application Manager
@@ -881,8 +953,7 @@ the plugin id for a plugin.
 - Needs `admin`, `sn_appclient.app_client_user`, `sn_appclient.app_client_company_installer` or
   `unified_plugin_read_only`; anyone else gets exit 4.
 
-`sn get plugin` is removed; use `sn appmanager show <ID>`, or `sn doctor --need-plugin` to check
-several at once. Store apps are published and installed through the app repository with [`sn cicd app`](#cicd-operations).
+To check several plugins at once, use `sn doctor --need-plugin`. Store apps are published and installed through the app repository with [`sn cicd app`](#cicd-operations).
 
 ## Inspect and connect
 
@@ -898,6 +969,7 @@ sn ping
 sn get me
 ```
 
+`ok` is always `true`: a failed ping is a nonzero exit with the error envelope, not `ok:false`.
 `username` is **the instance's answer, not the configured one** — `sn ping` asks an endpoint that
 names the caller, because echoing the profile back verifies nothing about identity and the two
 disagree exactly when the profile is wrong. `identity_source` says which endpoint answered
@@ -909,17 +981,39 @@ the same probe and are `null` when the endpoint that carries them is absent; `im
 `glide.buildname` nor `glide.buildtag`, so null there means "the instance doesn't publish it", not
 a failure.
 
+### `sn doctor`
+
 ```bash
 # Preflight: is this account set up for what I'm about to do? One round trip.
-sn doctor --need-role itil --need-plugin com.snc.change_management --need-property glide.servlet.uri
+sn doctor --need-role itil,sn_change_write --need-plugin com.snc.change_management \
+          --need-property glide.servlet.uri --need-property glide.ui.escape_text=true
+# {"ok":false,"profile":"prod","instance":"acme.service-now.com","latency_ms":812,
+#  "user":{"user_name":"beth","sys_id":"…"},"admin":false,"build_tag":null,
+#  "capabilities":{"roles":{"available":true},
+#                  "plugins":{"available":false,"reason":"snWorkflowStudio.workflowStudio answered null: not readable by this account"},
+#                  "properties":{"available":false,"reason":"the property getter answered null: not readable by this account"}},
+#  "checks":[{"kind":"role","name":"itil","status":"pass","exists":true,"basis":"session"}, …]}
 ```
 
 `sn doctor` reports identity, whether the session is admin, which kinds of check this account can
-run, and a `checks` array of `pass` / `fail` / `unavailable`. It exits 0 only when every check
-passes; otherwise the report still goes to stdout and the command exits 2. A role passes only if it
-exists — an admin session would otherwise "hold" any name you type — and plugin/property checks are
-`unavailable` for non-admin accounts, because the instance answers them with `null`. See the
-[agent guide](agent-guide.md#sn-doctor) for the full shape.
+run, and a `checks` array of `pass` / `fail` / `unavailable`.
+
+- **Exit 0 only when every check passes.** Anything else writes the report to stdout and then
+  exits 2 with an error naming the checks that did not pass (no `status_code` — every response
+  was a 200). With no `--need-*` flags it checks nothing and exits 0: connectivity, identity and
+  capabilities only.
+- **`unavailable` is not `pass`.** Plugin and property checks need admin — for anyone else the
+  instance answers `null`, which is reported as unavailable, never as "not installed" or "unset".
+- **Roles:** an admin session answers *yes* to every role name, real or not, so a role passes
+  only if `sys_user_role` says it exists; `basis: "admin"` marks a pass that rests on admin
+  rather than a grant. Elevated roles (`security_admin`) fail until elevated.
+- **Properties:** `NAME` passes when set, `NAME=VALUE` when equal. Unset and empty read as one
+  state (`value: null`); password-type properties are never returned, so they come back
+  `unavailable`.
+- A namespace missing from the instance's schema turns its checks `unavailable` with the
+  instance's own message rather than failing the command.
+
+### `sn get me`
 
 `sn get me` resolves the caller's sys_id and reads that one record — no `javascript:` term on the
 wire, so a term the instance cannot evaluate cannot be silently dropped and leave you holding a
@@ -941,7 +1035,7 @@ without it the command exits 4 before anything is attempted.
 
 The command after `--` is any `sn` command (a leading `sn` is optional) except the ones that
 manage local state or open a session of their own: `init`, `profile`, `watch`, `flow tail`,
-`open`, `script`, `cache`, `completion`, `introspect`, and `impersonate` itself. Its stdout, stderr and exit code are its own.
+`open`, `script`, `xml import`, `cache`, `completion`, `introspect`, and `impersonate` itself. Its stdout, stderr and exit code are its own.
 Connection options (`--profile`, `--proxy`, `--timeout`, TLS) go before `--`, since the session is
 opened first; output options work on either side.
 
@@ -1040,9 +1134,7 @@ sn apisearch attachment --method DELETE --output table
 sn table list incident --query "active=true" --all --array --output table
 ```
 
-`aggregate`, `scores list`, `scores favorite` and `open` accepted `--output table` and silently
-ignored it in earlier releases; all four go through the same renderer as every other command now.
-`--all` still refuses it — a table cannot size a column without seeing every row, so buffer with
+`--all` refuses it — a table cannot size a column without seeing every row, so buffer with
 `--array` as above.
 
 ## Shell completions
@@ -1107,7 +1199,7 @@ renders columns for interactive reading.
 | `aggregate` | Stats object, or an array of groups with `--group-by` |
 | `journal` | Entry array, or a JSON string with `--raw` |
 | `variables get/set` | Variable array / verified change report |
-| `context` | Scope and update-set object; setters also include `previous` |
+| `set scope/updateset` | `{scope, update_set, previous}` |
 | `graphql` | Unwrapped `data`; errors exit 2, but partial data is still emitted |
 | `decision show/run` | One composed object (see [Decision tables](#decision-tables)); `--output raw` is refused, as for `get` |
 | `script run` | `{ok, scope, output, messages, error, elapsed_ms, history_id, rollback_context}`; a script error still prints it (`ok: false`) and exits 2 |

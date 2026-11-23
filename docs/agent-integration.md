@@ -36,7 +36,11 @@ The distributable copy is [`skills/sn/SKILL.md`](../skills/sn/SKILL.md).
 ## `sn introspect`: the machine-readable command tree
 
 `sn introspect` dumps the full command tree as JSON — for auto-generating MCP tool
-definitions or function-call schemas:
+definitions or function-call schemas. It is **one recursive object** —
+`{name, about, args[], subcommands[]}`, with `subcommands` nesting the same shape
+all the way down. There is **no** top-level `commands` array (`jq '.commands[]'`
+fails with "Cannot iterate over null"), and no `summary`, `flags`, or `exit_codes`
+key:
 
 ```bash
 sn introspect | jq '.subcommands[] | {name, about}'
@@ -48,9 +52,18 @@ sn introspect | jq '[.. | objects | select(.conflicts_with? // [] | length > 0)
 
 Each `args[]` entry carries `name`, `long`, `short`, `help`, `help_heading`, `required`, `takes_value`, `value_name`, `positional`, `repeatable`, `aliases`, `default_values`, `possible_values`, and `conflicts_with`. `--help` and `--version` are omitted — they exit before any handler runs — and nothing named `help` appears in the tree.
 
+- An arg's help string is `help`; `about` is the *command's* description.
+- A `takes_value: false` arg is a valueless switch: emit `--all`, never `--all true`.
+- `conflicts_with` lists the arg ids that cannot be combined with this one, so a
+  generator never emits `--data` alongside `--field` (exit 1).
+- `help_heading` carries the tier `--help` renders, in the order it prints them: `null`
+  for a command's working set, then `Advanced options` (raw `sysparm_*` passthroughs
+  most callers never touch), then `Global options`.
+
 The root carries two extra keys: `version` (the binary that produced the tree) and
 `global_args`. **A command's effective flags are its own `args` plus the root's
-`global_args`.** Read these from the installed binary instead of hardcoding a flag or
+`global_args`** — non-global args do not propagate, so there is no ancestor chain to
+walk. Read these from the installed binary instead of hardcoding a flag or
 command count:
 
 ```bash

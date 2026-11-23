@@ -379,3 +379,58 @@ fn a_misspelled_record_cap_still_suggests_the_real_flag() {
         "a near-miss must still point at a flag that works:\n{stderr}"
     );
 }
+
+/// The usage guide's "Confirmation guard" list is the one place the gated
+/// commands are written down. It was hand-copied into four places and all four
+/// drifted from the code (`xml import` and `script run` were missing), so the
+/// list is checked against every command that takes `--yes`, both ways.
+#[test]
+fn confirmation_guard_list_matches_the_gated_commands() {
+    let out = Command::cargo_bin("sn")
+        .unwrap()
+        .args(["introspect"])
+        .assert()
+        .success();
+    let tree: Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+    let mut gated = Vec::new();
+    find_yes(&tree, &mut Vec::new(), &mut gated);
+    gated.sort();
+
+    let usage = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/usage.md"))
+        .expect("docs/usage.md");
+    let section = usage
+        .split("### Confirmation guard")
+        .nth(1)
+        .expect("docs/usage.md has no `### Confirmation guard` section")
+        .split("\n## ")
+        .next()
+        .unwrap();
+    let mut documented: Vec<String> = section
+        .lines()
+        .filter_map(|l| l.strip_prefix("- `")?.strip_suffix('`'))
+        .map(str::to_string)
+        .collect();
+    documented.sort();
+
+    assert_eq!(
+        documented, gated,
+        "docs/usage.md's Confirmation guard list (left) must name exactly the commands that take --yes (right)"
+    );
+}
+
+fn find_yes(cmd: &Value, path: &mut Vec<String>, out: &mut Vec<String>) {
+    path.push(cmd["name"].as_str().unwrap_or_default().to_string());
+    let takes_yes = cmd["args"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|a| a["long"].as_str() == Some("yes"));
+    if takes_yes {
+        // Skip the root's own name: the guide writes `table delete`, not `sn table delete`.
+        out.push(path[1..].join(" "));
+    }
+    for sub in cmd["subcommands"].as_array().into_iter().flatten() {
+        find_yes(sub, path, out);
+    }
+    path.pop();
+}

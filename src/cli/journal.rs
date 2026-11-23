@@ -7,7 +7,7 @@
 //! `comments_and_work_notes`), whose displayValue is the rendered stream —
 //! every entry, prefixed `<timestamp> - <author> (<field label>)`, entries
 //! separated by a blank line. Established live against a Zurich PDI as both
-//! admin and a bare `itil` user; see docs/graphql.md.
+//! admin and a bare `itil` user; see .claude/rules/commands/graphql.md.
 //!
 //! So the default source is `record`: fetch the rendered stream over GraphQL
 //! and parse it back into structured entries. `--source table` opts into the

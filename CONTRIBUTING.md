@@ -52,8 +52,8 @@ skills when a change adds guidance an agent cannot learn from `--help`.
 
 ## Conventions
 
-- `table update` and `cmdb update` use PATCH. `replace` was removed in 0.11.0;
-  ServiceNow treated its PUT requests as partial updates too.
+- `table update` and `cmdb update` use PATCH. There is no `replace`: ServiceNow
+  treats PUT as a partial update too.
 - Exposed `sysparm_*` parameters use friendly flags and `--sysparm-*` aliases where supported.
 - `--data` / `--field` for request bodies (mutually exclusive)
 - `--wait` for async CICD operations

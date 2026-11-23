@@ -67,7 +67,8 @@ A command handler receives `&GlobalFlags` plus its args struct, calls `kernel::c
 - A command that opens its own session: add it to `refusal` in `src/cli/impersonate.rs`. That list ends in a catch-all, so an unlisted command is silently allowed under `sn impersonate`.
 - A new command, positional or value-taking flag: regenerate the panel's catalog with `UPDATE_PLUGIN_CATALOG=1 cargo test --test plugin_catalog` (the test fails until you do).
 - An async CICD command: route it through `cli/progress.rs::finish_cicd`.
-- A change to `sn introspect`'s output shape is breaking; update `docs/agent-guide.md` and `docs/agent-integration.md` together.
+- A command that takes `--yes`: add it to the Confirmation guard list in `docs/usage.md` (`tests/cli_surface.rs` fails until you do). That list is the only copy; link to it.
+- A change to `sn introspect`'s output shape is breaking; update `docs/agent-integration.md`.
 - A skill change: keep `skills/sn/` and `.claude/skills/sn/` identical except the `allowed-tools` line (`diff -r`). The skill holds only what `--help` cannot teach.
 
 ## Releases

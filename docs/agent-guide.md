@@ -1,16 +1,14 @@
 # `sn` agent usage guide
 
 One-time read for an LLM agent that reads, creates, updates, and deletes
-ServiceNow records via `sn`. Configure a profile using the [setup guide](setup.md).
-The examples use illustrative record IDs and values; instance plugins, roles, and
-ACLs determine which operations are available.
+ServiceNow records via `sn`. The [usage guide](usage.md) is the command
+reference and `sn <group> <command> --help` is the syntax for the installed
+version. This guide holds what an agent gets wrong without being told: output
+shapes, failure handling, and values that don't round-trip.
 
-`sn` is a Rust CLI wrapping ServiceNow's REST APIs: Table, Change Management,
-Attachment, CMDB (Instance + Meta), Import Set, Service Catalog, Identification
-& Reconciliation, CICD (App Repository, Update Sets, ATF), Aggregate,
-Performance Analytics, two schema-discovery endpoints, and the REST API
-Explorer's catalogue (`sn apisearch`). It emits JSON on stdout, structured JSON errors
-on stderr, and stable exit codes.
+Configure a profile using the [setup guide](setup.md). The examples use
+illustrative record IDs and values; instance plugins, roles, and ACLs determine
+which operations are available.
 
 ## Output, errors & exit codes (read first)
 
@@ -24,30 +22,32 @@ Three output modes via `--output`:
 - `raw` — preserves the full `{"result": ...}` envelope.
 - `table` — columnar text table for humans (don't parse it).
 
-```bash
-sn table get incident abc123 --output raw
-# {"result":{"sys_id":"abc123","number":"INC0010001","short_description":"Mail server down"}}
-```
-
-Non-obvious shapes worth knowing:
+Non-obvious shapes worth knowing. A wrong `jq` path prints nothing and exits 0,
+so it reads as "no data":
 
 | Command | stdout |
 |---|---|
 | `table delete`, `change delete`, `attachment delete` | empty (exit code signals success) |
+| `get` | `{table, sys_id, record, variables, journal}` — the number is `.record.number` |
+| `get updateset` | `.in_progress` is the boolean; the stored `state` is `"in progress"`, with a space |
+| `schema tables` | the table name is `.value`, not `.name` |
+| `change *` | every field is a `{display_value, value}` pair — see [Change Management](#change-management) |
+| `cmdb get` | the CI's fields are under `.attributes` — see [CMDB](#cmdb) |
+| `aggregate` | `{"stats":{...}}` — but with `--group-by`, an **array** of `{groupby_fields,stats}` — see [Aggregate](#aggregate) |
+| `gr --count` | `{"count": N}`, with a JSON number |
+| `scores list` | `direction` and `frequency` are integer codes; the words are in `direction_label` / `frequency_label` |
+| `cicd app` / `cicd updateset` / `cicd atf run` | progress object with `status_label` + `links.progress.id` |
+| `cicd progress` | `{status_label, percent_complete, status_message}` |
+| `scores unfavorite` | the endpoint's body, or `{"ok":true,"uuid":"..."}` when there is none. `scores favorite` passes its body through unchanged, which is `null` where the instance answers with no content |
+| `attachment download` | raw bytes, or `{"path","size"}` with `--out <file>` |
 | `profile use` | `{"ok":true,"profile":"ci","default":true}` |
 | `profile remove` | `{"ok":true,"profile":"ci","removed":true,"wasDefault":false}` — `removed:false` (still exit 0) when there was no such profile, so removal is idempotent |
 | `init` | Result on stderr; interactive setup prompts may use stdout. Use `profile add` for a JSON result. |
-| `get` | `{table, sys_id, record, variables, journal}` |
-| `gr --count` | `{"count": N}`, with a JSON number |
 | `open --print-url`, `completion`, help/version | Plain text |
 | `apisearch spec --format yaml` | YAML text |
-| `attachment download` | raw bytes, or `{"path","size"}` with `--out <file>` |
-| `aggregate` | `{"stats":{...}}` — but with `--group-by`, an **array** of `{groupby_fields,stats}` |
-| `cicd app` / `cicd updateset` / `cicd atf run` | progress object with `status_label` + `links.progress.id` |
-| `cicd progress` | `{status_label, percent_complete, status_message}` |
-| `scores unfavorite` | the endpoint's body, or `{"ok":true,"uuid":"..."}` when there is none — it emitted nothing at all before. `scores favorite` passes its body through unchanged, which is `null` where the instance answers with no content |
-| `ping` | see [`sn ping`](#sn-ping) — 14 keys, and `username` is the *instance's* answer |
-| `doctor` | see [`sn doctor`](#sn-doctor) — the report is on stdout **even on exit 2**; `checks[].status` is `pass`, `fail` or `unavailable` |
+| `ping` | 14 keys, and `username` is the *instance's* answer |
+| `doctor` | the report is on stdout **even on exit 2**; `checks[].status` is `pass`, `fail` or `unavailable` |
+| `watch` | JSONL; a line with `sn_watch` is a gap marker, not an event |
 
 Runtime errors use a JSON envelope on stderr. Argument-parsing errors use the same
 envelope when stderr is redirected and human-readable text on a terminal. Warnings,
@@ -123,51 +123,23 @@ else
 fi
 ```
 
-`sn ping` reports the identity and privileges the *instance* attributes to the
-credentials, which is the cheapest way to tell a dead credential from a live one
-that simply lacks the role.
-
-**Verbose debugging** (stderr only; never required to parse output):
-
-| Flag | Adds to stderr |
-|---|---|
-| `-d` | method, URL, status, elapsed per request |
-| `-dd` | + response headers |
-| `-ddd` | + request/response bodies (Authorization/Set-Cookie headers and OAuth token values masked to `****`) |
-
 Turn on `-d` after an exit 2/3 to see the exact URL built — a sysparm typo
-producing a malformed path is a common 404 cause. Verbose text is free-form and
-may change between versions; only the stderr error object is structured.
+producing a malformed path is a common 404 cause (`-dd` adds headers, `-ddd`
+bodies with secrets masked). Verbose text is free-form and may change between
+versions; only the stderr error object is structured.
 
-## Setup & profiles
+## Profiles
 
-```bash
-sn init                    # interactive wizard: prompts, then claims default_profile
-sn profile add prod --help  # options for adding a profile without changing the default
-sn profile list            # also: show <name> / use <name> / remove <name>
-sn ping                    # verify auth + latency + build version (the health check)
-```
-
-**`sn profile add` is the one to reach for.** It is the agent-safe half of the pair:
-it emits JSON on stdout, and it **never prompts when stdin is not a terminal** — a
-missing field is exit 1 naming the flag, not a blocked read. `sn init` is a human
-wizard that also takes over `default_profile`, which is rarely what you want when
-adding an instance to an existing setup.
+**`sn profile add` is the one to reach for**, not `sn init`. It emits JSON on
+stdout, and it **never prompts when stdin is not a terminal** — a missing field
+is exit 1 naming the flag, not a blocked read. `sn init` is a human wizard that
+also takes over `default_profile`.
 
 ```bash
 sn profile add ci --instance dev12345 --username svc --password-stdin < secret.txt
 # → {"auth":"basic","default":false,"instance":"dev12345.service-now.com","next":"sn profile use ci",
 #    "ok":true,"profile":"ci","user":"svc","verified":true}
 ```
-
-Keys come back sorted. `"next"` appears only when it has something to tell you — here, that no
-default profile is selected yet, so this one needs `sn profile use ci` or an explicit `--profile ci`.
-
-Pipe secrets in rather than passing `--password` / `--client-secret`, which any
-process can read out of `ps` and which land in shell history.
-
-By default, `add` checks the credentials against the instance. If verification
-fails, it restores the previous profile configuration. Its contract:
 
 | situation | exit | effect |
 |---|---|---|
@@ -177,153 +149,43 @@ fails, it restores the previous profile configuration. Its contract:
 | credentials rejected | 4 | profile changes rolled back |
 | `--no-verify` | 0 | written unverified, no network call |
 
-`--set-default` also makes it the default; otherwise use `sn profile use <name>`,
-or pass `--profile <name>` per command. When no default profile exists, `add` says
-so in a `"next"` field.
+- **Pipe secrets in** (`--password-stdin`, `--client-secret-stdin`,
+  `--api-key-stdin`, `--token-stdin`) rather than passing them as flags, which
+  any process can read out of `ps` and which land in shell history.
+- **Headless auth:** basic, API key, `--grant client_credentials`,
+  `--grant jwt_bearer`, and `--auth token`. The default `authorization_code`
+  grant needs a browser, so `add` refuses on a non-TTY rather than save an
+  untested profile: register it with `--no-verify` and have a human run
+  `sn profile login --profile <name>`. See the [setup guide](setup.md) for each
+  method.
+- **Selection** is `--profile <name>` (`-p`, before or after the subcommand) →
+  `default_profile` → error (`no profile selected`, exit 1). A profile is the
+  single unit of identity: there is no way to graft a one-off
+  instance/username/password onto a command, and there are no env vars for
+  credentials or profile selection.
+- **Sandboxing:** `SN_CONFIG_DIR` relocates the config directory (used as-is —
+  no `sn` subdir appended); it's the supported way to isolate `sn` for CI or
+  ephemeral sessions.
+- Parallel invocations that write profiles or refresh OAuth tokens serialize on
+  a lock instead of losing each other's work, and a writer that cannot take the
+  lock within 10s exits **1** rather than hanging.
 
-Secrets go to `credentials.toml` (chmod 600 on Unix; the per-user `%APPDATA%` ACL
-on Windows) and non-secret config to `config.toml`, under `~/.config/sn/` (Linux),
-`~/Library/Application Support/sn/` (macOS), or `%APPDATA%\sn\` (Windows).
-`SN_CONFIG_DIR` relocates that directory (used as-is — no `sn` subdir appended);
-it's the supported way to sandbox `sn` for CI or ephemeral sessions:
+## Who am I, and what can I do
 
-```bash
-SN_CONFIG_DIR=/tmp/sn-sandbox sn profile add ci --instance dev12345 \
-  --username svc --password-stdin < secret.txt
-SN_CONFIG_DIR=/tmp/sn-sandbox sn --profile ci table list incident --limit 1
-```
-
-**API key.** `sn profile add ci --instance dev12345 --auth apikey --api-key-stdin < key.txt`
-works headlessly:
-the stored key goes out as the `x-sn-apikey` header on every request and is verified
-against the instance, with profile changes rolled back if verification fails.
-
-**OAuth.** `sn profile add --auth oauth --grant client_credentials` works headlessly
-(the token is minted and verified). The default `authorization_code` grant needs a
-browser, so there is nothing an agent can verify: `add` refuses on a non-TTY rather
-than save an untested profile. Register it with `--no-verify` and have a human run
-`sn profile login --profile <name>`. Session state is `sn profile status` / `refresh` /
-`logout`; commands reuse cached tokens and refresh them when needed. `--grant jwt_bearer` is headless too and needs no secret of its own to grant access: `sn` signs a short-lived JWT with the key at `--jwt-key-file` (as `--jwt-subject`) and re-mints whenever the token expires. See
-[OAuth setup](setup.md#oauth--sso) to create an Application Registry entry and get a
-client ID. `client_credentials` and `jwt_bearer` require one; without `--client-id`,
-`authorization_code` borrows the ServiceNow SDK's (now-sdk) public client, and `add`
-reports a `warning` recommending your own.
-
-**External token.** `sn profile add --auth token --token-command '<cmd>'` sends whatever
-bearer token `<cmd>` prints (bare, or JSON with `access_token` and an optional
-`expires_in`/`expires_at`); `--token-stdin` stores a static one instead. A command's
-token is cached only when it states an expiry — otherwise the command runs on every
-invocation. A failing command exits 1, quoting its stderr but never its stdout.
-
-**Profile selection** (highest precedence first): `--profile <name>` →
-`default_profile` in `config.toml` → error (`no profile selected`, exit 1). There
-is no implicit fallback.
-
-`-p` is a short alias for `--profile`. Both are global, so either may appear
-before or after the subcommand:
-
-```bash
-sn --profile prod table list incident --limit 5
-sn table list incident --limit 5 -p prod          # identical
-```
-
-A profile is the single unit of identity — instance URL + credentials together.
-There is no way to graft a one-off instance/username/password onto a command,
-and there are no env vars for credentials or profile selection: configure a
-profile with `sn profile add` (or `sn init`). Only proxy/TLS and the config *directory* are
-env-overridable (precedence: CLI flag > env var > per-profile config field):
-
-| CLI flag | Env var | Effect |
-|---|---|---|
-| `--proxy <URL>` | `SN_PROXY` | HTTP/HTTPS/SOCKS5 proxy |
-| `--no-proxy` | `SN_NO_PROXY` | bypass proxy (env is comma-separated hosts) |
-| `--insecure` | `SN_INSECURE=1` | skip TLS cert verification (off by default) |
-| `--ca-cert <PATH>` | `SN_CA_CERT` | custom CA for the instance |
-| `--proxy-ca-cert <PATH>` | `SN_PROXY_CA_CERT` | custom CA for the proxy |
-
-`--insecure` is an exception to the precedence rule: the flag, environment value,
-and profile setting are combined with logical OR. Remove every enabled setting to
-restore TLS verification.
-
-Proxy auth and the same settings can also live per-profile in the config files
-(`proxy`, `no_proxy`, `insecure`, `ca_cert`, `proxy_ca_cert`, `proxy_username`,
-`proxy_password`). `sn profile show`/`list` (and `add`'s own result) report the
-non-secret ones under those names — `insecure` always, the rest when set, with a
-password inside the proxy URL masked; proxy credentials are never printed.
-
-Config and credentials are written atomically — into a same-directory temp file
-created `0600` by `open(2)` and renamed over the target — under an advisory lock
-on a `.sn.lock` sidecar in the same directory. Both files are `0600`
-(`config.toml` was `0644` in earlier releases; the rename repairs it in place). Two
-consequences for an agent: parallel invocations that write profiles or refresh
-OAuth tokens serialize instead of losing each other's work, and a writer that
-cannot take the lock within 10s exits **1** rather than hanging forever.
-
-### `sn ping`
-
-The health check, and the cheapest answer to "who does the instance think I am?"
-— one request that proves the credentials authenticate *and* names the caller,
-plus a second for the build version.
-
-```bash
-sn ping
-# {"ok":true,"profile":"prod","instance":"acme.service-now.com",
-#  "username":"admin","identity_source":"sg/impersonation/session",
-#  "user_sys_id":null,"user_display_name":null,"admin":true,"can_impersonate":true,
-#  "impersonating":false,"original_user":"admin",
-#  "latency_ms":195,"build_name":null,"build_tag":null}
-```
-
-| key | meaning |
-|---|---|
-| `ok` | always `true` — a failed ping is a nonzero exit with the error envelope, not `ok:false` |
-| `username` | **the identity the instance asserts**, not the configured one. They disagree exactly when the profile is wrong, and echoing the config back verifies nothing |
-| `identity_source` | which endpoint named the caller: `sg/impersonation/session`, `ui/user/current_user`, `sys_user`, or `profile` — the last meaning no endpoint answered and this is the configured name |
-| `admin` / `can_impersonate` | privileges as the instance reports them; `null` when the endpoint that carries them was absent |
-| `impersonating` / `original_user` | whether this session is an impersonation, and who started it. `impersonating` is `true` only when two present, non-blank names differ; `null` means unknown |
-| `user_sys_id` / `user_display_name` | the caller's record, when the answering endpoint identified it (`null` otherwise) |
-| `build_name` / `build_tag` | instance build, from a `sys_properties` read of `glide.buildname`/`glide.buildtag`; `null` when that read returns nothing — a Zurich PDI publishes neither, so null here is not a failure |
-| `profile` / `instance` / `latency_ms` | which profile was used, its host, and the round trip in ms |
+`sn ping` reports the identity and privileges the *instance* attributes to the
+credentials, which is the cheapest way to tell a dead credential from a live one
+that simply lacks the role. `sn get me` returns the caller's record, roles and
+groups. `sn doctor --need-role … --need-plugin … --need-property …` is a
+preflight that exits 0 only when every check passes. See
+[Inspect and connect](usage.md#inspect-and-connect) for the keys and rules.
 
 **Never derive identity from `sn table list sys_user --limit 1`.** A bare limited
 read of `sys_user` returns whichever row sorts first — a stranger, reported with
 full confidence. `sn ping` and `sn get me` both ask endpoints that name the
-caller directly (`sn get me` resolves the caller's sys_id, then reads that one
-record), and both refuse to answer rather than hand back an arbitrary row.
+caller directly, and both refuse to answer rather than hand back an arbitrary row.
 
-### `sn doctor`
-
-A preflight in one GraphQL round trip: who the session is, whether it is admin,
-which checks this account can run at all, and pass/fail for whatever you require.
-
-```bash
-sn doctor --need-role itil,sn_change_write --need-plugin com.snc.change_management \
-          --need-property glide.servlet.uri --need-property glide.ui.escape_text=true
-# {"ok":false,"profile":"prod","instance":"acme.service-now.com","latency_ms":812,
-#  "user":{"user_name":"beth","sys_id":"…"},"admin":false,"build_tag":null,
-#  "capabilities":{"roles":{"available":true},
-#                  "plugins":{"available":false,"reason":"snWorkflowStudio.workflowStudio answered null: not readable by this account"},
-#                  "properties":{"available":false,"reason":"the property getter answered null: not readable by this account"}},
-#  "checks":[{"kind":"role","name":"itil","status":"pass","exists":true,"basis":"session"}, …]}
-```
-
-- **Exit 0 only when every check passes.** Anything else writes the report to
-  stdout and then exits 2 with an error naming the checks that did not pass (no
-  `status_code` — every response was a 200). With no `--need-*` flags it checks
-  nothing and exits 0: connectivity, identity and capabilities only.
-- **`unavailable` is not `pass`.** A check the account cannot answer fails the
-  preflight. Plugin and property checks need admin — for anyone else the
-  instance answers `null`, which is reported as unavailable, never as "not
-  installed" or "unset".
-- **Roles:** an admin session answers *yes* to every role name, real or not, so
-  a role passes only if `sys_user_role` says it exists; `basis: "admin"` marks a
-  pass that rests on admin rather than a grant. Elevated roles (`security_admin`)
-  fail until elevated.
-- **Properties:** `NAME` passes when set, `NAME=VALUE` when equal. Unset and
-  empty read as one state (`value: null`); password-type properties are never
-  returned, so they come back `unavailable`.
-- A namespace missing from the instance's schema turns its checks `unavailable`
-  with the instance's own message rather than failing the command.
+In `sn doctor`, **`unavailable` is not `pass`**: plugin and property checks need
+admin, and a check the account cannot answer fails the preflight.
 
 ## Discovery flow
 
@@ -369,209 +231,50 @@ non-reference columns rather than `null`.
 sn schema choices incident state           # valid values for a choice field
 ```
 ```json
-[{"value":"1","label":"New"},{"value":"2","label":"In Progress"},{"value":"6","label":"Resolved"},{"value":"7","label":"Closed"}]
+[{"value":"1","label":"New","rawLabel":"New","sequence":1,"image":"","missing":false,
+  "reference":false,"selected":false,"used":false,"parameters":{…}}]
 ```
 
-The numeric `value` is what you send to write APIs; the `label` is what
+Rows are the same picker shape as `schema tables`; read `value` and `label`. The
+numeric `value` is what you send to write APIs; the `label` is what
 `--display-value true` returns on reads. Now write with confidence:
 
 ```bash
 sn table create incident --field short_description="server down" --field state=2 --field priority=1
 ```
 
-(Example values throughout are illustrative; real values depend on your instance.)
+For endpoints rather than tables, use `sn apisearch <term>` before assuming an
+operation has no API — the answer for anything `sn` doesn't model is usually
+`sn raw` against a route it names for you (`route` is relative to `/api`). See
+[API discovery](usage.md#api-discovery).
 
-### Finding an API (`sn apisearch`)
-
-`sn schema` describes tables; `sn apisearch` describes *endpoints*, from the same
-catalogue the REST API Explorer reads. Use it before assuming an operation has
-no API — the answer for anything `sn` doesn't model is usually `sn raw` against
-a route this command will name for you.
+## Reading records
 
 ```bash
-sn apisearch attachment           # endpoints matching a substring, with method + route
-sn apisearch cart -n sn_sc -m POST
-sn apisearch list                 # every namespace, with API and endpoint counts
-sn apisearch list -n sn_chg_rest  # the APIs in one namespace
-sn apisearch spec "Table API"     # the OpenAPI 3 document
-sn apisearch spec "Table API" --format yaml > table-api.yaml
-sn apisearch -- list              # search for the word "list" itself
-```
-
-```json
-[{"api_name":"now/attachment","description":"Delete an attachment","method":"DELETE",
-  "name":"Attachment API","namespace":"now","route":"/now/attachment/{sys_id}","version":"latest"}]
-```
-
-`search` matches case-insensitively across namespace, API name, route and both
-descriptions; a row carries everything `sn raw` needs (`route` is relative to
-`/api`, so `/now/attachment/{sys_id}` is `sn raw DELETE
-/api/now/attachment/<id>`). `list` and `search` summarize — `--output raw`
-prints the catalogue endpoint's own response instead, several hundred KB of it,
-for piping to `jq`.
-
-`spec` takes the name `list` reports, case-insensitively; a unique substring is
-enough. An ambiguous one is exit 1 listing the candidates and the namespaces
-they live in — narrow with `--namespace`, since an *exact* tie only ever spans
-namespaces. `--format yaml` is written to stdout verbatim and ignores
-`--pretty`/`--compact`/`--output`.
-
-An unknown `--namespace` is exit 1 naming the near miss, not an empty result:
-the catalogue answers a bad namespace with `{"result":{}}` and HTTP 200, which
-would otherwise be indistinguishable from "no matches". A genuine 404 from the
-spec endpoint is passed through with the instance's own explanation in `detail`
-(it names a bad API or version precisely); only the doc family's own absence is
-reported as "this release may not have it".
-
-### Finding code (`sn codesearch`)
-
-"Where on this instance is X referenced" — a script include, a table name, a
-property, a function — is one call, not one `sn table list` per script table:
-
-```bash
-sn codesearch MyUtil                              # every configured table, every scope
-sn codesearch "gs.getProperty('x.y')" --table sys_script_include
-sn codesearch MyUtil --scope x_acme_app --limit 50
-```
-
-```json
-[{"table":"sys_script_include","sys_id":"1717eb60d7120200b6bddb0c825203da","name":"MyUtil",
-  "field":"script","count":2,
-  "lines":[{"line":11,"text":"var MyUtil = Class.create();","match":true},
-           {"line":12,"text":"MyUtil.prototype = {","match":true}]}]
-```
-
-One row per matching field; `lines` includes the neighbouring lines the
-instance sends for context, which is what `match: false` marks. `table` is the
-record's own class, so `table` + `sys_id` go straight to `sn table get` /
-`sn open`. The search is a case-insensitive literal substring over the fields
-the instance's Code Search is configured for (31 tables stock: business rules,
-script includes, UI actions/policies/scripts, client scripts, ACLs, scheduled
-jobs, notifications, …), in **every scope** unless `--scope` narrows it — the
-underlying API defaults to the session's scope, which is why a plain API call
-often finds nothing.
-
-- **Read access filters results silently.** A non-admin (e.g. `itil`) gets exit
-  0 with few or no rows; that is the ACL answer, not "not referenced".
-- **`--limit` counts records examined, not hits**, and the instance caps it at
-  `sn_codesearch.search.results.max` (500 stock). A result that may have been
-  cut short — a table that nearly filled its share, or tables never reached —
-  is named on stderr (`sn: warning: results may be incomplete…`); narrow the
-  search rather than trusting the count.
-- Refused before the network (exit 1): an empty term, and a term containing
-  `^` (the instance splices it into an encoded query, where it splits terms).
-  A `--table` Code Search does not cover is exit 1 listing the tables it does
-  (the API would otherwise ignore it and search everything); an empty result
-  under a `--scope` that does not exist is exit 1 too.
-- Without the plugin the route answers HTTP 400; the error says the Code
-  Search application (`sn_codesearch`) is missing. A search over every table
-  can take tens of seconds, so `--timeout` defaults to 120s for this command.
-
-### Finding apps and plugins (`sn appmanager`)
-
-```bash
-sn appmanager search change --kind plugin        # installed plugins matching "change"
-sn appmanager list --updates                     # what has an update available
-sn appmanager show com.snc.change_management     # {installed, version, product, …}
-sn appmanager install com.snc.document_management --yes --wait   # activate a plugin; permanent
-```
-
-- Rows are `{kind, id, name, scope, version, latest_version, installed, update_available, …}`;
-  pass a row's `id` to `show`.
-- `show` on an unknown id is exit 2, never `installed: false`. Plugin list rows have a null
-  `version`; `show` has it.
-- `install` is plugins only and irreversible. It is asynchronous like `sn cicd`: pass `--wait`.
-  Already installed is exit 1; an unknown id is exit 2.
-- Needs admin or an Application Manager role (exit 4 otherwise). To assert several plugins at
-  once, use `sn doctor --need-plugin`.
-
-## Reading records (`list`, `get`)
-
-```bash
-# List with a cap, filter, and column projection
 sn table list incident --query "active=true^priority=1" --fields "number,short_description,state" --setlimit 10
-```
-```json
-[{"number":"INC0010001","short_description":"Mail server down","state":"In Progress"}]
-```
-
-`state` reads as a label, not `"2"`, because `--display-value` defaults to
-`true` — see [Display values](#display-values) before you feed any of it back.
-
-`--limit` aliases `--setlimit` (SN's `sysparm_limit`); the default is 1000 per
-page on `table list`, `change list`, and `cmdb list`, and 100 on `change task
-list`, `attachment list`, `catalog categories`, and `catalog items`. Drop it low
-(`--setlimit 5`) for exploration.
-
-```bash
-# Get one record by sys_id (get has no --query flag)
-sn table get incident a1b2c3d4e5f6
+sn table get incident a1b2c3d4e5f6      # by sys_id (get has no --query flag)
+sn table get incident:INC0010001        # by number
+sn get INC0010001                       # the record plus its variables and journal entries
 ```
 
-For a record number, use a combined reference. `sn get` also includes variables and
-journal entries:
-
-```bash
-sn table get incident:INC0010001
-sn get INC0010001
-sn get incident:INC0010001
-```
-
-Bare numbers on `sn get` resolve INC, CHG, CTASK, PRB, REQ, RITM, SCTASK, KB, and SIR
-offline. Any other prefix is looked up once in the instance's `sys_number` table
-(admin-readable by default) and cached. A prefix two tables share, or one the instance
-doesn't define, exits 1; specify `table:number` or `table:sys_id` instead.
-To find a record by other criteria, use `list --query "..."`; use `--limit 2` and
-check the result count when the query is supposed to identify exactly one record.
-
-**`sn get <noun>` reads state an agent otherwise assembles by hand** — `scope`,
-`updateset`, `property <name>`, `script <name>` (`--source` for the text),
-`choices <table.field>`, `me`, `instance`, `mine`, `last`, `logs`. Each
-fails closed: a filter the instance drops is exit 2, and a name that matches several
-records (business rules share names) is exit 1 listing them. `sn get --help` lists the
-nouns and `sn get <noun> --help` their flags.
-
-**The read verb may be omitted on `table` and `cmdb`.** Both map to a REST path
-that is already `{noun}/{id}`, so for a read the verb is implied by whether you
-supplied an id:
-
-```bash
-sn table incident a1b2c3d4e5f6      # = sn table get incident a1b2c3d4e5f6
-sn table incident                   # = sn table list incident
-sn cmdb cmdb_ci_server ci001        # = sn cmdb get cmdb_ci_server ci001
-```
-
-Only `get` and `list` are ever inferred — **never a write** — and the choice is
-based on the arguments: a combined `table:identifier` means `get`, a table alone
-means `list`, and a table followed by a sys_id means `get`. A *near-miss* of a
-real verb stays a typo: `sn table lst incident` returns
-`tip: a similar subcommand exists: 'list'` rather than reading a table named
-`lst`.
-
-**The flip side, worth knowing when debugging:** a first token that is *not*
-close to any real verb is taken as a table name, because that is exactly what
-the shorthand is for. An unknown but syntactically valid table name can therefore reach the instance
-and fail with an API error. Invalid table identifiers on record-addressing commands
-are rejected locally with exit 1. If you
-get an unexpected "invalid table" on `table` or `cmdb`, check whether you
-misspelled the *verb*.
-
-Groups whose first token isn't reliably a noun (`change`, `catalog`) are
-excluded from the shorthand, and an unrecognized subcommand there lists the
-valid ones:
-
-```
-$ sn change sc_cat_item abc
-error: unrecognized subcommand 'sc_cat_item'
-  `sn change` subcommands: list, get, create, update, delete, nextstates,
-  approvals, risk, schedule, task, ci, conflict, models, templates
-```
+- `--limit` aliases `--setlimit`; the default is 1000 on the main list commands.
+  Drop it low (`--setlimit 5`) for exploration.
+- **When a query is supposed to identify exactly one record, use `--limit 2` and
+  check the result count.** ServiceNow drops a query term it cannot evaluate and
+  returns unfiltered rows.
+- `sn get <noun>` reads state an agent otherwise assembles by hand (`scope`,
+  `updateset`, `property`, `script`, `choices`, `me`, `instance`, `mine`, `last`,
+  `logs`). See [`sn get` nouns](usage.md#sn-get-nouns).
+- The read verb may be omitted on `table` and `cmdb` (`sn table incident` lists).
+  The flip side when debugging: a first token that is *not* close to any real
+  verb is taken as a table name. If you get an unexpected "invalid table" on
+  `table` or `cmdb`, check whether you misspelled the *verb*.
 
 ### Display values
 
 **`--display-value` defaults to `true`.** Reads come back as readable labels —
 `state` is `"In Progress"`, not `"2"`; `assigned_to` is `"Abel Tuter"`, not a
-sys_id. This changed in 0.11.0; before that the default was `false`.
+sys_id.
 
 | Value | Effect | Use when |
 |---|---|---|
@@ -606,47 +309,9 @@ has no such flag — an event's `record` already carries each field as a
 ### Pagination & bulk processing
 
 On `sn table list`, `--all` streams every match as JSONL, one object per line,
-walking by `sys_id` (keyset) by default. It stops at `--max-records` (100,000 by
-default; `0` removes the cap). Other command groups do not support `--all`:
-
-```bash
-sn table list incident --query "active=true" --all
-sn table list incident --query "active=true" --all --array            # one JSON array instead (buffers in memory)
-sn table list incident --query "active=true" --all --max-records 1000 # safety cap
-sn table list incident --query "active=true" --all --setlimit 5000    # larger per-call batches
-```
-
-`--setlimit` is the per-API-call batch size under `--all`; `--offset` is ignored
-in `--all` mode. Don't compute offsets by hand. For a single manual page, use
-`--setlimit`+`--offset` without `--all`.
-
-**How `--all` pages.** By default it is a keyset walk. Each page asks for "rows
-after the last `sys_id` seen, sorted by `sys_id`", with no per-page count. Rows
-that exist for the whole walk each appear exactly once, even while the table
-changes. Output is therefore in `sys_id` order. A query with its own `ORDERBY`
-keeps its sort and pages by offset (the `Link` header) instead; so does
-`--paginate offset`. A table with no plain `sys_id` to seek on, such as a
-database view, switches to offset by itself. `^OR` and `^NQ` queries both work
-under keyset.
-
-**Resuming.** If a keyset stream fails part-way, stdout holds every record up to
-the failure and the error names where to continue:
-
-```json
-{"error":{"message":"…","status_code":503,"resume_from":"8b031135474321009db4b5b08b9a7152"}}
-```
-
-Rerun the same command with `--resume-from <that sys_id>` and append. The rest
-of the walk arrives with no gap and no overlap. `--array` writes nothing until
-the end, so its failures carry no `resume_from`.
-
-**`--all` refuses `--output raw` and `--output table`** (exit 1, before any
-request goes out). Both were accepted and ignored in earlier releases, which is
-worse: you got JSONL either way and nothing said so. `table` cannot size a column
-without seeing every row — add `--array`, which buffers and renders. `raw` has
-no fix: the paginator flattens each page's envelope into one record stream, so
-there is no envelope left to keep, `--array` included. Page manually with
-`--setlimit`/`--offset` if you need the envelope. Processing JSONL:
+in `sys_id` order. It stops at `--max-records` (100,000 by default; `0` removes
+the cap). Other command groups do not support `--all`. Don't compute offsets by
+hand.
 
 ```bash
 sn table list incident --query "active=true^priority=1" --all | jq -r '.number'           # extract a field
@@ -655,6 +320,17 @@ sn table list incident --all | jq -s 'group_by(.state)|map({state:.[0].state,cou
 sn table list incident --query "state=6^ORstate=7" --all | jq -r '.sys_id' \
   | while read -r sid; do sn table update incident "$sid" --field active=false; done        # stream into updates
 ```
+
+If a stream fails part-way, stdout holds every record up to the failure and the
+error names where to continue:
+
+```json
+{"error":{"message":"…","status_code":503,"resume_from":"8b031135474321009db4b5b08b9a7152"}}
+```
+
+Rerun the same command with `--resume-from <that sys_id>` and append. `--all`
+refuses `--output raw` and `--output table` (exit 1); add `--array` for a table.
+See [Pagination](usage.md#pagination) for how the walk works.
 
 ### Encoded query syntax
 
@@ -678,67 +354,7 @@ sn table list incident --query "active=true^priority=1^ORpriority=2^ORDERBYDESCs
 sn table list incident --query "assigned_to=6816f79c...^ORassigned_toISEMPTY"
 ```
 
-## Comments & work notes (`journal`)
-
-```bash
-sn journal incident <sys_id>                  # entries newest first
-sn journal incident <sys_id> --comments       # or --work-notes (mutually exclusive)
-sn journal incident <sys_id> --limit 5        # newest 5 only
-sn journal incident <sys_id> --raw            # the unparsed rendered stream (JSON string)
-sn journal incident <sys_id> --source table   # exact sys_journal_field rows
-```
-
-Output is an array of `{created_on, author, element, label, text}`, newest
-first. `element` is the journal column (`comments` / `work_notes`); `label` is
-the rendered field label the entry carried ("Comments", "Work notes",
-"Additional comments" — instance-dependent).
-
-Why two sources: journal entries live one-per-row in `sys_journal_field`, but
-that table is ACL-locked for non-admin roles — the row count can survive the
-ACLs even when the rows do not. The default `--source record` therefore reads and parses the
-record's rendered journal fields, subject to their record and field ACLs; its timestamps are in the calling user's timezone and
-date format. `--source table` returns the exact rows — UTC timestamps,
-usernames instead of display names, no `label` — when the profile's ACLs allow;
-if rows exist but all were filtered, the command exits 2 naming the cause and
-pointing back at `--source record`, rather than emitting a misleading `[]`.
-
-There is no `journal add`: writing an entry is a plain field write —
-`sn table update incident <sys_id> --field work_notes="checked the router"`.
-
-## Catalog variables (`variables`)
-
-```bash
-sn variables get sc_req_item <sys_id>                        # [{name, label, value}] sorted by name
-sn variables get incident <sys_id>                           # record-producer answers
-sn variables set sc_req_item <sys_id> --field acrobat=true   # write + verify
-sn variables set sc_req_item <sys_id> --data '{"Additional_software_requirements": "..."}'
-```
-
-Reads walk whichever join holds the values: `sc_item_option` via
-`sc_item_option_mtom` for an RITM, `question_answer` (keyed by
-`table_name`/`table_sys_id`) for a record produced by a record producer.
-
-Writes go through `PUT /api/sn_sc/servicecatalog/variables/{table}/{sys_id}` —
-an undocumented scripted REST resource, but the only write path open to
-non-admin roles: direct Table API writes to `sc_item_option` are 403 for a
-plain `itil` user, while this endpoint gates on write access to the parent
-record itself. Its failure mode is silence — unknown names, wrong case, or a
-record that does not own the variables all return 200 with nothing written. So
-`set` restores the exit-code contract: it validates names against a read of the
-pool first (unknown → exit 1 listing the real names, before any write), then
-re-reads after the PUT and diffs — success reports
-`{updated: {name: {from, to}}, unchanged: {...}}`, and a value that did not
-persist (read-only variable, value normalization) is exit 2 naming the keys.
-
-Variable names are case-sensitive; values are raw (reference → sys_id,
-checkbox → `true`/`false`, dates in internal format). An `sc_task` target is
-resolved to its `request_item` automatically — the task does not own its RITM's
-variable pool, and writing to it directly would be silently skipped — with the
-hop reported as `resolved_from`. Multi-row variable sets
-(`sc_multi_row_question_answer`) are out of scope: they store row JSON, not
-per-variable values.
-
-## Writing records (`create`, `update`, `delete`)
+## Writing records
 
 **Body input** — two mutually exclusive ways (mixing them is exit 1):
 - `--field name=value` (repeatable): cleanest for a few fields, no JSON
@@ -748,134 +364,30 @@ per-variable values.
 
 ```bash
 sn table create incident --field short_description="Server CPU spike" --field caller_id=6816f79c... --field urgency=2
-sn table create incident --data '{"short_description":"Printer jam in 3B","urgency":"3"}'
-sn table create incident --data @body.json
 jq -n '{short_description:"from pipe",urgency:"3"}' | sn table create incident --data @-
-```
-
-**`update` = PATCH** — only the named fields change; everything else is
-untouched. Almost always what you want:
-
-```bash
 sn table update incident c7d8e9f0a1b2 --field state=2 --field work_notes="Investigating"
-```
-
-`update` is the verb for modifying an existing record. There is no `replace`: it issued PUT where
-`update` issues PATCH, but ServiceNow applies both as partial updates — omitted
-fields keep their values and nothing is blanked — so the two did the same thing
-while implying they did not. It was removed in 0.11.0; `sn table replace` now
-exits 1. Anything that called it should call `update` with the same body.
-
-To clear a field, send it explicitly empty: `--field description=""`.
-
-**`delete`** returns exit 0 with empty stdout. Non-interactive runs must pass
-`--yes` — without it, a non-TTY invocation exits 1 with a usage error (a TTY
-gets a `[y/N]` prompt):
-
-```bash
 sn table delete incident c7d8e9f0a1b2 --yes
 ```
 
-**The guard is not only on `delete`.** Twelve commands are gated, seven of them
-without the word "delete" anywhere in the argv:
-
-| command | refusal message without `--yes` |
-|---|---|
-| `table delete` | `delete incident/abc requires --yes when stdin is not a terminal` |
-| `change delete` | `delete change abc requires --yes …` |
-| `change task delete` | `delete task t1 on change c1 requires --yes …` |
-| `change conflict remove` | `remove all conflicts on change abc requires --yes …` |
-| `attachment delete` | `delete attachment abc requires --yes …` |
-| `cmdb relation delete` | `delete relation rel1 on cmdb_ci_server/abc requires --yes …` |
-| `catalog cart-remove` | `remove cart item abc requires --yes …` |
-| `catalog cart-empty` | `empty cart abc requires --yes …` |
-| `cicd updateset back-out` | `back out update set abc requires --yes …` |
-| `cicd app rollback` | `roll back app x_myapp to version 1.1.0 requires --yes …` |
-| `appmanager install` | `install plugin com.snc.incident requires --yes …` |
-| `profile remove` | `remove profile ci2 and its stored credentials requires --yes …` |
-
-The message names the verb the command uses and the target it was about to act
-on, so a refusal is enough to tell whether adding `--yes` is what you meant.
-`back-out` and `rollback` are gated despite being writes rather than deletes:
-both can affect many configuration records and run asynchronously. Back-out
-reverses tracked changes and can require conflict resolution; app rollback
-restores an earlier application version. Check the target and intended reversal.
-
-**Writing by display value:** if you have a label ("In Progress") instead of a
-raw value ("2"), add `--input-display-value` so ServiceNow resolves labels on
-input. Resolution can be ambiguous (two users named "Alice"); prefer raw sys_ids
-for references.
-
-```bash
-sn table update incident c7d8e9f0a1b2 --input-display-value --field state="In Progress"
-```
-
-On writes, `--fields` narrows only the *response*, never the request body.
-
-## Session context (`set`)
-
-Every tracked write (`sys_script`, `sys_properties`, dictionary, ACLs, …) is
-captured under the API account's **current application scope and update set**
-— per-user, server-side state you otherwise never see over REST. `sn get scope`
-and `sn get updateset` ask the instance for it; the setters move it and verify
-by re-read.
-
-```bash
-sn get scope                                # which scope would my tracked writes land in?
-sn get updateset                            # and which set: state, change count, latest changes
-sn set scope x_myapp_scope                  # by scope name, display name, or sys_id
-sn set updateset "Sprint 12 fixes"          # by name or sys_id; in-progress, current scope only
-```
-```json
-{"scope":{"sys_id":"global","name":"Global","scope":"global"},
- "update_set":{"sys_id":"0c4d…a438","name":"Default"},
- "previous":{"scope":{…},"update_set":{…}}}
-```
-
-Selecting the set that is already current is a no-op success.
-
-Setters report the full new context plus a `previous` block. Switching scope
-also moves the update set to the target scope's remembered (or default) set —
-the same coupling the UI pickers apply.
-
-- **The answer is the instance's own resolution**, the same one the UI picker
-  shows: if your preferred update set was completed, ignored, or belongs to
-  another scope, `sn get updateset` reports the set your next tracked write will
-  actually use. Reading it saves that resolution back to your preferences, as
-  every UI page load does; where writes land is unchanged.
-- **Admin only.** An account that cannot select update sets gets an explicit
-  error (exit 2), not a context.
-- A cross-scope or completed update set is refused with the reason; only
-  in-progress sets in the current scope are selectable, matching the UI.
-
-## Shared parameter reference
-
-These are the Table API flags and their request parameters. Other command groups
-support subsets, so check their `--help` instead of assuming every flag applies.
-
-| Friendly flag | sysparm | Applies to | Notes |
-|---|---|---|---|
-| `--query <EQ>` | `sysparm_query` | list | Encoded query |
-| `--fields <csv>` | `sysparm_fields` | list/get/create/update | Columns to return |
-| `--setlimit <N>` | `sysparm_limit` | list | Max/page; default 1000 (`table`/`change`/`cmdb` list) or 100 (`change task`, `attachment`, `catalog categories`/`items`). Aliases `--limit`, `--setLimit`, `--sysparm-limit`; `--page-size` is specific to `table list` |
-| `--offset <N>` | `sysparm_offset` | list | Page offset |
-| `--display-value <false\|true\|all>` | `sysparm_display_value` | list/get/create/update | See Display values |
-| `--input-display-value` | `sysparm_input_display_value` | create/update | Resolve labels in request body |
-| `--exclude-reference-link` | `sysparm_exclude_reference_link` | list/get/create/update | Drop `link` URL from references |
-| `--view <name>` | `sysparm_view` | list/get/create/update | Named form/list view |
-| `--query-no-domain` | `sysparm_query_no_domain` | list/get/update/delete | Cross-domain if authorized |
-| `--no-count` / `--suppress-pagination-header` | `sysparm_no_count` / `sysparm_suppress_pagination_header` | list | Skip count query (faster on big tables) |
-| `--suppress-auto-sys-field` | `sysparm_suppress_auto_sys_field` | create/update | Skip system-field auto-gen |
-| `--all` / `--array` / `--max-records <N>` | (CLI only) | table list only | Auto-paginate / array output / cap |
-| `--paginate keyset\|offset` / `--resume-from <sys_id>` | (CLI only) | `table list --all` | Walk strategy (keyset by default) / continue an interrupted keyset stream |
-| `--query-category <cat>` | `sysparm_query_category` | list | Index selection |
-| `--output`, `--profile`, `-d`/`-dd`/`-ddd` | (CLI only) | all | See relevant sections |
-| `--yes` / `-y` | (CLI only) | **destructive subcommands only** — not global | Skip the confirmation; required on a non-TTY. Every `delete`, plus `change conflict remove`, `catalog cart-remove`/`cart-empty`, `cicd updateset back-out`, `cicd app rollback`, `appmanager install`, `profile remove` |
+- **`update` = PATCH** — only the named fields change. There is no `replace`. To
+  clear a field, send it explicitly empty: `--field description=""`.
+- **Destructive commands need `--yes` on a non-TTY**, or they exit 1 with a usage
+  error naming the verb and the target. The guard is not only on `delete`: see
+  the [confirmation guard](usage.md#confirmation-guard) for the list.
+- **Writing by display value:** if you have a label ("In Progress") instead of a
+  raw value ("2"), add `--input-display-value` so ServiceNow resolves labels on
+  input. Resolution can be ambiguous (two users named "Alice"); prefer raw
+  sys_ids for references.
+- On writes, `--fields` narrows only the *response*, never the request body.
+- **Tracked writes** (`sys_script`, `sys_properties`, dictionary, ACLs, …) are
+  captured under the account's current application scope and update set. Check
+  `sn get scope` and `sn get updateset` first; see
+  [Session context](usage.md#session-context).
 
 ## Aggregate
 
-`sn aggregate` → `GET /api/now/stats/{table}`: server-side count/sum/avg/min/max
-in one round trip, instead of paginating and counting client-side.
+`sn aggregate` counts, sums and averages server-side in one round trip, instead
+of paginating and counting client-side.
 
 ```bash
 sn aggregate incident --count                       # ungrouped → ONE object
@@ -885,7 +397,7 @@ sn aggregate incident --count                       # ungrouped → ONE object
 ```
 
 ```bash
-sn aggregate incident --count --group-by state      # grouped → an ARRAY, one entry per group
+sn aggregate incident --count --group-by state --display-value false   # grouped → an ARRAY
 ```
 ```json
 [
@@ -899,30 +411,21 @@ sn aggregate incident --count --group-by state      # grouped → an ARRAY, one 
 `groupby_fields` is a **sibling** of `stats`, not a member of it. The count for a
 group lives at `.stats.count`, and the group's value at
 `.groupby_fields[0].value` — so `jq '.stats.groupby_fields[]'` returns nothing.
-To read groups:
+With the default `--display-value true`, that value is the label (`"New"`).
 
 ```bash
 sn aggregate incident --count --group-by state \
   | jq -r '.[] | "\(.groupby_fields[0].value)\t\(.stats.count)"'
 ```
 
-`sum`/`avg`/`min`/`max` nest **per field** rather than being scalars:
+Counts are strings (`"142"`). `sum`/`avg`/`min`/`max` nest **per field** rather
+than being scalars:
 `{"stats":{"sum":{"reassignment_count":"24"},"min":{"priority":"1"}}}`.
-
-```bash
-# Combine aggregations and filter server-side
-sn aggregate incident --sum-fields reassignment_count --min-fields priority --max-fields priority --query "active=true"
-```
-
-Flags: `--count`, `--group-by <csv>`, `--avg-fields`/`--sum-fields`/
-`--min-fields`/`--max-fields <csv>`, `--query <EQ>`, `--having <expr>`,
-`--order-by <csv>`, `--display-value`.
 
 ## Change Management
 
-`sn change` wraps `/api/sn_chg_rest/change`. Three types — **normal**,
-**emergency**, **standard**; `--type` targets a type-specific endpoint (omit for
-the generic one). Standard changes **require** `--template`.
+`--type` targets a type-specific endpoint (`normal`, `emergency`, `standard`;
+omit for the generic one). Standard changes **require** `--template`.
 
 ⚠️ **Unlike the Table API, the Change API returns every field as a
 `{display_value, value}` pair.** `.number` is an *object*, not a string:
@@ -936,17 +439,7 @@ So `jq -r '.number'` prints a JSON blob, not `CHG0000024` — you want
 `jq -r '.number.value'`. Note `state.value` comes back as a **number** (`3.0`),
 while the Table API would give you the string `"3"`.
 
-```bash
-sn change list --type normal --query "state=1^priority<=2" --setlimit 10
-sn change get chg001 --type normal
-sn change create --type normal --field short_description="DB migration" --field category=software
-sn change create --type standard --template <template_sys_id>
-sn change update chg001 --field state=2
-sn change delete chg001 --yes
-```
-
-**Workflow** — call `nextstates` before changing state to avoid
-invalid-transition errors:
+Call `nextstates` before changing state to avoid invalid-transition errors:
 
 ```bash
 sn change nextstates chg001
@@ -954,119 +447,19 @@ sn change nextstates chg001
 #   ^ an OBJECT, not a list of {value,label}: the legal next states are the strings
 #     in .available_states, and .state_label maps each to its display name.
 #     e.g.  jq -r '.available_states[] as $s | "\($s)\t\(.state_label[$s])"'
-sn change approvals chg001 --field approval="approved"
-sn change risk chg001 --data '{"risk_value":"moderate"}'
-sn change schedule chg001
-sn change models          # browse change models
-sn change templates       # browse standard-change templates
 ```
 
-**Sub-resources** — tasks, affected CIs, conflicts:
-
-```bash
-sn change task list <change_sys_id>
-sn change task create <change_sys_id> --field short_description="Pre-check"
-sn change task update <change_sys_id> <task_sys_id> --field state=2
-sn change task delete <change_sys_id> <task_sys_id> --yes
-sn change ci list <change_sys_id>
-sn change ci add <change_sys_id> --data '{"cmdb_ci_sys_id":"<ci_id>"}'
-sn change conflict get <sys_id>          # also: conflict add
-sn change conflict remove <sys_id> --yes # clears EVERY conflict on the change — it takes no conflict id
-```
-
-## Attachments
-
-`sn attachment` wraps `/api/now/attachment` — binary upload/download for any
-record. Content type is auto-detected from file extension; override with
-`--content-type`.
-
-```bash
-sn attachment list --query "table_name=incident" --setlimit 20
-sn attachment get att001
-sn attachment upload --table incident --record <record_sys_id> --file ./report.pdf
-sn attachment download att001 --out ./downloaded.png       # {"path":"./downloaded.png","size":245760}
-sn attachment download att001 > file.bin                   # or raw bytes to stdout
-sn attachment delete att001 --yes
-```
-
-**Downloads stream** through a fixed 64 KiB buffer instead of loading the entire
-attachment into memory.
-
-Three consequences worth planning for:
-
-- **`--timeout` means something different here.** On every other command it caps
-  the whole request; on a download it becomes a *per-read* idle timeout, because
-  the body is read chunk by chunk. A slow-but-alive transfer runs as long as it
-  needs and no longer dies at 30s; a stalled socket still fails 30s after the
-  last byte. The header phase is capped as before, so a 404 or a 401 still fails
-  fast.
-- **`--out` never leaves a truncated file at the destination.** Bytes go to a
-  hidden `.<name>.sn<pid>-<nanos>.part` staged in the destination's own
-  directory and are renamed on success (same filesystem, so the rename is
-  atomic). A failed download exits nonzero, removes the staging file, and leaves
-  a **pre-existing file at that path byte-for-byte untouched**. Check the exit
-  code: a file already on disk might be from an earlier download. Ctrl-C unlinks the staging file and exits **130**.
-- **stdout has no such protection.** Bytes on a pipe cannot be recalled, so a
-  mid-stream failure is exit 3 with an envelope naming how many truncated bytes
-  already went out. Use `--out` for anything large or anything a later step
-  depends on.
+`sn change conflict remove <sys_id>` clears **every** conflict on the change — it
+takes no conflict id. See [Change Management](usage.md#change-management) for
+the commands.
 
 ## CMDB
 
-`sn cmdb` combines the Instance API (`/api/now/cmdb/instance/{class}`, reads/writes and
-relationships) and Meta API (`/api/now/cmdb/meta/{class}`, schema). The class name
-is always the first positional arg.
-
-```bash
-sn cmdb list cmdb_ci_server --query "operational_status=1" --setlimit 10
-sn cmdb get cmdb_ci_server ci001                        # includes relations
-sn cmdb create cmdb_ci_server --field name=web-server-02 --field ip_address=10.0.1.51
-sn cmdb update cmdb_ci_server ci001 --field operational_status=2   # PATCH; the existing-record update verb
-sn cmdb meta cmdb_ci_server                             # class schema
-sn cmdb relation add cmdb_ci_server ci001 --data '{"outbound_relations":[{"type":"<cmdb_rel_type_sys_id>","target":"<target_ci_sys_id>"}]}'
-sn cmdb relation delete cmdb_ci_server ci001 <rel_sys_id> --yes
-```
-
-**Writes go out in the IRE envelope this API requires** — `{"attributes": {...},
-"source": "..."}` — and `sn` builds it for you. Give `create`/`update` flat
-fields exactly as on `table`; a flat `--data` body is wrapped the same way. That
-is new: earlier releases sent the flat body as-is, so `--field` on `cmdb` could
-not work at all (PATCH answered HTTP 500 `"attributes" is null`, POST a 400).
-
-- **`--source` is the record's provenance**, defaulting to `"Manual Entry"` —
-  which is what a CLI write literally is. It lands in `discovery_source` on the
-  record. Name a real source only when standing in for that tool: the IRE
-  reconciles by source, so a borrowed name lets that tool's next run silently
-  overwrite what you wrote. Valid values are the choices on
-  `cmdb_ci.discovery_source` (`sn schema choices cmdb_ci discovery_source`); a
-  bad one fails server-side with the instance's list in `detail`.
-- **Attribute values are sent as strings.** ServiceNow casts each to a Java
-  `String` on the way to the record, so a JSON number or boolean is an HTTP 500
-  (`class java.lang.Integer cannot be cast to class java.lang.String`). `sn`
-  stringifies numbers and booleans for you — `--field cpu_count=8` goes out as
-  `"8"` — leaves `null` alone (the API accepts it, so it still clears a field),
-  and refuses an object or array with exit 1 naming the attribute.
-- **A body whose `attributes` is a JSON object is treated as an envelope you
-  wrote yourself** and passed through untouched. That is the only way to send
-  `inbound_relations`/`outbound_relations` on create. The rule keys off the
-  value's *type*, not the key's presence, because 718 CMDB classes on a stock
-  Zurich instance carry a real column named `attributes`, and every one of them
-  is String or Field List — never an object on the wire, and not something
-  `--field` can produce at all. So `--field attributes=raid=6` writes that
-  column, as intended.
-- **A flat body's top-level `source` is exit 1, not a silent choice.** To this
-  API a top-level `source` is provenance, never an attribute, and demoting it
-  into `attributes` made the instance drop it and stamp the default instead —
-  exit 0, wrong provenance, nothing said. Pass provenance as `--source`, or
-  write a class's own `source` column with an explicit envelope:
-  `{"attributes": {"source": "..."}, "source": "<provenance>"}`. Giving it both
-  ways is also exit 1.
-
-```bash
-sn cmdb create cmdb_ci_linux_server --field name=web-01 --field cpu_count=8
-# → {"attributes":{ ..., "cpu_count":"8", "discovery_source":"Manual Entry", ...}}
-sn cmdb update cmdb_ci_server ci001 --field operational_status=2 --source "Other Automated"
-```
+Give `create`/`update` flat fields exactly as on `table`; `sn` builds the
+`{"attributes": {...}, "source": "..."}` envelope the API requires and sends
+values as strings. `--source` is the record's provenance and defaults to
+`"Manual Entry"`; name a real discovery source only when standing in for that
+tool. See [CMDB](usage.md#cmdb) for the rules.
 
 ⚠️ **`cmdb get` nests the CI's fields under `attributes`.** The top level has
 exactly three keys — `attributes`, `inbound_relations`, `outbound_relations` — so
@@ -1077,87 +470,16 @@ sn cmdb get cmdb_ci_server ci001 | jq -r '.attributes.name'
 sn cmdb get cmdb_ci_server ci001 | jq '.outbound_relations[] | {type, target}'
 ```
 
-## Import Sets
-
-`sn import` wraps `/api/now/import/{stagingTable}` — loads data through transform
-maps. The result reports each transform outcome (`status`: `inserted`,
-`updated`, `skipped`, or `error`).
-
-```bash
-sn import create u_my_staging_table --field u_name="Server-01" --field u_ip="10.0.1.1"
-sn import bulk u_my_staging_table --data '[{"u_name":"Server-01","u_ip":"10.0.1.1"},{"u_name":"Server-02","u_ip":"10.0.1.2"}]'
-sn import bulk u_my_staging_table --data @records.json
-sn import get u_my_staging_table imp001
-```
-
-## Service Catalog
-
-`sn catalog` wraps `/api/sn_sc/servicecatalog` — browse, cart, order. Call
-`item-variables` before ordering to discover required form fields (those with
-`mandatory: true` must be in the order payload).
-
-```bash
-# Browse
-sn catalog list --text "IT"
-sn catalog get <catalog_sys_id>
-sn catalog categories <catalog_sys_id> --top-level-only
-sn catalog category <category_sys_id>
-sn catalog items --text "laptop" --catalog <catalog_sys_id>
-sn catalog item <item_sys_id>
-sn catalog item-variables <item_sys_id>
-```
-
-Two ordering paths — **order now** (immediate) or the **cart workflow**:
-
-```bash
-sn catalog order <item_sys_id> --data '{"sysparm_quantity":"1","variables":{"urgency":"high"}}'  # {"request_number":"REQ0010001","request_id":"req001"}
-
-sn catalog add-to-cart <item_sys_id> --data '{"sysparm_quantity":"1"}'
-sn catalog cart                         # view; then cart-update <id>
-sn catalog cart-remove <cart_item_id> --yes    # one line; --yes required on a non-TTY
-sn catalog cart-empty <cart_sys_id> --yes      # the whole cart, and nothing restores it
-sn catalog checkout                     # validate
-sn catalog submit-order                 # place order
-sn catalog wishlist
-```
-
-## Identification & Reconciliation
-
-`sn identify` wraps `/api/now/identifyreconcile` — CI create/update through the
-reconciliation engine, which decides insert-vs-update from identification rules.
-POST-only; all operations take `--data` for the items payload.
-
-```bash
-sn identify create-update --data '{"items":[{"className":"cmdb_ci_server","values":{"name":"web-01","ip_address":"10.0.1.1"}}]}'
-```
-```json
-{"items":[{"sysId":"ci001","className":"cmdb_ci_server","operation":"INSERT","identifierEntrySysId":"id001"}]}
-```
-
-```bash
-sn identify query --data '{"items":[{"className":"cmdb_ci_server","values":{"name":"web-01"}}]}'   # identify without modifying
-```
-
-**Enhanced variants** support partial payloads/commits via `--options`
-(comma-separated `key:value`) and `--data-source <name>` (tags the audit trail):
-
-```bash
-sn identify create-update-enhanced --data @payload.json --data-source "my_discovery" --options "partial_payload:true,partial_commits:true"
-sn identify query-enhanced --data @query.json
-```
-
-## CICD (`sn cicd`)
+## CICD: waiting and polling
 
 `cicd app`, `cicd updateset`, and `cicd atf run` are **asynchronous** — they return a progress
 object with `links.progress.id` immediately. `status` codes: `0` Pending, `1`
-Running, `2` Successful, `3` Failed, `4` Cancelled.
+Running, `2` Successful, `3` Failed, `4` Cancelled. See
+[CICD operations](usage.md#cicd-operations) for the commands.
 
-**Preferred: `--wait`** blocks until the operation finishes (polling
-`GET /api/sn_cicd/progress/{id}` every 2s internally), then emits the final
+**Preferred: `--wait`** blocks until the operation finishes, then emits the final
 progress result. `--wait-timeout <SECS>` bounds the wait; on expiry the command
-exits 3 pointing you to `sn cicd progress <id>`. `--output raw` and `--output table`
-are honored under `--wait` — raw used to make `--wait` a silent no-op that
-emitted the initial, unpolled response.
+exits 3 pointing you to `sn cicd progress <id>`.
 
 **Branch on the exit code, never on `status_label`.** For an operation with a returned progress link, `--wait` returns 0 when
 `status` reaches `2`. If the initial response has no `links.progress.id`, the CLI
@@ -1200,160 +522,31 @@ while true; do
 done
 ```
 
-**App lifecycle** — install/publish/rollback scoped apps, identified by
-`--scope` or `--sys-id`:
+## Other commands
 
-```bash
-sn cicd app install  --scope x_myapp --version 1.2.0 --wait
-sn cicd app publish  --scope x_myapp --version 1.3.0 --dev-notes "Fix approval NPE" --wait
-sn cicd app rollback --scope x_myapp --version 1.1.0 --wait --yes     # --version required; --yes skips confirmation
-```
+Each of these is documented in the usage guide; the note is the part that bites.
 
-**Update Set lifecycle** — create → (make changes) → retrieve → preview → commit:
-
-```bash
-sn cicd updateset create --name "Sprint 42" --description "ITSM tweaks"            # {"sys_id":"...","state":"in progress"}
-sn cicd updateset retrieve --update-set-id <remote_sys_id> --auto-preview --wait   # --auto-preview previews right after retrieval
-sn cicd updateset preview <remote_id> --wait
-sn cicd updateset commit  <remote_id> --wait
-sn cicd updateset commit-multiple --ids id1,id2,id3
-sn cicd updateset back-out --update-set-id <sys_id> --wait --yes   # backs out tracked configuration changes
-```
-
-**ATF** — run a suite by name or id, then fetch detailed results by result sys_id:
-
-```bash
-sn cicd atf run --suite-name "Regression Suite" --wait     # or --suite-id; also --browser-name, --run-in-cloud, --performance-run
-sn cicd atf results <result_id>                            # {"status":"success","tests_total":38,"tests_passed":38,"tests_failed":0}
-```
-
-## Performance Analytics scorecards
-
-`sn scores list` → `GET /api/now/pa/scorecards`. Paginate with
-`--per-page`/`--page`.
-
-```bash
-sn scores list --per-page 20 --sort-by VALUE --sort-dir DESC
-```
-```json
-[{"uuid":"indicator-uuid-1","name":"MTTR - Incidents","value":4.2,"target":6.0,
-  "direction":2,"direction_label":"Minimize","frequency":10,"frequency_label":"Daily"}]
-```
-
-⚠️ `direction` and `frequency` are **integer codes**, not words. The human strings
-are in `direction_label` / `frequency_label` — read those, not the numbers.
-
-```bash
-sn scores list --uuid <indicator_id> --include-scores --from 2026-01-01 --to 2026-04-01   # historical series
-sn scores favorite <uuid>       # or: sn scores unfavorite <uuid>
-```
-
-Filters: `--uuid <csv>`, `--favorites`, `--key`, `--target`, `--contains <csv>`,
-`--sort-by VALUE|CHANGE|CHANGEPERC|GAP|NAME|DATE|…`, `--sort-dir ASC|DESC`,
-`--include-scores` (with `--from`/`--to`), `--include-available-breakdowns`,
-`--include-realtime`.
-
-## Utility & extension commands
-
-```bash
-sn ping                                  # health check (auth + latency + identity + build); see `sn ping`
-sn doctor --need-role itil --need-plugin com.snc.incident   # preflight: exit 2 unless every check passes; see `sn doctor`
-sn get me                                # the caller: user record, roles and groups, read by sys_id
-sn apisearch list                        # which REST APIs this instance publishes
-sn open incident a1b2c3 --print-url        # print the record URL; omit the flag to open it
-sn open incident -q "active=true"          # open the filtered list view; -q is refused with a record
-sn raw GET /api/now/table/incident --query sysparm_limit=5      # REST passthrough for unmodeled endpoints
-sn raw POST /api/now/table/incident --data '{"short_description":"via raw"}'
-sn raw GET /api/now/table/incident -H 'X-no-response-body: true'   # repeatable request headers
-sn graphql 'query { GlideRecord_Query { incident(pagination: {limit: 5}) { _rowCount _results { number { value } } } } }'
-sn graphql @query.graphql --var id=a1b2c3 --variables '{"limit": 5}'   # document from file; string + typed variables
-sn completion zsh                        # shell completion script (bash|zsh|fish|powershell|elvish) to stdout
-sn cache refresh                         # offline schema index (tables, parents, columns); then:
-sn cache columns incident                # every column incl. inherited — no network
-sn cache tables cmdb_ci_                 # table names by prefix — no network
-sn introspect                            # full command tree as JSON — auto-generate MCP / function-call schemas
-```
-
-`sn get me` asks the instance for the caller's sys_id and reads that one
-`sys_user` row — no `javascript:` term on the wire, so the query cannot be
-silently dropped. On an instance that can't name the caller it falls back to the
-scripted read, and if *that* query is dropped (proved by a second row coming
-back for a unique `user_name`) it exits **2 with no `status_code`** rather than
-handing you a stranger's record.
-
-`sn raw <METHOD> <PATH>` applies the active profile's auth/proxy/TLS and the
-standard error envelope; it preserves the response's JSON envelope. Use it for
-endpoints `sn` doesn't model. It has no confirmation guard, including for `DELETE`,
-and the request body and response must use JSON.
-
-`sn graphql <QUERY>` runs a GraphQL document against `POST /api/now/graphql` —
-the whole surface, including the generated `GlideRecord_Query` /
-`GlideRecord_Mutation` / `GlideAggregateRecord_Query` namespaces (a query field
-and CRUD mutations for every table; per-field display values, `_choices` on
-choice fields, `_table_metadata` ACL verdicts, `_reference` dot-walking,
-`_rowCount` totals alongside a page). The document comes inline, from `@file`,
-or `@-` (stdin). On success stdout gets `data` unwrapped (`--output raw` keeps
-the envelope). GraphQL reports failure **in-band** — HTTP 200 with an `errors`
-array, sometimes next to partial `data` — so a response with errors exits 2
-with the full array under `sn_error`, and partial `data` still reaches stdout
-first. `--var k=v` sets a string variable (repeatable; only the first `=`
-splits, so encoded queries pass through). `--variables '{...}'` supplies a JSON
-object for non-string variables; `--var` entries overlay it. Prefer variables
-over splicing values into the document — a sys_id in `--var` can't break query
-syntax.
-`sn introspect` emits the whole command tree as **one recursive object** —
-`{name, about, args[], subcommands[]}`, with `subcommands` nesting the same shape
-all the way down. There is **no** top-level `commands` array (`jq '.commands[]'`
-fails with "Cannot iterate over null"), and no `summary`, `flags`, or `exit_codes`
-key: the help string is `about`, and every option lives in `args[]`.
-
-```bash
-# Flatten the tree to every command and its help text:
-sn introspect | jq '[.. | objects | select(has("subcommands")) | {name, about}]'
-
-# Command-specific arguments for `table list` (globals are separate):
-sn introspect | jq '.subcommands[] | select(.name=="table")
-                    | .subcommands[] | select(.name=="list") | .args[].name'
-```
-
-Each entry in `args[]` carries `name`, `long`, `short`, `help`, `help_heading`,
-`required`, `takes_value`, `value_name`, `positional`, `repeatable`, `aliases`,
-`default_values`, `possible_values`, and `conflicts_with` — enough to generate
-an MCP tool or function-call schema. The help string is `help`, not `about`;
-`about` is the *command's* description. A `takes_value: false` arg is a
-valueless switch: emit `--all`, never `--all true`.
-
-The root carries two extra keys: `version` (the binary that produced the tree)
-and `global_args` (the flags propagated to every command). **A command's
-effective flags are its own `args` plus the root's `global_args`** — non-global
-args do not propagate, so there is no ancestor chain to walk. They sit at the
-root so integrations can read them once instead of processing repeated copies.
-
-```bash
-# Everything `table list` accepts:
-sn introspect | jq '[.global_args[], (.subcommands[] | select(.name=="table")
-                     | .subcommands[] | select(.name=="list") | .args[])]
-                    | map(.name)'
-```
-
-`conflicts_with` lists the arg ids that cannot be combined with this one, so a
-generator never emits `--data` alongside `--field` (exit 1). Its inverse is
-**not** available through the clap API used here: `requires` is private, so `--wait-timeout` requiring
-`--wait` appears only as prose in that flag's `help`. `help_heading` carries the
-tier `--help` renders — `Global options`, `Advanced options`, or `null` for a
-command's working set.
-
-Those tiers are the same ones `sn <command> --help` prints, in that order: the
-command's own flags first (unheaded, ordered by usefulness), then **Advanced
-options** — raw `sysparm_*` passthroughs like `--view`, `--query-category`,
-`--query-no-domain`, `--no-count` that most callers never touch — then **Global
-options**, the flags propagated to every command. When scanning help output for the
-flag you want, the first block is almost always the one that matters.
-
-`--help` and `--version` are omitted: they exit before any handler runs, so
-there is nothing for a generated tool to call. Nothing named `help` appears in
-the tree at all — clap's `help` subcommand mirrors every command as an
-argument-less stub, and emitting it gave each real command a same-named twin.
+| Command | Worth knowing |
+|---|---|
+| [`sn watch`](usage.md#watching-records-live) | Bound every stream (`--max-events` / `--duration` / `--idle-timeout`). An event carries only the fields that changed. |
+| [`sn gr`](usage.md#dot-walked-reads-sn-gr) | Dot-walked reference fields in one request. On GraphQL errors it exits 2 without partial records. |
+| [`sn graphql`](usage.md#graphql) | Errors arrive in-band under HTTP 200: exit 2, the full array under `sn_error`, partial `data` still on stdout. Prefer `--var` over splicing values into the document. |
+| [`sn journal`](usage.md#journal-comments-and-work-notes) | There is no `journal add`: write an entry with `sn table update … --field work_notes="…"`. |
+| [`sn variables`](usage.md#catalog-variables) | `set` refuses unknown names before writing and verifies by re-read. Names are case-sensitive. |
+| [`sn attachment`](usage.md#attachments) | `download --out` never leaves a truncated file; to stdout, a mid-stream failure is exit 3 with bytes already written. Check the exit code. |
+| [`sn catalog`](usage.md#service-catalog) | Call `item-variables` before ordering: variables with `mandatory: true` must be in the payload. |
+| [`sn identify`](usage.md#identification--reconciliation) | `query` identifies without modifying anything; run it before `create-update`. |
+| [`sn xml`](usage.md#xml-export-and-import) | `import` exit 0 means the file was uploaded, so check the records afterwards. `export` stops at `glide.xml.export.limit` without saying so. |
+| [`sn flow`](usage.md#flow-designer) | `get --outline` is usually all an agent needs out of a model that can run to hundreds of KB. `steps` on an unreported run is an error, not an empty list. |
+| [`sn decision`](usage.md#decision-tables) | `run` checks inputs against the table first (exit 1). `matches: []` is an answer, exit 0. |
+| [`sn playbook`](usage.md#playbooks) | Branch on `sn_error.errorType`. `trigger --only-if-none` keeps a retry from stacking a second run. |
+| [`sn script run`](usage.md#background-scripts) | Arbitrary code as the profile's user, so it needs `--yes`. A script error prints the result with `ok: false` and exits 2 with `status_code: 200`. |
+| [`sn impersonate`](usage.md#acting-as-another-user) | Runs one command as another user to see what their roles and ACLs allow. Needs the admin or impersonator role (exit 4 without it). |
+| [`sn codesearch`](usage.md#code-search) | Read access filters results silently: exit 0 with few or no rows is the ACL answer, not "not referenced". `--limit` counts records examined, not hits. |
+| [`sn appmanager`](usage.md#application-manager) | `show` on an unknown id is exit 2, never `installed: false`. `install` is plugins only and irreversible. |
+| [`sn raw`](usage.md#raw-rest-passthrough) | No confirmation guard, including for `DELETE`. Request body and response must be JSON; the envelope is kept. |
+| [`sn cache`](usage.md#offline-schema-cache) | After `sn cache refresh` (needs admin), `cache tables` and `cache columns` answer with no network. |
+| [`sn introspect`](agent-integration.md#sn-introspect-the-machine-readable-command-tree) | The command tree as one recursive JSON object, for generating MCP tools or function-call schemas. |
 
 ## Common mistakes
 
@@ -1361,16 +554,14 @@ argument-less stub, and emitting it gave each real command a same-named twin.
   defaults to **`true`**, so you are holding `"In Progress"` and a localized date
   like `08/04/2026 10:22:01 AM`, neither of which ServiceNow will accept back.
   Read with `--display-value false` (or `all`, and send the `value` side).
-- **Reaching for `replace`** → it was removed in 0.11.0 and exits 1. `update` is
-  the existing-record update verb; PUT and PATCH were both partial updates, so the two did
-  the same thing. Clear a field explicitly (`--field x=""`).
+- **Reaching for `replace`** → there is none. `update` is the existing-record
+  update verb. Clear a field explicitly (`--field x=""`).
 - **Mixing `--data` and `--field`** → exit 1. Pick one.
 - **`--query` on `get`** → use a sys_id or `table:number` reference. For other
   criteria, use `table list --query "..."` and check how many records matched.
 - **Missing `--yes` on a destructive command** in CI/agent contexts → immediate
-  exit 1 usage error (non-TTY never prompts). Every `delete` subcommand, plus
-  `change conflict remove`, `catalog cart-remove`/`cart-empty`, `cicd updateset
-  back-out`, `cicd app rollback` and `profile remove`.
+  exit 1 usage error (non-TTY never prompts). See the
+  [confirmation guard](usage.md#confirmation-guard).
 - **Treating every exit 4 as "log in again"** → 403 is exit 4 too, and an ACL
   denial does not get better with a fresh token. Check `.error.status_code`.
 - **Combining `--all` with `--output raw` or `--output table`** → exit 1. Use
@@ -1386,12 +577,6 @@ argument-less stub, and emitting it gave each real command a same-named twin.
 - **Pulling more than you need** → `--setlimit` defaults to 1000 on the main list commands; lower it for
   exploration.
 
-## Claude Code plugin
-
-See [agent integration](agent-integration.md) for installation. The local skill
-is `.claude/skills/sn/SKILL.md`; the distributable copy is `skills/sn/SKILL.md`.
-The plugin skill declares `allowed-tools: Bash(sn *)`; host permissions still apply.
-
 ## Quick reference
 
 Use `sn --help` for command groups and `sn <group> <command> --help` for the
@@ -1400,12 +585,13 @@ JSON. This avoids treating flags from one command as valid on another.
 
 | Task | Start here |
 |---|---|
-| Connect to an instance | [Setup and profiles](#setup--profiles) |
+| Connect to an instance | [Profiles](#profiles) |
 | Find tables or fields | [Discovery flow](#discovery-flow) |
-| Read by number or sys_id | [Reading records](#reading-records-list-get) |
+| Read by number or sys_id | [Reading records](#reading-records) |
 | Read fields through references | [Dot-walked reads](usage.md#dot-walked-reads-sn-gr) |
-| Create, update, or delete | [Writing records](#writing-records-create-update-delete) |
-| Select scope and update set | [Session context](#session-context-set) |
+| Create, update, or delete | [Writing records](#writing-records) |
+| Select scope and update set | [Session context](usage.md#session-context) |
 | Watch for changes | [Live watching](usage.md#watching-records-live) |
-| Run deployment or test operations | [CICD](#cicd-sn-cicd) |
+| Run deployment or test operations | [CICD](#cicd-waiting-and-polling) |
 | Interpret output or failure | [Output and exit codes](#output-errors--exit-codes-read-first) |
+| Install the Claude Code plugin | [Agent integration](agent-integration.md#claude-code-plugin) |

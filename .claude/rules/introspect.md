@@ -3,7 +3,6 @@ paths:
   - "src/cli/introspect.rs"
   - "tests/introspect.rs"
   - "tests/cli_surface.rs"
-  - "docs/agent-guide.md"
   - "docs/agent-integration.md"
 ---
 
@@ -23,4 +22,4 @@ paths:
 
 Guards live in `tests/introspect.rs` (no node named `help`, unique command paths, globals not duplicated, builtins gone but `app install --version` intact). Note that `tests/cli_surface.rs::every_argument_has_help_text` walks this tree: it chains the root's `global_args`, because checking `args` alone would silently stop covering 11 flags rather than fail.
 
-Two places document this schema by hand and must move together: `docs/agent-guide.md` and `docs/agent-integration.md` (the README links there but carries no schema detail itself). The agent skills used to restate it and deliberately no longer do — anything `sn introspect --help` and these docs already cover was cut from them, because a hand-copy of a machine-readable contract is a second source of truth that silently goes stale.
+One place documents this schema by hand: `docs/agent-integration.md` (the README and `docs/agent-guide.md` link there but carry no schema detail themselves). The agent skills used to restate it and deliberately no longer do — anything `sn introspect --help` and these docs already cover was cut from them, because a hand-copy of a machine-readable contract is a second source of truth that silently goes stale.
