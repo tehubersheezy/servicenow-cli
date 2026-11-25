@@ -140,7 +140,7 @@ encoded query. Use `--display-value false` when a value has to round-trip.
 `create` and `update` take either `--data` (`-D`) or `--field` (`-F`), mutually exclusive:
 
 - `--data` / `-D '<json>'` — inline JSON object (`@file.json` reads a file, `@-` reads stdin)
-- `--field` / `-F key=value` — repeatable key/value pairs (`key=@file` reads the value from a file)
+- `--field` / `-F key=value` — repeatable key/value pairs (`key=@file` reads the value from a file, `key=@-` from stdin; `key=@@text` sends a literal `@text`)
 
 ```bash
 # Key/value pairs, or inline JSON, or piped from another tool
@@ -346,9 +346,13 @@ label the entry carried ("Comments", "Work notes", "Additional comments" —
 instance-dependent). `--comments` and `--work-notes` are mutually exclusive.
 
 The default `--source record` uses timestamps rendered in the calling user's timezone
-and date format. `--source table` returns exact rows with UTC timestamps and usernames
+and date format. A line inside a note is taken as a new entry only when it repeats a
+whole header: a timestamp in the same format as the real ones and a journal field label.
+That stream is also lossy: trailing whitespace and trailing blank lines are trimmed,
+CRLF becomes LF, and a whitespace-only note comes back as an empty entry. `--source table` returns exact rows with UTC timestamps and usernames
 instead, and no `label` — and when rows exist but ACLs filter them all, the command exits 2
 saying so and pointing back at `--source record`, rather than emitting a misleading `[]`.
+`--source table` keeps note text byte-exact.
 Adding an entry needs no dedicated command: `sn table update incident <sys_id> --field
 work_notes="..."` writes one.
 

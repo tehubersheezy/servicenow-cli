@@ -58,7 +58,7 @@ pub struct CmdbCreateArgs {
     /// Body source: inline JSON, @file (path), or @- (stdin). Give the CI's fields flat; they are wrapped into the `attributes` envelope this API requires. A body whose `attributes` is a JSON object is already an envelope and keeps its shape (so `inbound_relations`/`outbound_relations` can ride along). Attribute values go out as strings either way, since the API casts each to a Java String and answers a JSON number or boolean with an HTTP 500; an object or array is refused up front. A flat body's top-level `source` is refused as ambiguous — pass provenance as --source.
     #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
-    /// Repeatable name=value, wrapped into `attributes` and sent as a string (`cpu_count=8` goes out as "8"; the API 500s on a JSON number). Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
+    /// Repeatable name=value, wrapped into `attributes` and sent as a string (`cpu_count=8` goes out as "8"; the API 500s on a JSON number). Use name=@file to read the value from a file (e.g. multi-line text), name=@- to read it from stdin, and name=@@text to send a literal leading @. Mutually exclusive with --data.
     #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
     /// Discovery source to record; required by the API. A choice value from `cmdb_ci.discovery_source` (list them with `sn schema choices cmdb_ci discovery_source`). Defaults to "Manual Entry" — name a real source only when standing in for it, since the IRE reconciles by source and a borrowed name lets that tool's next run overwrite this record. Rejected if the body already carries `source`.
@@ -76,7 +76,7 @@ pub struct CmdbUpdateArgs {
     /// Body source: inline JSON, @file (path), or @- (stdin). Give the CI's fields flat; they are wrapped into the `attributes` envelope this API requires. A body whose `attributes` is a JSON object is already an envelope and keeps its shape. Attribute values go out as strings either way, since the API casts each to a Java String and answers a JSON number or boolean with an HTTP 500; an object or array is refused up front. A flat body's top-level `source` is refused as ambiguous — pass provenance as --source.
     #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
-    /// Repeatable name=value, wrapped into `attributes` and sent as a string (`operational_status=2` goes out as "2"; the API 500s on a JSON number). Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
+    /// Repeatable name=value, wrapped into `attributes` and sent as a string (`operational_status=2` goes out as "2"; the API 500s on a JSON number). Use name=@file to read the value from a file (e.g. multi-line text), name=@- to read it from stdin, and name=@@text to send a literal leading @. Mutually exclusive with --data.
     #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
     /// Discovery source to record; required by the API. A choice value from `cmdb_ci.discovery_source` (list them with `sn schema choices cmdb_ci discovery_source`). Defaults to "Manual Entry" — name a real source only when standing in for it, since the IRE reconciles by source and a borrowed name lets that tool's next run overwrite this record. Rejected if the body already carries `source`.

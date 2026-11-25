@@ -8,7 +8,7 @@ use std::io::{self, Read};
 pub enum BodyInput {
     /// `--data '<json>'` literal or `--data @file` or `--data @-` (stdin).
     Data(String),
-    /// Repeated `--field name=value` (or `name=@file`).
+    /// Repeated `--field name=value` (or `name=@file`, `name=@-`, `name=@@text`).
     Fields(Vec<String>),
     None,
 }
@@ -94,6 +94,7 @@ fn parse_field_specs(specs: &[String]) -> Result<Value> {
         return Err(Error::Usage("at least one --field is required".into()));
     }
     let mut map: Map<String, Value> = Map::new();
+    let mut stdin_taken = false;
     for spec in specs {
         let (name, raw_value) = spec
             .split_once('=')
@@ -106,15 +107,40 @@ fn parse_field_specs(specs: &[String]) -> Result<Value> {
                 "--field '{name}' specified more than once"
             )));
         }
-        let value = coerce_field_value(raw_value)?;
+        let value = if raw_value == "@-" {
+            if stdin_taken {
+                return Err(Error::Usage(format!(
+                    "--field '{name}=@-': stdin can feed only one --field"
+                )));
+            }
+            stdin_taken = true;
+            let mut s = String::new();
+            io::stdin()
+                .read_to_string(&mut s)
+                .map_err(|e| Error::Usage(format!("read stdin: {e}")))?;
+            Value::String(s)
+        } else {
+            coerce_field_value(raw_value)?
+        };
         map.insert(name.to_string(), value);
     }
     Ok(Value::Object(map))
 }
 
+/// One `--field` value: `@@text` is the literal `@text`, `@path` reads a file
+/// (as a string), a JSON scalar (`true`, `null`, `8`) is typed, and anything
+/// else is a string. `@-` (stdin) is handled by the caller, which can see
+/// whether another field already consumed it.
 fn coerce_field_value(raw: &str) -> Result<Value> {
+    if let Some(literal) = raw.strip_prefix("@@") {
+        return Ok(Value::String(format!("@{literal}")));
+    }
     if let Some(path) = raw.strip_prefix('@') {
-        let s = fs::read_to_string(path).map_err(|e| Error::Usage(format!("read {path}: {e}")))?;
+        let s = fs::read_to_string(path).map_err(|e| {
+            Error::Usage(format!(
+                "read {path}: {e} (a value starting with @ names a file; write @@ for a literal @)"
+            ))
+        })?;
         return Ok(Value::String(s));
     }
     // Try JSON scalars first (true/false/null/number), fall back to string.
@@ -175,6 +201,23 @@ mod tests {
         let spec = format!("k=@{}", path.to_str().unwrap());
         let v = build_body(BodyInput::Fields(vec![spec])).unwrap();
         assert_eq!(v["k"], "hello world");
+    }
+
+    #[test]
+    fn field_double_at_is_a_literal_at() {
+        let v = build_body(BodyInput::Fields(vec![
+            "comments=@@mention the owner".into(),
+            "x=@@".into(),
+        ]))
+        .unwrap();
+        assert_eq!(v["comments"], "@mention the owner");
+        assert_eq!(v["x"], "@");
+    }
+
+    #[test]
+    fn field_missing_file_names_the_escape() {
+        let err = build_body(BodyInput::Fields(vec!["c=@mention".into()])).unwrap_err();
+        assert!(err.to_string().contains("@@"), "{err}");
     }
 
     #[test]

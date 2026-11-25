@@ -242,7 +242,7 @@ pub(crate) fn resolve_and_journal(
     loop {
         let mut selection: String = journal_cols
             .iter()
-            .map(|c| format!(" {c} {{ displayValue }}"))
+            .map(|c| format!(" {c} {{ label displayValue }}"))
             .collect();
         if with_class {
             selection.push_str(" sys_class_name { value }");
@@ -331,13 +331,14 @@ pub(crate) fn resolve_and_journal(
             .filter(|c| c != table && validate_identifier(c, "table").is_ok())
             .map(str::to_string);
 
+        let streams: Vec<journal::Stream> = journal_cols
+            .iter()
+            .map(|col| journal::stream_of(record, col))
+            .collect();
+        let labels: Vec<String> = streams.iter().filter_map(|s| s.label.clone()).collect();
         let mut entries = Vec::new();
-        for col in &journal_cols {
-            let stream = record
-                .pointer(&format!("/{col}/displayValue"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            entries.extend(journal::parse_stream(stream)?);
+        for s in &streams {
+            entries.extend(journal::parse_stream(&s.stream, &labels)?);
         }
         journal::sort_newest_first(&mut entries);
         return Ok(Some(Found {

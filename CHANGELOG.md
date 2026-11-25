@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `sn journal` and `sn get` parse journal streams for time formats without a colon (`hh.mm.ss a`).
+- A note line shaped like `10:30 - no answer (voicemail)` stays in the note's text instead of starting a phantom entry.
+- `sn journal --source table` returns a note whose text is `null` instead of an empty string.
+- `--output table` shows control characters as `\u{..}` escapes instead of sending them to the terminal.
+- `-F name=@-` reads the value from stdin, and `-F name=@@text` sends a literal leading `@`.
+
 ## 0.17.0 (2026-11-16)
 
 `sn appmanager` lists and searches the store apps and plugins on an instance, and installs plugins.

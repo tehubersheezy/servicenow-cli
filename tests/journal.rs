@@ -211,6 +211,116 @@ async fn table_source_returns_exact_rows() {
     .unwrap();
 }
 
+/// GraphQL returns `value: null` for a note whose text is the string "null";
+/// the entry keeps the text from `displayValue`.
+#[tokio::test(flavor = "current_thread")]
+async fn table_source_keeps_a_literal_null_note() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/now/graphql"))
+        .and(body_string_contains("value { value displayValue }"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {"GlideRecord_Query": {"sys_journal_field": {
+                "_rowCount": 1,
+                "_results": [
+                    {"element": {"value": "comments"},
+                     "value": {"value": null, "displayValue": "null"},
+                     "sys_created_on": {"value": "2026-08-11 17:40:20"},
+                     "sys_created_by": {"value": "abeyahmad"}}
+                ]
+            }}}
+        })))
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let tmp = profile(&server_uri);
+        let out = common::sn_cmd(tmp.path())
+            .args([
+                "--compact",
+                "journal",
+                "incident",
+                SYS_ID,
+                "--source",
+                "table",
+            ])
+            .assert()
+            .success();
+        let v: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+        assert_eq!(v[0]["text"], "null");
+    })
+    .await
+    .unwrap();
+}
+
+/// A dot-separated time format parses, a casual header lookalike stays in the
+/// note's text, and the field's label is fetched in the same document so a
+/// custom journal label is recognised.
+#[tokio::test(flavor = "current_thread")]
+async fn record_source_header_rules() {
+    let server = MockServer::start().await;
+    let stream = "11-21-2026 07.55.49 AM - Abey Ahmad (Work notes)\ncalled user\n\
+                  10:30 - no answer (voicemail)\nwill retry\n\n\
+                  11-20-2026 06.10.02 PM - Abey Ahmad (Customer updates)\nolder\n\n";
+    Mock::given(method("POST"))
+        .and(path("/api/now/graphql"))
+        .and(body_string_contains(
+            "comments_and_work_notes { label displayValue }",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {"GlideRecord_Query": {"incident": {"_results": [
+                {"comments_and_work_notes": {"label": "Customer updates", "displayValue": stream}}
+            ]}}}
+        })))
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let tmp = profile(&server_uri);
+        let out = common::sn_cmd(tmp.path())
+            .args(["--compact", "journal", "incident", SYS_ID])
+            .assert()
+            .success();
+        let v: serde_json::Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
+        let entries = v.as_array().unwrap();
+        assert_eq!(entries.len(), 2, "{v}");
+        assert_eq!(
+            entries[0]["text"],
+            "called user\n10:30 - no answer (voicemail)\nwill retry"
+        );
+        assert_eq!(entries[1]["label"], "Customer updates");
+        assert_eq!(entries[1]["created_on"], "11-20-2026 06.10.02 PM");
+    })
+    .await
+    .unwrap();
+}
+
+/// `--output table` escapes control bytes from note text instead of
+/// passing them to the terminal.
+#[tokio::test(flavor = "current_thread")]
+async fn table_output_escapes_control_bytes() {
+    let server = MockServer::start().await;
+    let stream = "2026-08-11 10:40:20 - A B (Comments)\nhi\u{1b}]0;pwned\u{7}there\n\n";
+    Mock::given(method("POST"))
+        .and(path("/api/now/graphql"))
+        .respond_with(stream_response("comments_and_work_notes", stream))
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let tmp = profile(&server_uri);
+        let out = common::sn_cmd(tmp.path())
+            .args(["--output", "table", "journal", "incident", SYS_ID])
+            .assert()
+            .success();
+        let s = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+        assert!(!s.contains('\u{1b}') && !s.contains('\u{7}'), "{s}");
+        assert!(s.contains("\\u{1b}]0;pwned\\u{7}there"), "{s}");
+    })
+    .await
+    .unwrap();
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn acl_filtered_table_source_names_the_cause() {
     let server = MockServer::start().await;

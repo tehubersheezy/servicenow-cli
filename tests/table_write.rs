@@ -138,6 +138,62 @@ async fn update_accepts_field_at_file_for_multiline_value() {
     .unwrap();
 }
 
+/// `name=@-` reads the value from stdin; `name=@@text` sends a literal `@text`.
+#[tokio::test(flavor = "current_thread")]
+async fn update_field_reads_stdin_and_escapes_a_leading_at() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/now/table/incident/abc"))
+        .and(body_partial_json(json!({
+            "work_notes": "piped\nnote\n",
+            "comments": "@mention the owner"
+        })))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"result": {"sys_id": "abc"}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let server_uri = server.uri();
+    tokio::task::spawn_blocking(move || {
+        let tmp = common::write_profiles(
+            "test",
+            &[common::ProfileSpec {
+                name: "test",
+                instance: &server_uri,
+                username: "u",
+                password: "p",
+            }],
+        );
+        common::sn_cmd(tmp.path())
+            .args([
+                "--compact",
+                "table",
+                "update",
+                "incident",
+                "abc",
+                "-F",
+                "work_notes=@-",
+                "-F",
+                "comments=@@mention the owner",
+            ])
+            .write_stdin("piped\nnote\n")
+            .assert()
+            .success();
+
+        // Two fields cannot share stdin; refused before any request.
+        common::sn_cmd(tmp.path())
+            .args([
+                "table", "update", "incident", "abc", "-F", "a=@-", "-F", "b=@-",
+            ])
+            .write_stdin("x")
+            .assert()
+            .code(1);
+    })
+    .await
+    .unwrap();
+}
+
 /// `replace` (PUT) was removed in 0.11.0 after a live instance showed PUT and
 /// PATCH leaving a record in byte-identical states — ServiceNow treats both as
 /// partial updates. Anything that reached for `replace` should use `update`.

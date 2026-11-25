@@ -57,7 +57,7 @@ pub struct BodyArgs {
     /// Body source: inline JSON, @file (path), or @- (stdin). Use a file to avoid shell quoting on multi-line values.
     #[arg(long, short = 'D', conflicts_with = "field")]
     pub data: Option<String>,
-    /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text). Mutually exclusive with --data.
+    /// Repeatable name=value. Use name=@file to read the value from a file (e.g. multi-line text), name=@- to read it from stdin, and name=@@text to send a literal leading @. Mutually exclusive with --data.
     #[arg(long = "field", short = 'F', conflicts_with = "data")]
     pub field: Vec<String>,
 }

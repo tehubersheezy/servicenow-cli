@@ -15,10 +15,13 @@
 //! and usernames — for profiles that can read them; when rows exist but ACLs
 //! filter them all, the error says so and points back at `--source record`.
 //!
-//! Parsing caveats, both inherent to the rendered stream: timestamps are in
-//! the calling user's timezone and date format (the raw table stores UTC), and
-//! a note whose *text* contains a line shaped exactly like an entry header
-//! will split the entry there.
+//! Parsing caveats, inherent to the rendered stream: timestamps are in the
+//! calling user's timezone and date format (the raw table stores UTC), and a
+//! note whose *text* contains a line that forges a whole header — same
+//! timestamp shape as the stream's real headers, a real journal label — will
+//! split the entry there. The renderer is also lossy: trailing whitespace and
+//! trailing blank lines are trimmed, CRLF becomes LF, and a whitespace-only
+//! note comes back as an empty entry. `--source table` keeps all three.
 
 use crate::cli::GlobalFlags;
 use crate::cli::graphql::{errors_to_api_error, execute, graphql_errors};
@@ -99,12 +102,13 @@ pub fn run(global: &GlobalFlags, args: JournalArgs) -> Result<()> {
         JournalSource::Record => {
             let streams = fetch_record_streams(&client, &r.table, &sys_id, filter)?;
             if args.raw {
-                let combined: Vec<String> = streams.into_iter().map(|(_, s)| s).collect();
+                let combined: Vec<String> = streams.into_iter().map(|s| s.stream).collect();
                 Value::String(combined.join(""))
             } else {
+                let labels: Vec<String> = streams.iter().filter_map(|s| s.label.clone()).collect();
                 let mut entries = Vec::new();
-                for (_, stream) in &streams {
-                    entries.extend(parse_stream(stream)?);
+                for s in &streams {
+                    entries.extend(parse_stream(&s.stream, &labels)?);
                 }
                 sort_newest_first(&mut entries);
                 if let Some(n) = args.limit {
@@ -121,8 +125,15 @@ pub fn run(global: &GlobalFlags, args: JournalArgs) -> Result<()> {
     write_response(global, &out)
 }
 
-/// Fetch the rendered stream(s) off the record. Returns `(column, stream)`
-/// pairs (empty stream when the column has no entries).
+/// One journal column's rendered stream, with the column's field label.
+pub(crate) struct Stream {
+    /// Empty when the column has no entries.
+    pub(crate) stream: String,
+    /// The field wrapper's `label`, when the instance returned one.
+    pub(crate) label: Option<String>,
+}
+
+/// Fetch the rendered stream(s) off the record, one per column fetched.
 ///
 /// Which columns exist varies by table: the task family has all three journal
 /// columns, other tables may have one. A missing column fails the *whole*
@@ -134,7 +145,7 @@ fn fetch_record_streams(
     table: &str,
     sys_id: &str,
     filter: Option<&str>,
-) -> Result<Vec<(String, String)>> {
+) -> Result<Vec<Stream>> {
     let attempts: &[&[&str]] = match filter {
         Some("comments") => &[&["comments"]],
         Some("work_notes") => &[&["work_notes"]],
@@ -158,7 +169,7 @@ fn fetch_record_streams(
         }
         let selection: Vec<String> = cols
             .iter()
-            .map(|c| format!("{c} {{ displayValue }}"))
+            .map(|c| format!("{c} {{ label displayValue }}"))
             .collect();
         let query = format!(
             "query ($id: String!) {{ GlideRecord_Query {{ {table}(sys_id: $id) \
@@ -199,17 +210,7 @@ fn fetch_record_streams(
                 sn_error: None,
             });
         };
-        return Ok(cols
-            .iter()
-            .map(|c| {
-                let stream = record
-                    .pointer(&format!("/{c}/displayValue"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                (c.to_string(), stream)
-            })
-            .collect());
+        return Ok(cols.iter().map(|c| stream_of(record, c)).collect());
     }
     Err(Error::Api {
         status: 200,
@@ -221,6 +222,20 @@ fn fetch_record_streams(
         transaction_id: None,
         sn_error: None,
     })
+}
+
+/// The `{label displayValue}` selection for column `col` off a GraphQL record.
+pub(crate) fn stream_of(record: &Value, col: &str) -> Stream {
+    let str_at = |field: &str| {
+        record
+            .pointer(&format!("/{col}/{field}"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    Stream {
+        stream: str_at("displayValue").unwrap_or_default(),
+        label: str_at("label").filter(|l| !l.is_empty()),
+    }
 }
 
 /// Read `sys_journal_field` rows directly (newest first). Exact entries with
@@ -239,7 +254,7 @@ fn fetch_table_rows(
 
     let query = "query ($qc: String!, $limit: Int) { GlideRecord_Query { \
                  sys_journal_field(queryConditions: $qc, pagination: { limit: $limit }) \
-                 { _rowCount _results { element { value } value { value } \
+                 { _rowCount _results { element { value } value { value displayValue } \
                  sys_created_on { value } sys_created_by { value } } } } }";
     let vars = json!({ "qc": qc, "limit": limit.unwrap_or(1000) });
     let resp = execute(client, query, Some(vars), None)?;
@@ -287,9 +302,19 @@ fn fetch_table_rows(
             author: field(row, "sys_created_by"),
             element: Some(field(row, "element")),
             label: None,
-            text: field(row, "value"),
+            text: entry_text(row),
         })
         .collect())
+}
+
+/// The entry's text. GraphQL returns `value: null` for a note whose stored
+/// text is the string `"null"` (seen live); `displayValue` still carries it.
+fn entry_text(row: &Value) -> String {
+    let at = |p: &str| row.pointer(p).and_then(Value::as_str);
+    at("/value/value")
+        .or_else(|| at("/value/displayValue"))
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Whether the errors contain a FieldUndefined validation error naming `name`.
@@ -307,16 +332,37 @@ pub(crate) fn undefined_field(errors: &[Value], name: &str) -> bool {
 ///
 /// An entry header is `<timestamp> - <author> (<label>)` on its own line; the
 /// entry's text is every following line until the next header, with trailing
-/// blank lines dropped (the renderer separates entries with one). The
-/// timestamp is matched structurally — starts with a digit, contains `:` —
-/// not by format, because it is rendered in the caller's date format.
-pub(crate) fn parse_stream(stream: &str) -> Result<Vec<Entry>> {
+/// blank lines dropped (the renderer separates entries with one).
+///
+/// The stream's first line is always a real header, so it sets the rules for
+/// the rest: a later line is a header only when its timestamp has the same
+/// shape as the first one (digit and letter runs collapsed, separators kept —
+/// the format is the caller's own, so it is matched by example, not by a
+/// fixed pattern) and its label is a journal label: one of `field_labels`
+/// (the fetched columns' labels), the first header's, or a stock rendering.
+/// A note line like `10:30 - no answer (voicemail)` is therefore text.
+pub(crate) fn parse_stream(stream: &str, field_labels: &[String]) -> Result<Vec<Entry>> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut current: Option<(String, String, String, Vec<String>)> = None;
+    // Set by the first header: its timestamp shape and the accepted labels.
+    let mut rules: Option<(String, Vec<String>)> = None;
 
     for line in stream.lines() {
         let line = line.strip_suffix('\r').unwrap_or(line);
-        if let Some((created_on, author, label)) = parse_header(line) {
+        let header = parse_header(line).filter(|(ts, _, label)| match &rules {
+            Some((shape, labels)) => {
+                timestamp_shape(ts) == *shape
+                    && labels.iter().any(|l| l.eq_ignore_ascii_case(label))
+            }
+            None => is_first_timestamp(ts),
+        });
+        if let Some((created_on, author, label)) = header {
+            if rules.is_none() {
+                let mut labels: Vec<String> = STOCK_LABELS.iter().map(|l| l.to_string()).collect();
+                labels.extend(field_labels.iter().cloned());
+                labels.push(label.clone());
+                rules = Some((timestamp_shape(&created_on), labels));
+            }
             if let Some(entry) = current.take() {
                 entries.push(finish_entry(entry));
             }
@@ -340,6 +386,12 @@ pub(crate) fn parse_stream(stream: &str) -> Result<Vec<Entry>> {
     Ok(entries)
 }
 
+/// Labels the renderer is known to print for the stock journal fields. The
+/// rendered label need not equal the field's dictionary label ("Comments" is
+/// printed for a field labelled "Additional comments"), so these are accepted
+/// beside whatever the instance reports.
+const STOCK_LABELS: &[&str] = &["Comments", "Additional comments", "Work notes"];
+
 fn finish_entry(
     (created_on, author, label, mut text): (String, String, String, Vec<String>),
 ) -> Entry {
@@ -355,14 +407,14 @@ fn finish_entry(
     }
 }
 
-/// `Some((timestamp, author, label))` when the line is an entry header.
+/// `Some((timestamp, author, label))` when the line is shaped like an entry
+/// header. Whether it *is* one depends on the stream's first header; see
+/// [`parse_stream`].
 fn parse_header(line: &str) -> Option<(String, String, String)> {
     let line = line.trim_end();
     let rest = line.strip_suffix(')')?;
     let (timestamp, rest) = rest.split_once(" - ")?;
-    // The timestamp is locale-formatted, so require shape, not format: it
-    // starts with a digit and contains a time separator.
-    if !timestamp.starts_with(|c: char| c.is_ascii_digit()) || !timestamp.contains(':') {
+    if !timestamp.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
     let (author, label) = rest.rsplit_once(" (")?;
@@ -370,6 +422,38 @@ fn parse_header(line: &str) -> Option<(String, String, String)> {
         return None;
     }
     Some((timestamp.to_string(), author.to_string(), label.to_string()))
+}
+
+/// The first header has nothing to be compared with, so its timestamp must
+/// look like a date: at least three digit runs (any date format has day,
+/// month and year), whatever separates them. No `:` requirement — a time
+/// format like `hh.mm.ss a` has none.
+fn is_first_timestamp(ts: &str) -> bool {
+    timestamp_shape(ts).matches('9').count() >= 3
+}
+
+/// A timestamp's shape: each run of digits becomes `9`, each run of letters
+/// `a`, everything else is kept. `2026-11-21 07:55:49` and
+/// `11-21-2026 07.55.49 AM` keep distinct shapes; `7:05` and `10:30` share one.
+fn timestamp_shape(ts: &str) -> String {
+    let mut out = String::new();
+    let mut last: Option<char> = None;
+    for c in ts.chars() {
+        let class = if c.is_ascii_digit() {
+            '9'
+        } else if c.is_alphabetic() {
+            'a'
+        } else {
+            out.push(c);
+            last = None;
+            continue;
+        };
+        if last != Some(class) {
+            out.push(class);
+        }
+        last = Some(class);
+    }
+    out
 }
 
 /// Best-effort mapping from the rendered field label back to the column name.
@@ -435,7 +519,7 @@ mod tests {
     fn parses_two_entries_newest_first() {
         let stream = "2026-08-11 10:40:20 - Abey Ahmad (Work notes)\nchecked the router\n\n\
                       2026-08-10 07:40:58 - Abey Ahmad (Comments)\nuser called back\n\n";
-        let entries = parse_stream(stream).unwrap();
+        let entries = parse_stream(stream, &[]).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].created_on, "2026-08-11 10:40:20");
         assert_eq!(entries[0].author, "Abey Ahmad");
@@ -449,7 +533,7 @@ mod tests {
     fn multiline_text_with_internal_blank_lines_survives() {
         let stream = "2026-08-11 10:40:20 - A B (Comments)\nline one\n\nline three\n\n\
                       2026-08-10 07:00:00 - A B (Comments)\nolder\n\n";
-        let entries = parse_stream(stream).unwrap();
+        let entries = parse_stream(stream, &[]).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].text, "line one\n\nline three");
     }
@@ -457,7 +541,7 @@ mod tests {
     #[test]
     fn locale_formatted_timestamps_are_accepted() {
         let stream = "08/11/2026 10:40:20 AM - Abey Ahmad (Additional comments)\nhello\n\n";
-        let entries = parse_stream(stream).unwrap();
+        let entries = parse_stream(stream, &[]).unwrap();
         assert_eq!(entries[0].created_on, "08/11/2026 10:40:20 AM");
         assert_eq!(entries[0].element.as_deref(), Some("comments"));
     }
@@ -465,7 +549,7 @@ mod tests {
     #[test]
     fn author_names_containing_dash_and_parens_parse() {
         let stream = "2026-08-11 10:40:20 - Mary-Jane O'Neil (ext) (Work notes)\nnote\n\n";
-        let entries = parse_stream(stream).unwrap();
+        let entries = parse_stream(stream, &[]).unwrap();
         // rsplit on " (" keeps the parenthetical inside the author name.
         assert_eq!(entries[0].author, "Mary-Jane O'Neil (ext)");
         assert_eq!(entries[0].label.as_deref(), Some("Work notes"));
@@ -473,20 +557,20 @@ mod tests {
 
     #[test]
     fn empty_stream_yields_no_entries() {
-        assert!(parse_stream("").unwrap().is_empty());
-        assert!(parse_stream("\n\n").unwrap().is_empty());
+        assert!(parse_stream("", &[]).unwrap().is_empty());
+        assert!(parse_stream("\n\n", &[]).unwrap().is_empty());
     }
 
     #[test]
     fn garbage_stream_is_an_error_not_silence() {
-        let err = parse_stream("this is not a journal stream").unwrap_err();
+        let err = parse_stream("this is not a journal stream", &[]).unwrap_err();
         assert_eq!(err.exit_code(), 2);
     }
 
     #[test]
     fn unknown_label_omits_element_but_keeps_label() {
         let stream = "2026-08-11 10:40:20 - A B (Approval history)\napproved\n\n";
-        let entries = parse_stream(stream).unwrap();
+        let entries = parse_stream(stream, &[]).unwrap();
         assert_eq!(entries[0].element, None);
         assert_eq!(entries[0].label.as_deref(), Some("Approval history"));
     }
@@ -495,9 +579,92 @@ mod tests {
     fn header_lookalikes_in_text_must_have_timestamp_shape() {
         // "2 - foo (bar)" starts with a digit but has no time separator.
         let stream = "2026-08-11 10:40:20 - A B (Comments)\n2 - foo (bar)\nmore\n\n";
-        let entries = parse_stream(stream).unwrap();
+        let entries = parse_stream(stream, &[]).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].text, "2 - foo (bar)\nmore");
+    }
+
+    #[test]
+    fn dot_separated_time_format_parses() {
+        // `hh.mm.ss a` has no `:` anywhere in the header (#125).
+        let stream = "11-21-2026 07.55.49 AM - Abey Ahmad (Comments)\nnewer\n\n\
+                      11-20-2026 06.10.02 PM - Abey Ahmad (Work notes)\nolder\n\n";
+        let entries = parse_stream(stream, &[]).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].created_on, "11-21-2026 07.55.49 AM");
+        assert_eq!(entries[1].element.as_deref(), Some("work_notes"));
+    }
+
+    #[test]
+    fn casual_header_lookalike_in_text_stays_text() {
+        let stream = "2026-11-21 07:55:49 - A B (Work notes)\ncalled user\n\
+                      10:30 - no answer (voicemail)\nwill retry\n\n";
+        let entries = parse_stream(stream, &[]).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].text,
+            "called user\n10:30 - no answer (voicemail)\nwill retry"
+        );
+
+        // A note that is only the lookalike line: one entry, no phantom.
+        let stream = "2026-11-21 07:55:49 - A B (Work notes)\n10:30 - no answer (voicemail)\n\n";
+        let entries = parse_stream(stream, &[]).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "10:30 - no answer (voicemail)");
+    }
+
+    #[test]
+    fn full_timestamp_lookalike_needs_a_journal_label() {
+        // Same timestamp shape as the real headers, but "(v2)" is no journal label.
+        let stream = "2026-11-21 07:55:49 - A B (Comments)\n\
+                      2026-11-21 07:00:00 - deployed (v2)\n\n";
+        let entries = parse_stream(stream, &[]).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "2026-11-21 07:00:00 - deployed (v2)");
+    }
+
+    #[test]
+    fn field_labels_and_the_first_label_are_accepted() {
+        let stream = "2026-11-21 07:55:49 - A B (Approval history)\nfirst\n\n\
+                      2026-11-21 07:00:00 - A B (Customer updates)\nsecond\n\n\
+                      2026-11-21 06:00:00 - A B (approval HISTORY)\nthird\n\n";
+        // Without the instance's label, "Customer updates" is text.
+        assert_eq!(parse_stream(stream, &[]).unwrap().len(), 2);
+        let labels = vec!["Customer updates".to_string()];
+        let entries = parse_stream(stream, &labels).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[1].label.as_deref(), Some("Customer updates"));
+    }
+
+    #[test]
+    fn a_different_timestamp_shape_is_text() {
+        // 12-hour first header; a 24-hour lookalike has no meridiem run.
+        let stream = "11/21/2026 07:55:49 AM - A B (Comments)\n\
+                      11/21/2026 19:55:49 - A B (Comments)\n\n";
+        let entries = parse_stream(stream, &[]).unwrap();
+        assert_eq!(entries.len(), 1);
+    }
+
+    #[test]
+    fn first_line_must_look_like_a_dated_header() {
+        assert!(parse_stream("10:30 - no answer (voicemail)\n", &[]).is_err());
+        assert!(parse_stream("2 - foo (bar)\n", &[]).is_err());
+    }
+
+    #[test]
+    fn timestamp_shape_collapses_runs() {
+        assert_eq!(timestamp_shape("2026-11-21 07:55:49"), "9-9-9 9:9:9");
+        assert_eq!(timestamp_shape("11-21-2026 07.55.49 AM"), "9-9-9 9.9.9 a");
+        assert_eq!(timestamp_shape("21-Nov-2026 7:05"), "9-a-9 9:9");
+    }
+
+    #[test]
+    fn table_text_falls_back_to_display_value_for_null() {
+        let row = serde_json::json!({"value": {"value": null, "displayValue": "null"}});
+        assert_eq!(entry_text(&row), "null");
+        let row = serde_json::json!({"value": {"value": "x", "displayValue": "y"}});
+        assert_eq!(entry_text(&row), "x");
+        assert_eq!(entry_text(&serde_json::json!({})), "");
     }
 
     #[test]
@@ -505,6 +672,7 @@ mod tests {
         let mut entries = parse_stream(
             "2026-08-10 07:00:00 - A B (Comments)\nolder\n\n\
              2026-08-11 09:00:00 - A B (Comments)\nnewer\n\n",
+            &[],
         )
         .unwrap();
         sort_newest_first(&mut entries);
@@ -516,6 +684,7 @@ mod tests {
         let mut entries = parse_stream(
             "08/10/2026 07:00:00 AM - A B (Comments)\nfirst\n\n\
              08/11/2026 09:00:00 AM - A B (Comments)\nsecond\n\n",
+            &[],
         )
         .unwrap();
         sort_newest_first(&mut entries);

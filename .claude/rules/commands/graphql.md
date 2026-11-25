@@ -82,6 +82,27 @@ calling user's timezone (the raw table stores UTC), and it's a display string,
 not rows — parse it (header regex:
 `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} - (.+) \((Comments|Work notes)\)$`).
 
+### Parsing the stream (measured, Brazil PDI, 2026-11-21, issue #125)
+
+- The timestamp follows the caller's date *and* time format, which need not
+  contain `:` (`hh.mm.ss a` renders `11-21-2026 07.55.49 AM`). So the parser
+  never matches a fixed pattern: the stream's first line is always a real
+  header, and later headers must repeat its timestamp *shape* (digit/letter
+  runs collapsed, separators kept) and carry a journal label — the fetched
+  columns' `label`s, the first header's label, or a stock rendering
+  (`Comments`, `Additional comments`, `Work notes`). The rendered label is not
+  the dictionary label (`Comments` is printed for incident's
+  "Additional comments"), which is why the stock names stay accepted.
+- A note line that forges a whole header still splits the entry; that is
+  inherent to this source.
+- The renderer trims trailing whitespace and trailing blank lines, turns CRLF
+  into LF, and renders a whitespace-only note as an empty entry.
+  `sys_journal_field` keeps all three; every other payload (HTML, entities,
+  control bytes, 50,000-char lines) round-trips byte-exact through both.
+- On `sys_journal_field`, GraphQL returns `value: null` for a note whose text
+  is the string `"null"`; `displayValue` still carries it, so the table source
+  falls back to it.
+
 ## Unshipped ideas
 
 None of these flags exist. They are proposals, kept for when one is picked up.

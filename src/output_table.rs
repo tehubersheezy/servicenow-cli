@@ -37,7 +37,7 @@ fn render<W: Write>(w: &mut W, value: &Value) -> Result<()> {
             writeln!(w, "{table}").map_err(map_stdout_err)
         }
         Value::Null => writeln!(w).map_err(map_stdout_err),
-        Value::String(s) => writeln!(w, "{s}").map_err(map_stdout_err),
+        Value::String(s) => writeln!(w, "{}", escape_controls(s)).map_err(map_stdout_err),
         Value::Bool(b) => writeln!(w, "{b}").map_err(map_stdout_err),
         Value::Number(n) => writeln!(w, "{n}").map_err(map_stdout_err),
     }
@@ -63,7 +63,12 @@ fn build_array_table(arr: &[Value]) -> Table {
         }
     }
     let mut t = new_table();
-    t.set_header(headers.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+    t.set_header(
+        headers
+            .iter()
+            .map(|s| escape_controls(s))
+            .collect::<Vec<_>>(),
+    );
     for v in arr {
         let obj = v.as_object();
         let row: Vec<String> = headers
@@ -83,7 +88,7 @@ fn build_object_table(value: &Value) -> Table {
     t.set_header(vec!["Key", "Value"]);
     if let Some(obj) = value.as_object() {
         for (k, v) in obj {
-            t.add_row(vec![k.clone(), cell_for(v)]);
+            t.add_row(vec![escape_controls(k), cell_for(v)]);
         }
     }
     t
@@ -99,7 +104,27 @@ fn cell_for(v: &Value) -> String {
             serde_json::to_string(v).unwrap_or_else(|_| String::new())
         }
     };
-    truncate_cell(&raw, MAX_CELL)
+    truncate_cell(&escape_controls(&raw), MAX_CELL)
+}
+
+/// Make control characters visible instead of handing them to the terminal.
+/// Record text is written by other people, and an ESC, CSI (U+009B) or BEL in
+/// a comment would otherwise drive the reader's terminal. Each one becomes a
+/// `\u{..}` escape, except newline, which a table cell renders as a line
+/// break. JSON output is unaffected: serde already escapes these.
+fn escape_controls(s: &str) -> String {
+    if !s.chars().any(|c| c.is_control() && c != '\n') {
+        return s.to_string();
+    }
+    s.chars()
+        .map(|c| {
+            if c.is_control() && c != '\n' {
+                c.escape_unicode().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
 }
 
 fn truncate_cell(s: &str, max: usize) -> String {
@@ -160,6 +185,21 @@ mod tests {
         let out = truncate_cell(&long, 60);
         assert_eq!(out.chars().count(), 60);
         assert!(out.ends_with("..."));
+    }
+
+    #[test]
+    fn control_characters_are_escaped_not_emitted() {
+        let out = render_to_string(&json!([{"text": "a\u{1b}[31mred\u{7}\u{9b}2Jb\tc\nd"}]));
+        assert!(!out.contains('\u{1b}') && !out.contains('\u{7}') && !out.contains('\u{9b}'));
+        assert!(!out.contains('\t'));
+        assert!(
+            out.contains("\\u{1b}[31mred\\u{7}\\u{9b}2Jb\\u{9}c"),
+            "{out}"
+        );
+        let out = render_to_string(&json!({"k\u{1b}": "v\r"}));
+        assert!(out.contains("k\\u{1b}") && out.contains("v\\u{d}"), "{out}");
+        let out = render_to_string(&json!("bell\u{7}"));
+        assert_eq!(out, "bell\\u{7}\n");
     }
 
     #[test]
